@@ -61,11 +61,11 @@ class AuditClient:
     Parameters
     ----------
     model : str
-        Claude model ID to use (default: claude-sonnet-4-6). Also accepts
-        ``claude-fable-5``, Anthropic's most capable model. Newer Claude
-        models (Opus 4.6+, Sonnet 4.6+, Fable/Mythos 5) reject a
-        ``temperature`` param entirely (see ``supports_temperature``), which
-        this client already accounts for.
+        Claude model ID to use (default: claude-sonnet-5). Also accepts
+        ``claude-opus-5`` and ``claude-fable-5``, Anthropic's most capable
+        model. Newer Claude models (Opus 4.6+, Sonnet 4.6+, Fable/Mythos 5)
+        reject a ``temperature`` param entirely (see ``supports_temperature``),
+        which this client already accounts for.
     temperature : float
         Sampling temperature (default: 0.1 for consistent structured output).
         Silently omitted from the request for models that reject it.
@@ -75,7 +75,7 @@ class AuditClient:
 
     def __init__(
         self,
-        model: str = "claude-sonnet-4-6",
+        model: str = "claude-sonnet-5",
         temperature: float = 0.1,
         max_tokens: int = 8192,
     ):
@@ -270,7 +270,7 @@ class GeminiAuditClient:
 
 
 def create_audit_client(
-    model: str = "claude-sonnet-4-6",
+    model: str = "claude-sonnet-5",
     temperature: float = 0.1,
     max_tokens: int = 8192,
 ) -> AuditClient | OpenAIAuditClient | GeminiAuditClient:
