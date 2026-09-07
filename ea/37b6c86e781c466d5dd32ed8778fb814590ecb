@@ -1,0 +1,19 @@
+.github/workflows/publish.yml
+  s_8066dbef1ec2eb::t_1d9c5a59b875c4 121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ea37b6c86e781c466d5dd32ed8778fb814590ecb",
+  "prompts": {},
+  "sessions": {
+    "s_8066dbef1ec2eb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07a23-20fd-7051-8e2c-e1d86339f178",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Justin McLellan <jmclellan@beast.>"
+    }
+  }
+}
