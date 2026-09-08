@@ -19,7 +19,7 @@
     />
 
     <!-- Stylesheet -->
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <!-- Skip to main content -->
@@ -53,6 +53,15 @@
             <button class="nav-audit-btn active" id="auditTabBtn" aria-pressed="true">
               Audit Tool
             </button>
+          </li>
+          <li class="protected-admin-nav" hidden>
+            <a href="/analytics/full-site">Full Site — Crawl and Email</a>
+          </li>
+          <li class="protected-admin-nav" hidden>
+            <a href="/analytics/url-list">Full Site — Batch and Email</a>
+          </li>
+          <li class="protected-admin-nav" hidden>
+            <a href="/analytics">Analytics</a>
           </li>
         </ul>
       </nav>
@@ -301,8 +310,7 @@
             <div class="accent-bar" aria-hidden="true"></div>
             <h2 id="audit-heading">Accessibility Audit Tool</h2>
             <p>
-              Provide an HTML file, or enter a URL to fetch and audit — with
-              optional recursive crawling of nested pages.
+              Audit an HTML file or one public web page.
             </p>
           </div>
 
@@ -315,23 +323,27 @@
             >
               <p class="audit-mode-label" id="auditModeLabel">Input type</p>
               <div class="audit-mode-tabs">
-                <label class="audit-mode-tab">
-                  <input type="radio" name="auditMode" value="html" checked />
+                <label class="audit-mode-tab public-mode-tab">
+                  <input type="radio" name="auditMode" value="html" />
                   <span>HTML File</span>
                 </label>
-                <label class="audit-mode-tab">
-                  <input type="radio" name="auditMode" value="url" />
+                <label class="audit-mode-tab public-mode-tab">
+                  <input type="radio" name="auditMode" value="url" checked />
                   <span>URL &#8212; Single Page</span>
                 </label>
-                <label class="audit-mode-tab">
-                  <input type="radio" name="auditMode" value="url-nested" />
-                  <span>URL &#8212; With Crawl</span>
+                <label class="audit-mode-tab admin-mode-tab" hidden>
+                  <input type="radio" name="auditMode" value="site" />
+                  <span>Full Site &#8212; Crawl and Email</span>
+                </label>
+                <label class="audit-mode-tab admin-mode-tab" hidden>
+                  <input type="radio" name="auditMode" value="url-list" />
+                  <span>Full Site &#8212; Batch and Email</span>
                 </label>
               </div>
             </div>
 
             <!-- HTML file input -->
-            <div id="htmlInputSection">
+            <div id="htmlInputSection" hidden>
               <div class="form-group">
                 <label for="fileInput"
                   >HTML File
@@ -436,7 +448,7 @@
             <!-- /#htmlInputSection -->
 
             <!-- URL input -->
-            <div id="urlInputSection" hidden>
+            <div id="urlInputSection">
               <div class="form-group">
                 <label for="urlInput"
                   >URL <span class="required-mark" aria-hidden="true">*</span
@@ -452,8 +464,6 @@
                 />
                 <p class="field-hint" id="urlInputHint">
                   The server fetches and audits this page.
-                  <em>URL &#8212; With Crawl</em> also follows in-domain links
-                  up to one level deep (max&nbsp;10 links per page).
                 </p>
                 <p
                   class="form-error"
@@ -465,7 +475,45 @@
               </div>
             </div>
 
-            <div class="form-row">
+            <div id="urlListInputSection" hidden>
+              <div class="form-group">
+                <label for="urlListFileInput">URL-list file
+                  <span class="required-mark" aria-hidden="true">*</span>
+                  <span class="sr-only">(required)</span>
+                </label>
+                <input type="file" id="urlListFileInput" name="url_list_file"
+                  accept=".txt,.docx"
+                  aria-describedby="urlListFileHint urlListFileError" />
+                <p class="field-hint" id="urlListFileHint">
+                  Upload a UTF-8 text file or Word .docx file containing up to
+                  200 public http:// or https:// URLs. Duplicate URLs are removed,
+                  and pages are processed directly without crawling.
+                </p>
+                <p class="field-hint" id="urlListFileSelection" hidden></p>
+                <p class="form-error" id="urlListFileError" role="alert"
+                  aria-live="assertive" hidden></p>
+              </div>
+            </div>
+
+            <div id="siteEmailSection">
+              <div class="form-group">
+                <label for="siteEmailInput">Report email
+                  <span class="required-mark" aria-hidden="true">*</span>
+                  <span class="sr-only">(required)</span>
+                </label>
+                <input type="email" id="siteEmailInput" name="email"
+                  placeholder="name@visionaid.org" autocomplete="email"
+                  aria-describedby="siteEmailHint siteEmailError" />
+                <p class="field-hint" id="siteEmailHint">
+                  You may close this page after submission. The consolidated
+                  report, findings, and token/cost details will be available
+                  when processing finishes, and the download link will be emailed.
+                </p>
+                <p class="form-error" id="siteEmailError" role="alert" aria-live="assertive" hidden></p>
+              </div>
+            </div>
+
+            <div class="form-row" id="modelKeySection">
               <div class="form-group">
                 <label for="apiKeyInput"
                   ><span id="apiKeyLabel">Anthropic API Key</span>
@@ -532,8 +580,8 @@
                   </button>
                 </div>
                 <p class="field-hint" id="apiKeyHint">
-                  Without a key, only programmatic checks run. Never stored or
-                  logged.
+                  Without a key, only programmatic checks run. Keys are never
+                  logged or returned by the server.
                 </p>
                 <p
                   class="key-validate-status"
@@ -561,6 +609,9 @@
                     </option>
                   </optgroup>
                   <optgroup label="OpenAI">
+                    <option value="gpt-5.6-sol" selected>
+                      GPT-5.6 Sol — flagship reasoning
+                    </option>
                     <option value="gpt-4o-mini">
                       GPT-4o mini — faster, cheaper
                     </option>
@@ -583,7 +634,7 @@
             </div>
 
             <button type="submit" class="audit-btn" id="auditSubmitBtn">
-              Run Audit
+              Queue Full-Site Audit
             </button>
             <p class="sr-only" id="auditStatus" role="status"></p>
           </form>
@@ -601,6 +652,19 @@
               rel="noopener noreferrer"
               >Share Your Feedback</a
             >
+          </div>
+          <div class="admin-login-container">
+            <a class="admin-login-btn" id="adminLoginBtn" href="/login?next=/"
+              >Login</a
+            >
+            <button
+              class="admin-login-btn"
+              id="adminLogoutBtn"
+              type="button"
+              hidden
+            >
+              Sign out
+            </button>
           </div>
         </div>
       </section>
@@ -622,6 +686,37 @@
     </footer>
 
     <script>
+      const ADMIN_AUDIT_MODE = {
+        "/analytics/full-site": "site",
+        "/analytics/url-list": "url-list",
+      }[window.location.pathname] || "";
+
+      if (ADMIN_AUDIT_MODE) {
+        document.querySelectorAll(".protected-admin-nav").forEach((item) => {
+          item.hidden = false;
+        });
+        document.querySelectorAll(".public-mode-tab").forEach((item) => {
+          item.hidden = true;
+        });
+        document.querySelectorAll(".admin-mode-tab").forEach((item) => {
+          const input = item.querySelector("input");
+          item.hidden = input.value !== ADMIN_AUDIT_MODE;
+          input.checked = input.value === ADMIN_AUDIT_MODE;
+        });
+        document.getElementById("audit-heading").textContent =
+          ADMIN_AUDIT_MODE === "site"
+            ? "Full Site — Crawl and Email"
+            : "Full Site — Batch and Email";
+        document.querySelector("#auditTool .section-header p").textContent =
+          ADMIN_AUDIT_MODE === "site"
+            ? "Discover and audit up to 200 public pages, then email a consolidated report."
+            : "Upload up to 200 URLs for direct batch processing and an emailed consolidated report.";
+      } else {
+        document.querySelectorAll(".admin-mode-tab").forEach((item) => {
+          item.hidden = true;
+        });
+      }
+
       // ── Tab switching ──────────────────────────────────────────────────────────
       const auditTabBtn = document.getElementById("auditTabBtn");
       const projectContent = document.getElementById("projectContent");
@@ -670,12 +765,98 @@
       const modelSelect = document.getElementById("modelSelect");
       const apiKeyLabel = document.getElementById("apiKeyLabel");
       const apiKeyInput = document.getElementById("apiKeyInput");
+      const apiKeyHint = document.getElementById("apiKeyHint");
+      let siteAuditConfig = {
+        model: "gpt-5.6-sol",
+        api_key_configured: false,
+        api_key_verified: false,
+        api_key_masked: "",
+        admin_authenticated: false,
+      };
+
+      function hasAdminAccess() {
+        return Boolean(ADMIN_AUDIT_MODE) || siteAuditConfig.admin_authenticated;
+      }
+
+      function applyAdminUi() {
+        const authenticated = siteAuditConfig.admin_authenticated;
+        document.querySelectorAll(".protected-admin-nav").forEach((item) => {
+          item.hidden = !authenticated;
+        });
+
+        if (!ADMIN_AUDIT_MODE) {
+          document.querySelectorAll(".admin-mode-tab").forEach((item) => {
+            item.hidden = !authenticated;
+          });
+        }
+
+        document.getElementById("adminLoginBtn").hidden = authenticated;
+        document.getElementById("adminLogoutBtn").hidden = !authenticated;
+      }
+
+      function isAsyncBulkMode(mode = getAuditMode()) {
+        return mode === "site" || mode === "url-list";
+      }
+
+      function showSavedKeyStatus() {
+        if (!hasAdminAccess() || apiKeyInput.value.trim()) return;
+        const provider = getProvider(modelSelect.value);
+        apiKeyValidateStatus.hidden = false;
+        if (provider !== "openai") {
+          apiKeyValidateStatus.className = "key-validate-status validating";
+          apiKeyValidateStatus.textContent =
+            "Enter and validate an API key for this provider.";
+        } else if (siteAuditConfig.api_key_verified) {
+          apiKeyValidateStatus.className = "key-validate-status valid";
+          apiKeyValidateStatus.textContent =
+            "✓ Saved OpenAI API key verified for " + modelSelect.value;
+        } else if (siteAuditConfig.api_key_configured) {
+          apiKeyValidateStatus.className = "key-validate-status invalid";
+          apiKeyValidateStatus.textContent =
+            "Saved key configured but not verified for this model. Select Validate to retry.";
+        } else if (siteAuditConfig.admin_authenticated) {
+          apiKeyValidateStatus.className = "key-validate-status invalid";
+          apiKeyValidateStatus.textContent =
+            "No saved OpenAI API key is available.";
+        } else {
+          apiKeyValidateStatus.hidden = true;
+        }
+      }
+
+      async function loadSiteAuditConfig(model, refresh) {
+        const params = new URLSearchParams();
+        if (model) params.set("model", model);
+        if (refresh) params.set("refresh", "1");
+        try {
+          const response = await fetch(
+            "/api/site-audit-config" + (params.toString() ? "?" + params : "")
+          );
+          const result = await response.json();
+          if (response.ok && result.success) {
+            siteAuditConfig = result.config;
+            applyAdminUi();
+            updateApiKeyField();
+            showSavedKeyStatus();
+          }
+        } catch {
+          if (ADMIN_AUDIT_MODE) {
+            apiKeyValidateStatus.hidden = false;
+            apiKeyValidateStatus.className = "key-validate-status invalid";
+            apiKeyValidateStatus.textContent =
+              "Could not check the saved API key status.";
+          }
+        }
+      }
 
       function updateApiKeyField() {
         const provider = getProvider(modelSelect.value);
+        const usesSavedKey = hasAdminAccess();
         if (provider === "openai") {
           apiKeyLabel.textContent = "OpenAI API Key";
-          apiKeyInput.placeholder = "sk-…";
+          apiKeyInput.placeholder =
+            usesSavedKey && siteAuditConfig.api_key_configured
+              ? (siteAuditConfig.api_key_masked || "••••••••••••••••") + " (saved)"
+              : "sk-…";
         } else if (provider === "gemini") {
           apiKeyLabel.textContent = "Gemini API Key";
           apiKeyInput.placeholder = "Gemini API key…";
@@ -683,9 +864,17 @@
           apiKeyLabel.textContent = "Anthropic API Key";
           apiKeyInput.placeholder = "sk-ant-api03-…";
         }
+        apiKeyHint.textContent = usesSavedKey
+          ? "The saved server key is used when this field is empty. Enter a different key only to override it for this audit; the saved key is never sent to your browser."
+          : "Without a key, only programmatic checks run. Keys are never logged or returned by the server.";
       }
 
-      modelSelect.addEventListener("change", updateApiKeyField);
+      modelSelect.addEventListener("change", () => {
+        updateApiKeyField();
+        if (hasAdminAccess() && !apiKeyInput.value.trim()) {
+          loadSiteAuditConfig(modelSelect.value, false);
+        }
+      });
 
       // ── API key validation ────────────────────────────────────────────────────
       const validateKeyBtn = document.getElementById("validateKeyBtn");
@@ -695,14 +884,19 @@
 
       validateKeyBtn.addEventListener("click", async () => {
         const key = apiKeyInput.value.trim();
-        if (!key) {
+        const model = modelSelect.value;
+        const provider = getProvider(model);
+        const useSaved =
+          !key &&
+          hasAdminAccess() &&
+          provider === "openai" &&
+          siteAuditConfig.api_key_configured;
+        if (!key && !useSaved) {
           apiKeyValidateStatus.hidden = false;
           apiKeyValidateStatus.className = "key-validate-status invalid";
           apiKeyValidateStatus.textContent = "Please enter an API key first.";
           return;
         }
-
-        const provider = getProvider(modelSelect.value);
 
         validateKeyBtn.disabled = true;
         apiKeyValidateStatus.hidden = false;
@@ -713,7 +907,12 @@
           const resp = await fetch("/api/validate-key", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ api_key: key, provider }),
+            body: JSON.stringify({
+              api_key: key,
+              provider,
+              model,
+              use_saved: useSaved,
+            }),
           });
           const result = await resp.json();
           if (result.valid) {
@@ -753,23 +952,66 @@
         apiKeyValidateStatus.hidden = true;
         apiKeyValidateStatus.textContent = "";
         apiKeyValidateStatus.className = "key-validate-status";
+        if (!apiKeyInput.value.trim()) showSavedKeyStatus();
       });
 
       // Input mode switching
       const htmlInputSection = document.getElementById("htmlInputSection");
       const urlInputSection = document.getElementById("urlInputSection");
-
-      document.querySelectorAll('input[name="auditMode"]').forEach((radio) => {
-        radio.addEventListener("change", () => {
-          const isHtml = radio.value === "html";
-          htmlInputSection.hidden = !isHtml;
-          urlInputSection.hidden = isHtml;
-        });
-      });
+      const urlListInputSection = document.getElementById("urlListInputSection");
+      const siteEmailSection = document.getElementById("siteEmailSection");
+      const modelKeySection = document.getElementById("modelKeySection");
+      const urlInputHint = document.getElementById("urlInputHint");
 
       function getAuditMode() {
         return document.querySelector('input[name="auditMode"]:checked').value;
       }
+
+      function submitButtonLabel(mode = getAuditMode()) {
+        if (mode === "site") return "Queue Full-Site Audit";
+        if (mode === "url-list") return "Queue Full-Site Batch Audit";
+        return "Run Audit";
+      }
+
+      function applyAuditMode(mode) {
+        const isHtml = mode === "html";
+        const isFullSite = mode === "site";
+        const isUrlList = mode === "url-list";
+        const isBulk = isFullSite || isUrlList;
+        htmlInputSection.hidden = !isHtml;
+        urlInputSection.hidden = !(mode === "url" || isFullSite);
+        urlListInputSection.hidden = !isUrlList;
+        siteEmailSection.hidden = !isBulk;
+        modelKeySection.hidden = false;
+        if (isBulk) {
+          modelSelect.value = siteAuditConfig.model || "gpt-5.6-sol";
+          apiKeyInput.value = "";
+          updateApiKeyField();
+          loadSiteAuditConfig(modelSelect.value, false);
+        } else {
+          updateApiKeyField();
+          apiKeyValidateStatus.hidden = true;
+        }
+        document.getElementById("auditSubmitBtn").textContent =
+          submitButtonLabel(mode);
+        urlInputHint.innerHTML = isFullSite
+          ? "The crawler uses sitemaps, internal links, and GPT-5.6 Sol to identify and audit up to 200 public pages."
+          : "The server fetches and audits this page.";
+      }
+
+      document.querySelectorAll('input[name="auditMode"]').forEach((radio) => {
+        radio.addEventListener("change", () => applyAuditMode(radio.value));
+      });
+
+      applyAuditMode(getAuditMode());
+      loadSiteAuditConfig();
+
+      document
+        .getElementById("adminLogoutBtn")
+        .addEventListener("click", async () => {
+          const response = await fetch("/api/logout", { method: "POST" });
+          if (response.ok) window.location.assign("/");
+        });
 
       // ── Drag-and-drop / file input ────────────────────────────────────────────
       let htmlFileContent = null;
@@ -783,6 +1025,10 @@
       const dropFilename = document.getElementById("dropFilename");
       const dropFilesize = document.getElementById("dropFilesize");
       const fileError = document.getElementById("fileError");
+      const urlListFileInput = document.getElementById("urlListFileInput");
+      const urlListFileError = document.getElementById("urlListFileError");
+      const urlListFileSelection = document.getElementById("urlListFileSelection");
+      let urlListFile = null;
 
       function showError(msg) {
         fileError.hidden = false;
@@ -827,10 +1073,68 @@
         return (n / (1024 * 1024)).toFixed(1) + " MB";
       }
 
+      function clearUrlListFileError() {
+        urlListFileError.hidden = true;
+        urlListFileError.textContent = "";
+      }
+
+      function showUrlListFileError(message) {
+        urlListFileError.hidden = false;
+        urlListFileError.textContent = message;
+      }
+
+      function selectUrlListFile(file) {
+        clearUrlListFileError();
+        if (!file || !file.name.match(/\.(txt|docx)$/i)) {
+          urlListFile = null;
+          urlListFileInput.value = "";
+          urlListFileSelection.hidden = true;
+          showUrlListFileError("Please select a .txt or .docx file.");
+          return;
+        }
+        if (file.size > 2 * 1024 * 1024) {
+          urlListFile = null;
+          urlListFileInput.value = "";
+          urlListFileSelection.hidden = true;
+          showUrlListFileError("The URL-list file must be 2 MB or smaller.");
+          return;
+        }
+        urlListFile = file;
+        urlListFileSelection.textContent =
+          `Selected: ${file.name} (${formatBytes(file.size)})`;
+        urlListFileSelection.hidden = false;
+      }
+
+      function fileAsBase64(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const value = String(reader.result || "");
+            const comma = value.indexOf(",");
+            if (comma < 0) {
+              reject(new Error("The selected URL-list file could not be read."));
+              return;
+            }
+            resolve(value.slice(comma + 1));
+          };
+          reader.onerror = () =>
+            reject(new Error("The selected URL-list file could not be read."));
+          reader.readAsDataURL(file);
+        });
+      }
+
       browseBtn.addEventListener("click", () => fileInput.click());
       fileClearBtn.addEventListener("click", clearFile);
       fileInput.addEventListener("change", () => {
         if (fileInput.files[0]) loadFile(fileInput.files[0]);
+      });
+      urlListFileInput.addEventListener("change", () => {
+        if (urlListFileInput.files[0]) {
+          selectUrlListFile(urlListFileInput.files[0]);
+        } else {
+          urlListFile = null;
+          urlListFileSelection.hidden = true;
+        }
       });
 
       dropZone.addEventListener("keydown", (e) => {
@@ -858,7 +1162,12 @@
         .addEventListener("dragover", (e) => e.preventDefault());
       document.getElementById("auditTool").addEventListener("drop", (e) => {
         e.preventDefault();
-        if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+        if (!e.dataTransfer.files[0]) return;
+        if (getAuditMode() === "url-list") {
+          selectUrlListFile(e.dataTransfer.files[0]);
+        } else if (getAuditMode() === "html") {
+          loadFile(e.dataTransfer.files[0]);
+        }
       });
 
       // ── Audit form submission ─────────────────────────────────────────────────
@@ -868,9 +1177,15 @@
                 e.preventDefault();
                 clearError();
                 const _urlErr = document.getElementById("urlError");
+                const _emailErr = document.getElementById("siteEmailError");
+                clearUrlListFileError();
                 if (_urlErr) {
                   _urlErr.hidden = true;
                   _urlErr.textContent = "";
+                }
+                if (_emailErr) {
+                  _emailErr.hidden = true;
+                  _emailErr.textContent = "";
                 }
 
                 const mode = getAuditMode();
@@ -901,6 +1216,31 @@
                     [keyField]: keyValue,
                     model,
                   };
+                } else if (mode === "url-list") {
+                  if (!urlListFile) {
+                    showUrlListFileError(
+                      "Please select a .txt or .docx file containing URLs."
+                    );
+                    urlListFileInput.focus();
+                    return;
+                  }
+                  const email = document.getElementById("siteEmailInput").value.trim();
+                  if (!email) {
+                    _emailErr.textContent =
+                      "Please enter the email address that should receive the report.";
+                    _emailErr.hidden = false;
+                    document.getElementById("siteEmailInput").focus();
+                    return;
+                  }
+                  endpoint = "/api/site-audits";
+                  requestBody = {
+                    audit_mode: "url_list",
+                    url_file_name: urlListFile.name,
+                    url_file_base64: await fileAsBase64(urlListFile),
+                    email,
+                    model,
+                  };
+                  if (keyValue) requestBody.api_key = keyValue;
                 } else {
                   const urlVal = document.getElementById("urlInput").value.trim();
                   if (!urlVal) {
@@ -910,11 +1250,27 @@
                     document.getElementById("urlInput").focus();
                     return;
                   }
-                  endpoint =
-                          mode === "url-nested"
-                                  ? "/api/audit/url/nested"
-                                  : "/api/audit/url";
-                  requestBody = { url: urlVal, [keyField]: keyValue, model };
+                  if (mode === "site") {
+                    const email = document.getElementById("siteEmailInput").value.trim();
+                    if (!email) {
+                      _emailErr.textContent =
+                        "Please enter the email address that should receive the report.";
+                      _emailErr.hidden = false;
+                      document.getElementById("siteEmailInput").focus();
+                      return;
+                    }
+                    endpoint = "/api/site-audits";
+                    requestBody = {
+                      audit_mode: "crawl",
+                      url: urlVal,
+                      email,
+                      model,
+                    };
+                    if (keyValue) requestBody.api_key = keyValue;
+                  } else {
+                    endpoint = "/api/audit/url";
+                    requestBody = { url: urlVal, [keyField]: keyValue, model };
+                  }
                 }
 
                 const submitBtn = document.getElementById("auditSubmitBtn");
@@ -929,8 +1285,15 @@
                 content.innerHTML = "";
 
                 // Show progress bar for all audit modes
-                const isNested = mode === "url-nested";
-                const initialMsg = isNested ? "Crawling pages\u2026" : "Starting audit\u2026";
+                const isAsyncBulk = mode === "site" || mode === "url-list";
+                const initialMsg = mode === "url-list"
+                  ? "Uploading URL list and queueing batch audit\u2026"
+                  : isAsyncBulk
+                  ? "Queueing full-site audit\u2026"
+                  : "Starting audit\u2026";
+                const initialDetail = mode === "url-list"
+                  ? "Validating the uploaded URLs..."
+                  : "Analyzing site structure...";
                 resultsSection.style.display = "block";
 
                 // Set up the UI for the wait
@@ -940,7 +1303,7 @@
         <div class="progress-bar-track">
           <div class="progress-bar-fill" id="progressFill" style="width: 10%"></div>
         </div>
-        <p class="progress-detail" id="progressDetail">Analyzing site structure...</p>
+        <p class="progress-detail" id="progressDetail">${initialDetail}</p>
       </div>
       <p class="sr-only" id="progressStatus" role="status" aria-live="polite">Audit started</p>`;
 
@@ -967,6 +1330,21 @@
                   if (!res.ok) {
                     const errorText = await res.text();
                     throw new Error(`Server Error: ${res.status} - ${errorText}`);
+                  }
+
+                  if (isAsyncBulk) {
+                    clearInterval(progressInterval);
+                    const queued = await res.json();
+                    if (!queued.success || !queued.job) {
+                      throw new Error(queued.error || "The audit could not be queued.");
+                    }
+                    renderSiteJob(content, queued.job);
+                    pollSiteJob(content, queued.job.job_id);
+                    document.getElementById("auditStatus").textContent =
+                      mode === "url-list"
+                        ? "URL-list batch audit queued. The report will be emailed when ready."
+                        : "Full-site audit queued. The report will be emailed when ready.";
+                    return;
                   }
 
                   // The server (entry_points/api_server.py) answers audits with
@@ -1020,9 +1398,126 @@
                   resultsSection.style.display = "block";
                 } finally {
                   submitBtn.disabled = false;
-                  submitBtn.textContent = "Run Audit";
+                  submitBtn.textContent = submitButtonLabel();
                 }
               });
+
+      function formatDuration(totalSeconds) {
+        const seconds = Math.max(0, Math.round(Number(totalSeconds) || 0));
+        if (seconds < 60) return `${seconds} sec`;
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return `${minutes} min`;
+        const hours = Math.floor(minutes / 60);
+        const remainder = minutes % 60;
+        return remainder ? `${hours} hr ${remainder} min` : `${hours} hr`;
+      }
+
+      function renderSiteJob(container, job) {
+        const isUrlList = job.audit_mode === "url_list";
+        const finished = (job.pages_completed || 0) + (job.pages_failed || 0);
+        const total = job.pages_total || 0;
+        const pct = job.progress_percent || 0;
+        const labels = {
+          queued: "Queued",
+          discovering: "Discovering site pages",
+          preparing: "Preparing uploaded URL list",
+          auditing: "Auditing pages",
+          finalizing: "Building and emailing report",
+          complete: "Complete",
+          enqueue_failed: "Could not queue audit",
+        };
+        const reportLink = job.report_url
+          ? `<p><a class="download-btn" href="${esc(job.report_url)}">Download report ZIP</a></p>`
+          : "";
+        const details = [];
+        if (total) {
+          details.push(`${finished} of ${total} pages processed`);
+          details.push(`${job.pages_completed || 0} successful`);
+          if (job.pages_failed) details.push(`${job.pages_failed} failed`);
+        } else if (job.status === "preparing") {
+          details.push("Validating and preparing the uploaded URLs without crawling…");
+        } else if (job.status === "discovering") {
+          details.push("Checking sitemaps, site links, CMS records, and web search…");
+        } else {
+          details.push(
+            isUrlList
+              ? "Waiting to prepare the uploaded URL list…"
+              : "Waiting to begin page discovery…"
+          );
+        }
+        if (job.elapsed_seconds != null) {
+          details.push(`Elapsed: ${formatDuration(job.elapsed_seconds)}`);
+        }
+        if (job.estimated_seconds_remaining > 0) {
+          details.push(`Estimated remaining: ${formatDuration(job.estimated_seconds_remaining)}`);
+        }
+        if (job.candidate_count) {
+          details.push(
+            isUrlList
+              ? `${job.candidate_count} unique URLs supplied`
+              : `${job.candidate_count} public page candidates found`
+          );
+        }
+        const deliveryNotice = job.email_delivery_status === "accepted"
+          ? `<p><strong>Email submitted successfully.</strong> The mail server accepted it${job.email_accepted_at ? ` at ${esc(new Date(job.email_accepted_at).toLocaleString())}` : ""}.</p>`
+          : "";
+        const resendButton = job.report_url
+          ? `<p><button class="download-btn resend-report-btn" type="button">Resend report email</button></p>`
+          : "";
+        container.innerHTML = `
+          <div class="audit-progress">
+            <p class="progress-message"><strong>${esc(labels[job.status] || job.status)}</strong> — ${pct}%</p>
+            <div class="progress-bar-track" role="progressbar" aria-label="Batch audit progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+            <p class="progress-detail">${details.map(esc).join(" • ")}</p>
+          </div>
+          <p>You may close this page. The report will be emailed when complete.</p>
+          ${job.capped ? "<p class=\"audit-notice\">The site exceeded the limit; the audit is capped at 200 pages.</p>" : ""}
+          ${deliveryNotice}
+          ${job.last_error ? `<p class="audit-error">${esc(job.last_error)}</p>` : ""}
+          ${reportLink}
+          ${resendButton}`;
+        const resend = container.querySelector(".resend-report-btn");
+        if (resend) {
+          resend.addEventListener("click", async () => {
+            resend.disabled = true;
+            resend.textContent = "Submitting email…";
+            try {
+              const response = await fetch(
+                `/api/site-audits/${encodeURIComponent(job.job_id)}/resend`,
+                { method: "POST" }
+              );
+              const result = await response.json();
+              if (!response.ok || !result.success) {
+                throw new Error(result.error || "Email resend failed");
+              }
+              renderSiteJob(container, result.job);
+            } catch (error) {
+              resend.disabled = false;
+              resend.textContent = "Resend report email";
+              const notice = document.createElement("p");
+              notice.className = "audit-error";
+              notice.textContent = error.message;
+              resend.parentElement.after(notice);
+            }
+          });
+        }
+      }
+
+      async function pollSiteJob(container, jobId) {
+        for (;;) {
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          try {
+            const res = await fetch(`/api/site-audits/${encodeURIComponent(jobId)}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data.success) return;
+            renderSiteJob(container, data.job);
+            if (["complete", "enqueue_failed"].includes(data.job.status)) return;
+          } catch {
+            return;
+          }
+        }
+      }
 
       // Approximate completion percentage for each named pipeline stage.
       // Per-prompt and per-page events are interpolated between these.

@@ -244,9 +244,23 @@ GEMINI_API_KEY=AIza...
 uv run python entry_points/api_server.py      # http://localhost:8000
 ```
 
-Serves the UI and the audit API from one process. Users can paste their own API
-key into the form instead of configuring one server-side; per-request keys take
-priority over the environment.
+Serves the UI and the audit API from one process. The public page has no
+password and offers **HTML File** and **URL — Single Page**. Public users may
+paste their own provider key; public requests never inherit a server credential.
+
+The **Analytics** link opens the password-protected administrator area. It
+provides cumulative privacy-safe usage totals, the most recent 30 daily web
+reports, and two asynchronous bulk-audit modes with the same model, saved-key
+support, email, progress, consolidated findings, and token/cost reporting:
+
+- **Full Site — Crawl and Email**: starts with one public URL,
+  discovers same-site pages, and audits up to 200 pages.
+- **Full Site — Batch and Email**: accepts a UTF-8/plain-text `.txt` file or a
+  Word `.docx` file containing up to 200 public HTTP(S) URLs. It deduplicates
+  the list and audits the supplied pages directly without crawling.
+
+The list upload is limited to 2 MB. Legacy `.doc` files are not supported;
+save them as `.docx` or plain text first.
 
 The audit endpoints stream **NDJSON** — progress events, one JSON object per
 line, then a final `{"type":"result"}` object. Parsing that body with a single
