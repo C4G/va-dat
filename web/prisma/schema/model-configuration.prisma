@@ -1,0 +1,6 @@
+model ModelConfiguration {
+  id              Int      @id @default(1)
+  enabledModelIds  String[]
+  defaultModelId   String
+  updatedAt       DateTime @updatedAt
+}
