@@ -1,0 +1,3 @@
+services:
+  migrations:
+    command: [node, /node_modules/prisma/build/index.js, migrate, deliberately-invalid-test-command]
