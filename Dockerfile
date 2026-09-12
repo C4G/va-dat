@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# Serves the team website and the accessibility audit API
+# Serves the internal accessibility audit API
 # (entry_points/api_server.py).  Built for a long-running container, which is
 # what makes the NDJSON progress stream viable — unlike a serverless function,
 # there is no execution-time cap to work around.
@@ -60,8 +60,8 @@ EXPOSE 8000
 # tempfile.mkdtemp() directory that is removed when the request completes.
 USER appuser
 
-# GET / serves index.html; urlopen raises on any non-2xx, failing the check.
+# Health does not require static assets or provider credentials.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD ["python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT','8000') + '/', timeout=4)"]
+    CMD ["python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT','8000') + '/health', timeout=4)"]
 
 CMD ["python", "entry_points/api_server.py"]

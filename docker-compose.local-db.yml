@@ -1,0 +1,4 @@
+# Explicit opt-in for running Prisma/Next.js on the development host.
+services:
+  db:
+    ports: ['127.0.0.1:${DATABASE_PORT:-5432}:5432']

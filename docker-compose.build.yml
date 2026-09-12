@@ -1,0 +1,12 @@
+# Source-build overlay for local verification and CI, not Coolify.
+services:
+  api:
+    build: {context: .}
+    pull_policy: build
+  web:
+    build: {context: ./web}
+    pull_policy: build
+    ports: ['127.0.0.1:${WEB_PORT:-3000}:3000']
+  migrations:
+    build: {context: ./web}
+    pull_policy: build

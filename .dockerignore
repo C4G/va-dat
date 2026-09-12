@@ -36,3 +36,6 @@ docs/
 
 # Deployment docs — not needed inside the image
 DEPLOY.md
+# The Python image must not contain the web app, JS dependencies, or secrets.
+web/
+.env.*
