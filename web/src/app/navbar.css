@@ -1,0 +1,186 @@
+/* The original P5 header, shared by every route. Keep its styles out of
+   template forms and portalled account dialogs. */
+.p5-navbar {
+  position: sticky;
+  top: 0;
+  /* Stay above page content, but below the template's z-50 portals/dialogs. */
+  z-index: 40;
+  padding: 0 24px;
+  background: #fff;
+  border-bottom: 1px solid #e5e4e1;
+  color: #1a1a1a;
+  color-scheme: light;
+  font-family: 'DM Sans', sans-serif;
+  line-height: 1.7;
+}
+.p5-navbar-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  height: 64px;
+}
+.p5-navbar-brand {
+  font-family: 'DM Serif Display', serif;
+  font-size: 1.125rem;
+  color: #1a1a1a;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.p5-navbar-brand:hover {
+  color: #0d7377;
+}
+.p5-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.p5-nav-link {
+  color: #1a1a1a;
+  text-decoration: none;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  padding: 4px 0;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+.p5-nav-link:hover,
+.p5-nav-link[aria-current='page'] {
+  color: #0d7377;
+  border-bottom-color: #0d7377;
+}
+.p5-nav-button {
+  display: inline-block;
+  border: 1.5px solid #0d7377;
+  color: #0d7377;
+  border-radius: 4px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 5px 14px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.p5-nav-button:hover,
+.p5-nav-button.is-active {
+  background: #0d7377;
+  color: white;
+}
+.p5-auth-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 24px;
+  border-left: 1px solid #e5e4e1;
+}
+.p5-auth-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 8px 16px;
+  border: 1.5px solid #0d7377;
+  border-radius: 6px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.p5-auth-signin {
+  background: #fff;
+  color: #0d7377;
+}
+.p5-auth-signin:hover {
+  background: #edf6f6;
+}
+.p5-auth-signup {
+  background: #0d7377;
+  color: #fff;
+}
+.p5-auth-signup:hover {
+  background: #0a5c5f;
+  border-color: #0a5c5f;
+}
+.p5-navbar .p5-account-trigger {
+  color: #0d7377;
+  background: #edf6f6;
+  border: 1px solid #0d7377;
+}
+.p5-navbar .p5-account-trigger [data-slot='avatar-fallback'] {
+  background: #edf6f6;
+  color: #0d7377;
+}
+.p5-navbar a:focus-visible,
+.p5-navbar button:focus-visible {
+  outline: 3px solid #e8a838;
+  outline-offset: 3px;
+}
+.p5-hamburger {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  border: none;
+  background: transparent;
+  padding: 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.p5-hamburger span {
+  display: block;
+  width: 22px;
+  height: 2px;
+  background: #1a1a1a;
+  border-radius: 2px;
+}
+.p5-hamburger[aria-expanded='true'] span:nth-child(1) {
+  transform: translateY(7px) rotate(45deg);
+}
+.p5-hamburger[aria-expanded='true'] span:nth-child(2) {
+  opacity: 0;
+}
+.p5-hamburger[aria-expanded='true'] span:nth-child(3) {
+  transform: translateY(-7px) rotate(-45deg);
+}
+/* Extra auth/admin actions need the mobile menu before the original breakpoint. */
+@media (max-width: 1100px) {
+  .p5-hamburger {
+    display: flex;
+  }
+  .p5-nav-links {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border-bottom: 1px solid #e5e4e1;
+    padding: 16px 24px;
+    gap: 16px;
+    align-items: stretch;
+    flex-direction: column;
+    max-height: calc(100dvh - 65px);
+    overflow-y: auto;
+  }
+  .p5-nav-links.is-open {
+    display: flex;
+  }
+  .p5-nav-link {
+    display: block;
+  }
+  .p5-auth-actions {
+    border-left: none;
+    border-top: 1px solid #e5e4e1;
+    padding: 16px 0 0;
+  }
+  .p5-auth-button {
+    min-height: 44px;
+    flex: 1;
+  }
+}

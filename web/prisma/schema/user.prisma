@@ -1,0 +1,18 @@
+model User {
+  id               String    @id @default(cuid())
+  name             String
+  email            String    @unique
+  emailVerified    Boolean   @default(false)
+  image            String?
+  role             UserRole?
+  banned           Boolean   @default(false)
+  banReason        String?
+  banExpires       DateTime?
+  pushSubscription String?
+  accounts         Account[]
+  sessions         Session[]
+  passkeys         Passkey[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
