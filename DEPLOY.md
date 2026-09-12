@@ -1,108 +1,197 @@
-# Deploying to Coolify
+# VA-DAT deployment and local development
 
-The app is a single long-running container serving both the website
-(`index.html`, `styles.css`) and the audit API from
-`entry_points/api_server.py`.
+The website is a Next.js/React application in `web/`, based on
+[C4G/template at 1589fc95](https://github.com/C4G/template/tree/1589fc95324a0b4b1af97cfa72c7fe7045341de3).
+The existing Python pipeline remains an internal HTTP service. This changes the
+deployment from the old single-image resource to a **Git-backed Docker Compose
+resource**. Do not point the old single-image Coolify resource at the web image
+without first configuring the complete stack.
 
-## Quick start
+## Services and persistence
 
-```bash
-docker compose up --build                    # http://localhost:8000
-HOST_PORT=8789 docker compose up --build     # if 8000 is already in use
+| Service | Purpose | Exposure |
+| --- | --- | --- |
+| `web` | React, Better Auth, administrator configuration, audit proxy | Coolify domain → port 3000 |
+| `api` | Python auditing and NDJSON progress | Internal port 8000 only |
+| `db` | PostgreSQL 17 | Internal port 5432 only |
+| `backup` | Verified PostgreSQL dump before migrations | Exits on completion |
+| `migrations` | Prisma migration CLI from the web image | Exits on completion |
+
+Startup is `db healthy → backup successful → migrations successful → web`.
+Web also waits for API health. An exited backup/migration container is normal
+when its exit code is zero. A required failure blocks web startup.
+
+Compose creates a network with service-name DNS. Do not mark it `internal: true`:
+Python requires outbound access to websites and LLM providers. No production
+service has a published host port. Do not assign domains to `api` or `db`.
+
+Named volumes `db-data` and `backups` are scoped to the Compose project. Keep
+the project/resource identity stable across deploys. PostgreSQL data survives
+container recreation; Python audit artifacts are temporary and not persisted.
+
+## Local full-stack development
+
+Requirements: Docker with Compose v2. Host development additionally needs
+Node 24, pnpm 10.29.2, and uv.
+
+1. Copy `example.env` to `.env` and fill `DATABASE_PASSWORD` and `AUTH_SECRET`.
+   Generate each independently with `openssl rand -hex 32`. Use a URL-safe
+   database password because Compose embeds it in `DATABASE_URL`.
+2. Build and start:
+
+   ```sh
+   docker compose -f docker-compose.yml -f docker-compose.build.yml up --build -d
+   ```
+
+3. Open `http://localhost:3000/audit`. Set both `WEB_PORT` and
+   `BETTER_AUTH_URL` when using a different port.
+4. Inspect status with `docker compose ps -a` and logs with
+   `docker compose logs --tail 100 web api backup migrations`.
+5. Stop with `docker compose down`. This preserves data. **Do not add `-v` or
+   `--volumes` unless intentionally destroying that stack's database/backups.**
+
+No provider API keys are passed into either application container, even if the
+host `.env` has them. Do not add provider-key environment interpolation or an
+`env_file` containing LLM credentials. Users enter request-scoped keys; a blank
+key runs programmatic checks only in this deployment.
+
+For hot reload, start the database with:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.local-db.yml up -d db
 ```
 
-In Coolify: create a **Docker Compose** resource pointed at this repo, set the
-environment variables below, attach a domain, and deploy.
+Copy `web/example.env` to `web/.env`, using that local database's password.
+Then run `pnpm install --frozen-lockfile`, `pnpm run init`, and `pnpm dev` from
+`web/`. In another terminal run `uv run python entry_points/api_server.py`.
+The standalone Python API retains environment-key fallback for CLI/local
+compatibility: remove provider keys from its environment and root `.env` if
+you want no-key requests to be guaranteed dry runs. Never aim development
+migration commands at a deployed database.
 
-## Environment variables
+## First administrator and model configuration
 
-| Variable | Required | Notes |
-|---|---|---|
-| `HOST` | No | Set to `0.0.0.0` by the image; do not override |
-| `PORT` | No | Defaults to 8000; Coolify may inject its own |
-| `HOST_PORT` | No | Local-only: host port for `docker compose up` (default 8000) |
+Register an account at `/signup`, or sign in through configured Google OAuth.
+Registrations receive the template's non-admin `STAFF` role; there is no
+STAFF-specific audit workflow. No demonstration users are seeded.
 
-**No provider API keys are configured, deliberately.** Each user pastes their
-own key into the web form, so the deployment never bills a shared account.
-Per-request keys take priority over the environment
-(`api_server.py:_resolve_api_key`).
+An operator with access to the stack promotes the intended existing account:
 
-Consequence worth knowing: **a request with no resolvable key silently runs a
-dry run** — programmatic checks only, no LLM findings, no CSV report, and a
-`200 OK` either way. The only signal is `summary.dry_run` in the response. A
-user who forgets to paste a key gets a partial-looking audit rather than an
-error.
-
-### The `.env` interpolation trap
-
-Do **not** add lines like this back into `docker-compose.yml`:
-
-```yaml
-environment:
-  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}     # DON'T
+```sh
+docker compose exec web node scripts/promote-admin.mjs person@example.org
 ```
 
-Compose automatically loads `./.env` from the project directory to resolve
-`${...}`. On any developer machine with a local `.env`, that line silently
-injects their personal key into the container, and every anonymous audit bills
-it. This was verified the hard way: with that line present, a container built
-from an image containing no `.env`, started from a shell exporting no key,
-still made live API calls.
+The command fails if the account does not exist. Sign out and back in after
+promotion. `/admin/models` permits enabling supported models and choosing an
+enabled default. The public dropdown and proxy use the saved configuration.
+At least one model must remain enabled. Redeployments do not reset choices.
 
-`.dockerignore` keeps `.env` out of the *image*; interpolation reads it from
-the *host* at run time. Different mechanism — `.dockerignore` cannot stop it.
-Coolify deployments are not affected (`.env` is gitignored, so it never reaches
-the clone), but local `docker compose up` is.
+The catalog is code-maintained in `web/src/lib/model-catalog.ts`; it preserves
+the previous dropdown, not a promise that each provider currently offers every
+listed model. Adding models requires checking Python provider compatibility
+and updating the catalog. No API keys are stored in PostgreSQL.
 
-## Proxy configuration — read this one
+## Coolify setup — operator action required
 
-`POST /api/audit`, `/api/audit/url`, and `/api/audit/url/nested` return an
-**NDJSON stream** that stays open for the whole audit, emitting progress events
-as it goes. Two default proxy behaviours will break this:
+1. Configure a Git-backed Docker Compose application for this repository,
+   using root `docker-compose.yml`. Do not use the local-build override.
+   The repository must remain available for `scripts/backup.sh`, mounted as a
+   Compose config. No application build runs on the shared Coolify host.
+2. Assign only `web` a domain, targeting port 3000. For example, Coolify's
+   domain field may be `https://va-dat.c4g.dev:3000`; the public origin remains
+   `https://va-dat.c4g.dev`, without the internal port.
+3. Set `DATABASE_PASSWORD`, `AUTH_SECRET` (at least 32 random characters), and
+   `BETTER_AUTH_URL` to the public origin. Leave `PYTHON_API_URL` as the Compose
+   internal address. Set Google client credentials if Google sign-in is used;
+   its callback is `<origin>/api/auth/callback/google`. Passkeys require HTTPS
+   outside localhost and use the public hostname as their relying-party ID.
+4. Keep `BACKUP_MODE=required`, `BACKUP_KEEP=10`, and the named volumes.
+   `best-effort` and `off` are explicit operator escape hatches, not production
+   defaults. Invalid modes or retention values fail startup.
+5. Ensure both GHCR packages are accessible to Coolify. `IMAGE_TAG` selects
+   matching web/API tags; pin a tested commit SHA for controlled deployment.
+6. Disable independent git auto-deployment if using the publication workflow.
+   Configure repository variable `COOLIFY_APP_UUID` for the **Compose** resource
+   and secret `COOLIFY_TOKEN`. The workflow tests first, publishes both images,
+   and only then triggers Coolify. It skips deployment if either value is absent.
+7. Confirm each deployment reruns backup and migrations. With manual Compose,
+   explicitly recreate completed jobs and dependent web when applying updates:
 
-1. **Response buffering.** A proxy that buffers will hold every progress event
-   until the audit finishes, so the browser shows a frozen progress bar and then
-   all results at once. Disable buffering for `/api/`.
-2. **Read timeouts.** A single-page audit runs 17+ sequential LLM calls and
-   commonly takes 1–3 minutes; a nested crawl audits every discovered page and
-   can run far longer. Anything under ~10 minutes risks cutting audits off
-   mid-run. Traefik's default is generous, but Coolify installs vary — verify.
+   ```sh
+   docker compose pull
+   docker compose up -d --force-recreate backup migrations api web
+   ```
 
-In Coolify, set these as Traefik labels on the service, or raise the equivalent
-values in the proxy settings:
+Never change PostgreSQL's initialized password just by changing its environment
+variable: rotate the database role password and application connection settings
+together. Optional template email/push functionality additionally needs its
+Resend/VAPID settings; these are not required for public audits or email/password
+login.
 
-```yaml
-labels:
-  - traefik.http.routers.audit.middlewares=audit-buffering@docker
-  - traefik.http.middlewares.audit-buffering.buffering.maxResponseBodyBytes=0
-  - traefik.http.services.audit.loadbalancer.responseForwarding.flushInterval=100ms
+These network/domain conventions follow the
+[Coolify Compose documentation](https://coolify.io/docs/knowledge-base/docker/compose).
+
+## Streaming and proxy timeouts
+
+Audit responses use `application/x-ndjson`, with progress lines and exactly one
+final `type: result` line. Next.js forwards the response stream without collecting
+it. Its Node upstream socket has a **600-second inactivity timeout**, reset by
+traffic; there is no 600-second total audit deadline. Stopping the browser stream
+closes the upstream connection, but synchronous Python work already running may
+continue until the next write or provider call completes.
+
+Justin must inspect the deployed proxy configuration, including any proxy/CDN
+in front of Coolify:
+
+- **Traefik:** do not attach a buffering middleware to audit traffic. Ensure
+  the public entrypoint's `transport.respondingTimeouts.writeTimeout` is `0`
+  (no total response deadline). Its `idleTimeout` concerns idle keep-alive
+  connections, not the upstream response-body inactivity timer; the latter is
+  enforced in Next.js. Do not change shared proxy settings without reviewing
+  their effect on other applications.
+- **Nginx, if present:** use `proxy_buffering off` and
+  `proxy_read_timeout 600s` for audit API traffic. Do not cache these requests.
+- Do not rely on `X-Accel-Buffering: no` alone; confirm the active proxy's actual
+  configuration. See [Traefik timeout definitions](https://doc.traefik.io/traefik/reference/install-configuration/entrypoints/)
+  and [Next.js self-hosting guidance](https://nextjs.org/docs/app/guides/self-hosting).
+
+Use `curl -N` and the browser Network panel on staging to confirm progress arrives
+before completion. A no-key HTML audit is a free smoke check; validate a delayed
+mock response through the proxy for a meaningful buffering check. Live provider
+tests require explicit authorization and the tester's own key.
+
+## Backups, verification, and rollback
+
+Backups are `pg_dump -Fc`, validated with `pg_restore --list`, then atomically
+renamed and retained to `BACKUP_KEEP`. Partial dumps are removed. Dumps share the
+database host: they protect against bad migrations, **not server/disk loss**.
+Arrange off-host backups and a restore drill separately. Application image
+rollback does not undo database migrations; verify schema compatibility before
+pinning an older image or restoring a dump.
+
+Automated checks:
+
+```sh
+uv run python -m unittest discover -s tests -v
+uv run python entry_points/run_pipeline.py --html test_files/dat_visionaid_home.html --dry-run --output-dir ci-output
+cd web
+pnpm exec tsc --noEmit
+pnpm lint
+pnpm test
+pnpm format
 ```
 
-`flushInterval` is the important one — it forces Traefik to flush each chunk
-through rather than accumulating it.
+CI builds both containers, starts a fresh stack, exercises real authentication
+and administrator promotion, tests a free audit, checks persistence on restart,
+and verifies that backup/migration failures prevent web startup. The scripts
+`scripts/smoke-test.mjs` and `scripts/test-startup.mjs` require
+`SMOKE_ALLOW_MUTATION=1` and are **only for disposable test environments**.
+The smoke test creates an account and temporarily changes model configuration.
+With `SMOKE_RECREATE_STACK=1` (as in CI), it recreates the entire
+`vadat-integration` stack without removing its volumes and verifies persistence;
+this mode requires the same Compose environment variables used to start it.
+The startup test removes only the uniquely named disposable stacks it creates.
 
-If you front this with nginx instead:
-
-```nginx
-location /api/ {
-    proxy_buffering off;
-    proxy_read_timeout 600s;
-}
-```
-
-## Sizing
-
-Audits are I/O-bound on the LLM API, not CPU-bound. 512 MB RAM and 0.5 vCPU is
-enough for light use. The server is a stdlib `ThreadingHTTPServer`, so each
-concurrent audit holds a thread and its own temp directory — fine for a handful
-of simultaneous users, not for public high traffic. The `tmpfs` mount is capped
-at 512 MB; a large nested crawl of very large pages could approach that, so
-raise it if you see failures writing temp files.
-
-## Serving
-
-`entry_points/api_server.py` is the single server: it serves `index.html` and
-`styles.css` at `/`, and handles the audit endpoints under `/api/`. There is
-deliberately no second, serverless copy of the audit logic — the project
-previously carried two, and they drifted until one silently skipped the LLM
-deduplication pass. Keep the logic in one place.
+Live Coolify configuration, OAuth provider callbacks, production TLS/passkeys,
+off-host backups, and real provider access must be verified by the operator;
+local container tests do not establish those deployment facts.

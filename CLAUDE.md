@@ -1,5 +1,20 @@
 # Project: P5 – Automating Digital Accessibility
 
+## Current React/Compose architecture (supersedes legacy UI notes below)
+
+The active frontend is `web/`, imported from C4G/template at `1589fc95` and
+converted to React/Next.js. Root `index.html` and `styles.css` are historical
+references and are not served. Do not add new functionality to their scripts.
+Python exposes only audit endpoints and `/health`; preserve the pipeline/CLI.
+Use pnpm 10.29.2/Node 24 for web, uv for Python, and keep both lockfiles stable.
+The public audit requires no login. `ADMIN` controls saved model options;
+registration retains the template's non-admin role, with no STAFF-specific work.
+Production is root Docker Compose with web, API, PostgreSQL 17, backup, and
+migration services. See DEPLOY.md for the authoritative setup and tests; the old
+single-image deployment and inline-HTML instructions below are historical.
+No provider credentials may be injected into Compose. Never run paid provider
+tests without explicit authorization. Preserve user changes and input fixtures.
+
 ## What This Project Does
 
 This project builds LLM-powered tools that analyze websites for WCAG accessibility issues and generate structured remediation reports. It is a Computing for Good course project at Georgia Tech (OMSCS) partnered with the Vision Aid Digital Accessibility Testing Team.

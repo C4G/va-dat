@@ -40,11 +40,12 @@ HTML file (e.g. 1.9 MB)
 ## Repository Structure
 
 ```
-├── index.html                                   # Web UI + team site (all markup/CSS/JS inline)
-├── styles.css
+├── web/                                         # Next.js/React template application, auth, Prisma
+├── index.html                                   # Historical UI reference; no longer served
+├── styles.css                                   # Historical UI reference; no longer served
 │
 ├── entry_points/                                # Entry points
-│   ├── api_server.py                            # Serves the site and the /api/* audit endpoints
+│   ├── api_server.py                            # Internal /api/* audit endpoints and /health
 │   ├── run_pipeline.py                          # Runs the full pipeline from the CLI
 │   └── generate_report.py                       # Combines findings into unified CSV report
 │
@@ -79,7 +80,8 @@ HTML file (e.g. 1.9 MB)
 │   └── pull_html.py                            # Standalone HTML download helper
 │
 ├── Dockerfile                                  # Multi-stage uv build → runtime image
-├── docker-compose.yml                          # Local run (Coolify deploys the image directly)
+├── docker-compose.yml                          # Coolify stack: web, API, PostgreSQL, backup, migrations
+├── docker-compose.build.yml                    # Local/CI source builds and localhost web port
 ├── DEPLOY.md                                   # Coolify deployment notes
 │
 ├── .github/workflows/
@@ -240,34 +242,42 @@ GEMINI_API_KEY=AIza...
 
 ## Running the Web App
 
-```bash
-uv run python entry_points/api_server.py      # http://localhost:8000
-```
-
-Serves the UI and the audit API from one process. Users can paste their own API
-key into the form instead of configuring one server-side; per-request keys take
-priority over the environment.
-
-The audit endpoints stream **NDJSON** — progress events, one JSON object per
-line, then a final `{"type":"result"}` object. Parsing that body with a single
-`res.json()` fails; the front end branches on content type.
-
-To run it in a container:
+Copy `example.env` to `.env`, set a strong URL-safe `DATABASE_PASSWORD` and
+random `AUTH_SECRET`, then:
 
 ```bash
-docker compose up --build                     # http://localhost:8000
-HOST_PORT=8789 docker compose up --build      # if 8000 is taken
+docker compose -f docker-compose.yml -f docker-compose.build.yml up --build -d
 ```
+
+Open `http://localhost:3000/audit`. The React website and audit tool are public;
+only administrator model settings require an `ADMIN` login. Users supply their
+own API keys, or leave the key blank for programmatic checks. Keys are not
+persisted. Audit requests stream NDJSON through Next.js to the Python service.
+
+The public UI preserves the original VA-DAT content design in React. `/` is
+the project page and `/audit` is a separate audit page; neither hides the other
+page's content. A shared original-style P5 navbar provides project section links,
+sign-in/account access, and administrator links across all routes.
+Team and Lighthouse scroll to their original sections on `/`. Duplicate
+template course pages were removed; their old URLs redirect to home sections.
+Account/admin pages use the template UI in light mode, regardless of saved or
+system theme preferences. See the
+[handoff](docs/react-template-integration-handoff.md#repeat-the-visual-comparison)
+for the mocked original-versus-React browser comparison.
+
+PostgreSQL stores authentication and enabled/default model settings in a named
+volume. Verified backups and Prisma migrations complete before Next.js starts.
+See [DEPLOY.md](DEPLOY.md) for host hot reload, first-admin promotion, environment
+variables, backups, and safe shutdown commands.
 
 ## Deployment
 
-Merges to `main` build the image, push it to `ghcr.io/c4g/va-dat`, and trigger a
-Coolify deploy to <https://va-dat.c4g.dev>. See [DEPLOY.md](DEPLOY.md) — in
-particular the proxy settings, since response buffering breaks the progress
-stream and short read timeouts cut off long audits.
-
-Note that Coolify runs the **image**; the hardening in `docker-compose.yml`
-(`read_only`, `tmpfs`) applies to local runs only.
+The publication workflow tests and publishes `ghcr.io/c4g/va-dat-web` and
+`ghcr.io/c4g/va-dat-api` with matching tags, then triggers the configured Coolify
+resource. Justin must switch the old single-image resource to the documented
+Git-backed Compose setup before deploying this architecture. Only `web:3000`
+receives a domain; the API and database remain internal. No live deployment is
+performed by this migration. See [DEPLOY.md](DEPLOY.md) for streaming/proxy checks.
 
 ## Continuous Integration
 
@@ -277,8 +287,10 @@ everything it does is free:
 - `uv.lock` is in sync with `pyproject.toml`, and `requirements.txt` matches the lock
 - entry points import
 - a full pipeline dry run, asserting prompts generated, findings found, and zero tokens consumed
-- `index.html`'s inline JavaScript parses
-- the Docker image builds, becomes healthy, serves the site, and returns a valid NDJSON audit
+- React type checks, lint, formatting, and component/API tests
+- both images build and a fresh stack returns a valid no-key NDJSON audit
+- real authentication, admin authorization, model settings, and persistence
+- failed backups or migrations block application startup
 
 ## Running the Pipeline
 
