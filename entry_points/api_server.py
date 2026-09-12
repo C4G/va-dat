@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""Serve the team website and run the accessibility audit API locally.
+"""Run the internal accessibility audit API.
 
-This server has two responsibilities:
-  1. Serve static files (index.html, styles.css) from the project root.
-  2. Handle POST /api/audit — receive raw HTML, run the pipeline, return JSON.
+Next.js serves the public React website and proxies the audit endpoints.
 
 Usage:
     python entry_points/api_server.py
     python entry_points/api_server.py --port 8080
 
-Then open http://localhost:8000 in your browser.
+Health check: GET http://localhost:8000/health.
 
 API keys can be supplied per-request in the POST body, or set in the .env
 file / environment.  Per-request keys take priority.
@@ -61,9 +59,6 @@ def split_pages(html: str) -> list[tuple[str, str]]:
         end = markers[i + 1].start() if i + 1 < len(markers) else len(html)
         pages.append((url, html[start:end].strip()))
     return pages
-
-STATIC_DIR = PROJECT_ROOT  # index.html and styles.css live at the repo root
-
 
 # ── Key resolution ────────────────────────────────────────────────────────────
 
@@ -221,7 +216,7 @@ def _try_parse_json(text: str):
 # ── HTTP handler ──────────────────────────────────────────────────────────────
 
 class AuditHandler(BaseHTTPRequestHandler):
-    """Handle static file serving and the /api/audit endpoint."""
+    """Handle health checks and the audit API; never serve repository files."""
 
     def log_message(self, fmt, *args):  # noqa: N802
         sys.stderr.write(f"[{self.address_string()}] {fmt % args}\n")
@@ -243,24 +238,10 @@ class AuditHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         path = self.path.split("?")[0]
-        if path in ("/", "/index.html"):
-            self._serve_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
-        elif path == "/styles.css":
-            self._serve_file(STATIC_DIR / "styles.css", "text/css; charset=utf-8")
+        if path == "/health":
+            self._send_json({"status": "ok"})
         else:
             self.send_error(404, "Not Found")
-
-    def _serve_file(self, file_path: Path, content_type: str):
-        if not file_path.exists():
-            self.send_error(404, "Not Found")
-            return
-        body = file_path.read_bytes()
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self._cors_headers()
-        self.end_headers()
-        self.wfile.write(body)
 
     # POST ─────────────────────────────────────────────────────────────────────
 
@@ -594,7 +575,7 @@ def main():
     load_dotenv(PROJECT_ROOT / ".env")
 
     parser = argparse.ArgumentParser(
-        description="Run the accessibility audit web server."
+        description="Run the internal accessibility audit API."
     )
     parser.add_argument(
         "--port",
