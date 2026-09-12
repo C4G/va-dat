@@ -1,45 +1,156 @@
 name: CI
+
 on:
   pull_request:
     branches: [main]
-  workflow_call:
+
+# A new push to the same PR cancels the previous run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
+
 jobs:
-  python:
+  checks:
+    name: Dependencies, imports, pipeline
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9.0.0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v9.0.0
         with:
-          version: '0.11.21'
+          version: "0.11.21"
           enable-cache: true
-      - run: uv lock --check && uv sync --frozen
-      - name: Verify generated requirements
+
+      # Fails if pyproject.toml and uv.lock disagree — i.e. someone changed a
+      # dependency without re-running `uv lock`.
+      - name: uv.lock is up to date
+        run: uv lock --check
+
+      - name: Install locked dependencies
+        run: uv sync --frozen
+
+      # requirements.txt is a generated export, not a hand-maintained list.
+      # Regenerate it and fail if the committed copy differs.
+      - name: requirements.txt matches uv.lock
         run: |
-          uv export --format requirements.txt --no-dev --no-emit-project --no-hashes -o requirements.txt
-          git diff --exit-code -- requirements.txt
-      - name: Imports, API regression, and no-cost pipeline
+          uv export --format requirements.txt --no-dev --no-emit-project \
+            --no-hashes -o requirements.txt
+          if ! git diff --exit-code --stat -- requirements.txt; then
+            echo "::error::requirements.txt is out of date. Regenerate it with the command in its header and commit the result."
+            exit 1
+          fi
+
+      - name: Entry points import
         run: |
-          uv run python -c 'import entry_points.api_server, entry_points.run_pipeline, entry_points.generate_report'
-          uv run python -m unittest discover -s tests -v
-          uv run python entry_points/run_pipeline.py --html test_files/dat_visionaid_home.html --dry-run --output-dir ./ci-output
-          uv run python -c 'import json,pathlib; m=json.loads(pathlib.Path("ci-output/manifest.json").read_text()); assert m["dry_run"] and m["prompts_dry_run"]; assert not m["total_input_tokens"] and not m["total_output_tokens"]'
+          uv run python -c "
+          import entry_points.api_server, entry_points.run_pipeline, entry_points.generate_report
+          from vision_aid.ingestion.file_crawler import fetch_page, fetch_pages_nested
+          print('all entry points import cleanly')
+          "
+
+      - name: API regression tests
+        run: uv run python -m unittest discover -s tests -v
+
+      # Exercises extractors, slicers, prompt templates and the programmatic
+      # checkers end to end. --dry-run makes no API calls, so this needs no key
+      # and costs nothing.
+      - name: Pipeline dry run
+        run: |
+          uv run python entry_points/run_pipeline.py \
+            --html test_files/dat_visionaid_home.html \
+            --dry-run --output-dir ./ci-output
+
+      - name: Pipeline produced expected output
+        run: |
+          uv run python - <<'PY'
+          import json, pathlib, sys
+
+          manifest = json.loads(pathlib.Path("ci-output/manifest.json").read_text())
+          prompts = list(pathlib.Path("ci-output/prompts").glob("*.json"))
+          findings = json.loads(
+              pathlib.Path("ci-output/programmatic_findings.json").read_text()
+          )
+
+          problems = []
+          if not manifest["dry_run"]:
+              problems.append("manifest says this was not a dry run")
+          if manifest["total_input_tokens"] or manifest["total_output_tokens"]:
+              problems.append("a dry run consumed tokens — an API call escaped")
+          if not manifest["prompts_dry_run"]:
+              problems.append("no prompts were generated")
+          if not findings:
+              problems.append("programmatic checkers found nothing")
+          if len(prompts) != len(manifest["prompts_dry_run"]):
+              problems.append(
+                  f"{len(prompts)} prompt files vs "
+                  f"{len(manifest['prompts_dry_run'])} in manifest"
+              )
+
+          if problems:
+              for p in problems:
+                  print(f"::error::{p}")
+              sys.exit(1)
+
+          print(
+              f"OK — {len(manifest['prompts_dry_run'])} prompts generated, "
+              f"{len(manifest['prompts_skipped'])} skipped, "
+              f"{len(findings)} programmatic findings"
+          )
+          PY
+
+      # The original static page remains a historical reference. Keep its
+      # existing syntax check while the React application replaces it at runtime.
+      - name: index.html JavaScript parses
+        run: |
+          python3 - <<'PY'
+          import pathlib, re
+          html = pathlib.Path("index.html").read_text(encoding="utf-8", errors="replace")
+          blocks = re.findall(r"<script[^>]*>(.*?)</script>", html, re.DOTALL)
+          assert blocks, "no <script> blocks found in index.html"
+          pathlib.Path("/tmp/inline.js").write_text("\n".join(blocks), encoding="utf-8")
+          print(f"extracted {len(blocks)} script block(s)")
+          PY
+          node --check /tmp/inline.js
+
   web:
+    name: React application checks
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web
     steps:
       - uses: actions/checkout@v7
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: corepack enable && corepack prepare pnpm@10.29.2 --activate
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm exec tsc --noEmit
-      - run: pnpm lint && pnpm test && pnpm format
-  containers:
+
+      - name: Install locked dependencies
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.29.2 --activate
+          pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm exec tsc --noEmit
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Formatting
+        run: pnpm format
+
+  docker:
+    name: Images build and stack serves
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -48,36 +159,44 @@ jobs:
       BETTER_AUTH_URL: http://localhost:3317
       IMAGE_TAG: ci
       WEB_PORT: 3317
-      SMOKE_ALLOW_MUTATION: '1'
-      SMOKE_RECREATE_STACK: '1'
+      SMOKE_ALLOW_MUTATION: "1"
+      SMOKE_RECREATE_STACK: "1"
     steps:
       - uses: actions/checkout@v7
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - uses: docker/setup-buildx-action@v4
-      - name: Build API
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          load: true
-          tags: ghcr.io/c4g/va-dat-api:ci
-          cache-from: type=gha,scope=api
-          cache-to: type=gha,scope=api,mode=max
-      - name: Build web and migrations
-        uses: docker/build-push-action@v7
-        with:
-          context: web
-          load: true
-          tags: ghcr.io/c4g/va-dat-web:ci
-          cache-from: type=gha,scope=web
-          cache-to: type=gha,scope=web,mode=max
-      - run: docker pull postgres:17
-      - run: docker compose --env-file /dev/null -p vadat-integration -f docker-compose.yml -f docker-compose.build.yml up --no-build --pull never -d
-      - run: node scripts/smoke-test.mjs
-      - run: node scripts/test-startup.mjs
-      - name: Logs and cleanup
+
+      - name: Build API image
+        run: docker build -t ghcr.io/c4g/va-dat-api:ci .
+
+      - name: Build web and migrations image
+        run: docker build -t ghcr.io/c4g/va-dat-web:ci ./web
+
+      # No API key is provided, so the audit runs in dry-run mode: programmatic
+      # checks only, no LLM calls, nothing billable.
+      - name: Start the isolated application stack
+        run: |
+          docker pull postgres:17
+          docker compose --env-file /dev/null -p vadat-integration \
+            -f docker-compose.yml -f docker-compose.build.yml \
+            up --no-build --pull never -d
+
+      - name: Application and persistence smoke tests
+        run: node scripts/smoke-test.mjs
+
+      - name: Backup and migration failure safeguards
+        run: node scripts/test-startup.mjs
+
+      - name: Container logs
         if: always()
         run: |
-          docker compose --env-file /dev/null -p vadat-integration logs --tail 50
-          docker compose --env-file /dev/null -p vadat-integration down --volumes
+          docker compose --env-file /dev/null -p vadat-integration \
+            -f docker-compose.yml -f docker-compose.build.yml logs --tail 50
+
+      - name: Stop containers and remove disposable volumes
+        if: always()
+        run: |
+          docker compose --env-file /dev/null -p vadat-integration \
+            -f docker-compose.yml -f docker-compose.build.yml down --volumes

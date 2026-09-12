@@ -1,47 +1,119 @@
-name: Publish application images
+name: Publish Application Images
+
+# Builds both application images and pushes them to GHCR so Coolify pulls
+# finished images instead of building on the deployment host. The complete
+# published stack is smoke-tested before deployment is triggered.
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
 concurrency:
   group: publish-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
+
+env:
+  # Must be lowercase — GHCR rejects mixed-case image names, and the org is "C4G".
+  API_IMAGE: ghcr.io/c4g/va-dat-api
+  WEB_IMAGE: ghcr.io/c4g/va-dat-web
+  IMAGE_TAG: ${{ github.sha }}
+  DATABASE_PASSWORD: isolated-publish-password
+  AUTH_SECRET: isolated-publish-secret-at-least-32-characters
+  BETTER_AUTH_URL: http://localhost:3317
+  WEB_PORT: 3317
+  SMOKE_ALLOW_MUTATION: "1"
+  SMOKE_RECREATE_STACK: "0"
+  SMOKE_ORIGIN: http://localhost:3317
+  SMOKE_WEB_CONTAINER: vadat-publish-smoke-web-1
+
 jobs:
-  verify:
-    uses: ./.github/workflows/ci.yml
   publish:
-    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+
     steps:
       - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - uses: docker/setup-buildx-action@v4
+
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Publish API
+
+      - name: Build and push API image
         uses: docker/build-push-action@v7
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/c4g/va-dat-api:latest
-            ghcr.io/c4g/va-dat-api:${{ github.sha }}
+            ${{ env.API_IMAGE }}:latest
+            ${{ env.API_IMAGE }}:${{ github.sha }}
           cache-from: type=gha,scope=api
-      - name: Publish web and migrations
+          cache-to: type=gha,scope=api,mode=max
+
+      - name: Build and push web and migrations image
         uses: docker/build-push-action@v7
         with:
           context: web
           push: true
           tags: |
-            ghcr.io/c4g/va-dat-web:latest
-            ghcr.io/c4g/va-dat-web:${{ github.sha }}
+            ${{ env.WEB_IMAGE }}:latest
+            ${{ env.WEB_IMAGE }}:${{ github.sha }}
           cache-from: type=gha,scope=web
-      - name: Trigger Coolify only after both images are available
+          cache-to: type=gha,scope=web,mode=max
+
+      # Deploy only what has been shown to start and serve. CI runs on pull
+      # requests, so a merge commit itself is never exercised before this point.
+      # No API key is supplied, so the audit runs in dry-run mode and bills
+      # nothing.
+      - name: Smoke test the published application stack
+        run: |
+          docker pull postgres:17
+          docker compose --env-file /dev/null -p vadat-publish-smoke \
+            -f docker-compose.yml -f docker-compose.build.yml \
+            up --no-build --pull always -d
+          node scripts/smoke-test.mjs
+
+      - name: Published stack logs
+        if: always()
+        run: |
+          docker compose --env-file /dev/null -p vadat-publish-smoke \
+            -f docker-compose.yml -f docker-compose.build.yml logs --tail 50 || true
+
+      - name: Stop smoke test stack
+        if: always()
+        run: |
+          docker compose --env-file /dev/null -p vadat-publish-smoke \
+            -f docker-compose.yml -f docker-compose.build.yml down --volumes || true
+
+      - name: Summary
+        run: |
+          {
+            echo "### Images published"
+            echo ''
+            echo '```'
+            echo "${API_IMAGE}:latest"
+            echo "${API_IMAGE}:${GITHUB_SHA}"
+            echo "${WEB_IMAGE}:latest"
+            echo "${WEB_IMAGE}:${GITHUB_SHA}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Deploying from here (rather than letting Coolify redeploy on git push)
+      # avoids a race where Coolify pulls `:latest` before this workflow has
+      # finished pushing it. Skipped automatically until the secret exists.
+      # The secret is surfaced through `env` because the `secrets` context is
+      # not available in a step-level `if:`.
+      - name: Trigger Coolify deployment
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           COOLIFY_APP_UUID: ${{ vars.COOLIFY_APP_UUID }}
