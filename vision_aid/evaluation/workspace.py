@@ -45,6 +45,15 @@ class PrivateWorkspace:
             )
 
 
+def find_worktree_root(start: Path) -> Path | None:
+    """Find the containing Git worktree without invoking Git."""
+    resolved_start = start.resolve()
+    for directory in (resolved_start, *resolved_start.parents):
+        if (directory / ".git").exists():
+            return directory
+    return None
+
+
 def require_private_workbook(path: Path) -> Path:
     """Resolve a local workbook or explain how an authorized user supplies it."""
     if not path.is_file():
@@ -54,4 +63,18 @@ def require_private_workbook(path: Path) -> Path:
             "and place it at the repository root, or pass --workbook PATH. "
             "The evaluation CLI will not download or substitute private inputs."
         )
-    return path.resolve()
+    workbook = path.resolve()
+    worktree = find_worktree_root(Path.cwd())
+    if worktree is None or not workbook.is_relative_to(worktree):
+        return workbook
+
+    default_workbook = (worktree / DEFAULT_WORKBOOK_FILENAME).resolve()
+    private_workspace = (worktree / DEFAULT_WORKSPACE).resolve()
+    if workbook != default_workbook and not workbook.is_relative_to(private_workspace):
+        raise PrivateInputError(
+            f"Private source workbook at {workbook} would be visible to "
+            "version control. Keep the exact default filename at the repository "
+            "root, store the override inside .model-evaluation, or pass a path "
+            "outside the repository."
+        )
+    return workbook

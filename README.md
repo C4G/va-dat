@@ -249,10 +249,10 @@ place it in the repository root, and initialize the private workspace:
 uv run visionaid-evaluate prepare
 ```
 
-Use `--workbook PATH` for another authorized local copy and `--workspace PATH`
-to override the default `.model-evaluation/` workspace. The workspace contains
-separate `references/`, `reviews/`, `snapshots/`, `runs/`, and `reports/`
-partitions, all covered by one ignore rule.
+Use `--workbook PATH` for another authorized local copy outside the repository.
+The fixed `.model-evaluation/` workspace contains separate `references/`,
+`reviews/`, `snapshots/`, `runs/`, and `reports/` partitions, all covered by one
+ignore rule.
 
 Run `uv run visionaid-evaluate --help` to discover the `prepare`, `audit`,
 `review`, and `report` workflows. At this bootstrap milestone, `audit` is
