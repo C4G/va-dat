@@ -62,6 +62,28 @@ def test_prepare_initializes_one_partitioned_private_workspace(tmp_path: Path) -
     ]
 
 
+def test_prepare_anchors_default_private_paths_to_the_worktree_root(
+    tmp_path: Path,
+) -> None:
+    """Invocation from a subdirectory still uses the root-level ignore rules."""
+    worktree = tmp_path / "worktree"
+    (worktree / ".git").mkdir(parents=True)
+    (worktree / ".gitignore").write_text(
+        "/Pristine Accessibility Defect Report.xlsx\n/.model-evaluation/\n",
+        encoding="utf-8",
+    )
+    workbook = worktree / "Pristine Accessibility Defect Report.xlsx"
+    workbook.write_bytes(b"synthetic workbook placeholder")
+    nested_directory = worktree / "nested"
+    nested_directory.mkdir()
+
+    result = run_cli("prepare", cwd=nested_directory)
+
+    assert result.returncode == 0, result.stderr
+    assert (worktree / ".model-evaluation").is_dir()
+    assert not (nested_directory / ".model-evaluation").exists()
+
+
 def test_prepare_explains_how_to_supply_a_missing_private_workbook(
     tmp_path: Path,
 ) -> None:
@@ -83,13 +105,20 @@ def test_prepare_explains_how_to_supply_a_missing_private_workbook(
     assert not workspace.exists()
 
 
-def test_prepare_rejects_an_unignored_workbook_inside_the_worktree() -> None:
+def test_prepare_rejects_an_unignored_workbook_inside_the_worktree(
+    tmp_path: Path,
+) -> None:
     """A workbook override cannot make private data visible to version control."""
     with TemporaryDirectory(dir=PROJECT_ROOT) as temporary_directory:
         workbook = Path(temporary_directory) / "private-input.xlsx"
         workbook.write_bytes(b"synthetic workbook placeholder")
 
-        result = run_cli("prepare", "--workbook", str(workbook))
+        result = run_cli(
+            "prepare",
+            "--workbook",
+            str(workbook),
+            cwd=tmp_path,
+        )
 
     assert result.returncode == 2
     assert "would be visible to version control" in result.stderr

@@ -6,7 +6,6 @@ from pathlib import Path
 
 from vision_aid.evaluation.workspace import (
     DEFAULT_WORKBOOK_FILENAME,
-    DEFAULT_WORKSPACE,
     PrivateInputError,
     PrivateWorkspace,
     require_private_workbook,
@@ -67,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
 def _prepare(arguments: argparse.Namespace) -> int:
     """Validate the private workbook before creating the workspace layout."""
     workbook = require_private_workbook(arguments.workbook)
-    workspace = PrivateWorkspace(DEFAULT_WORKSPACE)
+    workspace = PrivateWorkspace.from_current_directory()
     workspace.initialize()
     print(f"Private evaluation workspace initialized at {workspace.root.resolve()}")
     print(f"Private source workbook: {workbook}")
@@ -76,7 +75,7 @@ def _prepare(arguments: argparse.Namespace) -> int:
 
 def _audit(arguments: argparse.Namespace) -> int:
     """Expose the safe audit shell without enabling live execution yet."""
-    workspace = PrivateWorkspace(DEFAULT_WORKSPACE)
+    workspace = PrivateWorkspace.from_current_directory()
     workspace.require_initialized()
     print("DRY RUN: No network requests were made and no API usage was incurred.")
     print(f"Private evaluation workspace: {workspace.root.resolve()}")
@@ -85,7 +84,7 @@ def _audit(arguments: argparse.Namespace) -> int:
 
 def _review(arguments: argparse.Namespace) -> int:
     """Expose the private review workflow shell."""
-    workspace = PrivateWorkspace(DEFAULT_WORKSPACE)
+    workspace = PrivateWorkspace.from_current_directory()
     workspace.require_initialized()
     print(f"Private review workspace: {(workspace.root / 'reviews').resolve()}")
     return 0
@@ -93,7 +92,7 @@ def _review(arguments: argparse.Namespace) -> int:
 
 def _report(arguments: argparse.Namespace) -> int:
     """Expose the private report workflow shell."""
-    workspace = PrivateWorkspace(DEFAULT_WORKSPACE)
+    workspace = PrivateWorkspace.from_current_directory()
     workspace.require_initialized()
     print(f"Private report workspace: {(workspace.root / 'reports').resolve()}")
     return 0

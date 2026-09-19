@@ -24,6 +24,13 @@ class PrivateWorkspace:
 
     root: Path
 
+    @classmethod
+    def from_current_directory(cls) -> "PrivateWorkspace":
+        """Anchor artifacts at the worktree root or the non-versioned CWD."""
+        current_directory = Path.cwd().resolve()
+        worktree = find_worktree_root(current_directory)
+        return cls((worktree or current_directory) / DEFAULT_WORKSPACE)
+
     @property
     def partitions(self) -> tuple[Path, ...]:
         """Return every required private artifact partition."""
@@ -56,15 +63,20 @@ def find_worktree_root(start: Path) -> Path | None:
 
 def require_private_workbook(path: Path) -> Path:
     """Resolve a local workbook or explain how an authorized user supplies it."""
-    if not path.is_file():
+    candidate = path
+    current_worktree = find_worktree_root(Path.cwd())
+    if path == Path(DEFAULT_WORKBOOK_FILENAME) and current_worktree is not None:
+        candidate = current_worktree / path
+
+    if not candidate.is_file():
         raise PrivateInputError(
-            f"Private source workbook not found at {path.resolve()}. Obtain "
+            f"Private source workbook not found at {candidate.resolve()}. Obtain "
             f"'{DEFAULT_WORKBOOK_FILENAME}' from an authorized project source "
             "and place it at the repository root, or pass --workbook PATH. "
             "The evaluation CLI will not download or substitute private inputs."
         )
-    workbook = path.resolve()
-    worktree = find_worktree_root(Path.cwd())
+    workbook = candidate.resolve()
+    worktree = find_worktree_root(workbook.parent)
     if worktree is None or not workbook.is_relative_to(worktree):
         return workbook
 
