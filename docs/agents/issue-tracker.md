@@ -10,6 +10,19 @@ Issues and specs for this repo live as markdown files in `.scratch/`.
 - Triage state is recorded as a `Status:` line near the top of each issue file (see `triage-labels.md` for the role strings)
 - Comments and conversation history append to the bottom of the file under a `## Comments` heading
 
+## Completing implementation issues
+
+Close an implementation issue only after its implementation, verification, and
+review fixes are committed:
+
+- Change each demonstrated acceptance criterion from `[ ]` to `[x]`. Leave the
+  issue open if any criterion is unmet.
+- Change `Status:` to `resolved`. This is a terminal lifecycle state, not a
+  triage role from `triage-labels.md`.
+- Under `## Comments`, append the implementation commit IDs and a concise
+  verification note.
+- Commit the ticket update separately so the recorded commit IDs are exact.
+
 ## When a skill says "publish to the issue tracker"
 
 Create a new file under `.scratch/<feature-slug>/` (creating the directory if needed).
