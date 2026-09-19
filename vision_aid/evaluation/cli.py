@@ -94,7 +94,7 @@ def _prepare(arguments: argparse.Namespace) -> int:
         )
         action = "reused" if snapshot.reused else "captured"
         print(f"Benchmark snapshot {action}: {snapshot.html_path.resolve()}")
-        print(f"Benchmark SHA-256: {snapshot.metadata['sha256']}")
+        print(f"Benchmark SHA-256: {snapshot.metadata.sha256}")
     return 0
 
 
