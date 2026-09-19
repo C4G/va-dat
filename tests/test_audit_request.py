@@ -14,51 +14,61 @@ from entry_points.run_pipeline import (
 
 class RecordingCompletions:
     def __init__(self, response):
+        """Store the response returned by every fake completion."""
         self.response = response
         self.requests = []
 
     def create(self, **kwargs):
+        """Record request arguments and return the configured response."""
         self.requests.append(kwargs)
         return self.response
 
 
 class OpenAIFake:
     def __init__(self, response):
+        """Expose the Chat Completions shape used by the OpenAI SDK."""
         self.chat = SimpleNamespace(completions=RecordingCompletions(response))
 
 
 class RecordingMessages:
     def __init__(self, response):
+        """Store the response returned by every fake message request."""
         self.response = response
         self.requests = []
 
     def create(self, **kwargs):
+        """Record request arguments and return the configured response."""
         self.requests.append(kwargs)
         return self.response
 
 
 class AnthropicFake:
     def __init__(self, response):
+        """Expose the Messages shape used by the Anthropic SDK."""
         self.messages = RecordingMessages(response)
 
 
 class RecordingModels:
     def __init__(self, response):
+        """Store the response returned by every fake content request."""
         self.response = response
         self.requests = []
 
     def generate_content(self, **kwargs):
+        """Record request arguments and return the configured response."""
         self.requests.append(kwargs)
         return self.response
 
 
 class GeminiFake:
     def __init__(self, response):
+        """Expose the Models shape used by the Google Gen AI SDK."""
         self.models = RecordingModels(response)
 
 
 class AuditRequestTests(TestCase):
     def test_luna_request_uses_medium_reasoning_without_temperature(self):
+        """Luna uses the explicit evaluation request shape."""
         response = SimpleNamespace(
             id="chatcmpl-eval-1",
             model="gpt-5.6-luna",
@@ -144,6 +154,7 @@ class AuditRequestTests(TestCase):
         )
 
     def test_legacy_provider_request_defaults_are_preserved(self):
+        """Implicit configuration preserves all production request defaults."""
         anthropic_response = SimpleNamespace(
             id="msg_prod_1",
             model="claude-sonnet-5",
@@ -263,6 +274,7 @@ class AuditRequestTests(TestCase):
         self.assertEqual(gemini_result["usage"]["total_tokens"], 39)
 
     def test_failure_exposes_request_and_provider_information(self):
+        """Failures retain the metadata needed for later classification."""
         class ProviderFailure(Exception):
             status_code = 429
             code = "rate_limit_exceeded"
@@ -271,6 +283,7 @@ class AuditRequestTests(TestCase):
         fake = OpenAIFake(None)
 
         def fail(**kwargs):
+            """Raise a provider-shaped failure without a network request."""
             raise ProviderFailure("try again later")
 
         fake.chat.completions.create = fail
@@ -303,7 +316,8 @@ class AuditRequestTests(TestCase):
         )
         self.assertEqual(result["request"], config.as_metadata())
 
-    def test_pipeline_accepts_and_persists_explicit_request_configuration(self):
+    def test_pipeline_persists_explicit_request_configuration(self):
+        """The pipeline records explicit configuration without going live."""
         config = AuditRequestConfig(
             model="gpt-5.6-luna",
             reasoning_effort="medium",

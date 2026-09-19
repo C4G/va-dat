@@ -6,9 +6,19 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from .client import is_gemini_model, is_openai_model, supports_temperature
+
+ReasoningEffort = Literal[
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+]
 
 
 @dataclass(frozen=True)
@@ -21,11 +31,12 @@ class AuditRequestConfig:
     """
 
     model: str
-    reasoning_effort: str | None = None
+    reasoning_effort: ReasoningEffort | None = None
     temperature: float | None = 0.1
     max_output_tokens: int = 8192
 
     def __post_init__(self) -> None:
+        """Reject configuration values that cannot form an audit request."""
         if not self.model:
             raise ValueError("model must not be empty")
         if self.max_output_tokens <= 0:
@@ -126,6 +137,7 @@ class AuditRequestClient:
         request_config: AuditRequestConfig | None = None,
         provider_client: Any | None = None,
     ):
+        """Resolve legacy arguments and initialize the selected SDK client."""
         if request_config is None:
             if model is None:
                 raise TypeError("model or request_config is required")
@@ -200,6 +212,7 @@ class AuditRequestClient:
             }
 
     def _provider_identity(self) -> dict[str, Any]:
+        """Return stable provider and endpoint names for failed requests."""
         if self._is_openai:
             return {"name": "openai", "endpoint": "chat.completions"}
         if self._is_gemini:
@@ -207,6 +220,7 @@ class AuditRequestClient:
         return {"name": "anthropic", "endpoint": "messages"}
 
     def _call_anthropic(self, prompt: str, start: float) -> dict[str, Any]:
+        """Send one prompt through Anthropic Messages."""
         request_kwargs = {
             "model": self.model,
             "max_tokens": self.max_tokens,
@@ -253,6 +267,7 @@ class AuditRequestClient:
         }
 
     def _call_openai(self, prompt: str, start: float) -> dict[str, Any]:
+        """Send one prompt through OpenAI Chat Completions."""
         request_kwargs = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
@@ -261,7 +276,9 @@ class AuditRequestClient:
             request_kwargs["max_tokens"] = self.max_tokens
         else:
             request_kwargs["max_completion_tokens"] = self.max_tokens
-            request_kwargs["reasoning_effort"] = self.request_config.reasoning_effort
+            request_kwargs["reasoning_effort"] = (
+                self.request_config.reasoning_effort
+            )
         if self.request_config.temperature is not None:
             request_kwargs["temperature"] = self.request_config.temperature
 
@@ -305,6 +322,7 @@ class AuditRequestClient:
         }
 
     def _call_gemini(self, prompt: str, start: float) -> dict[str, Any]:
+        """Send one prompt through Gemini generateContent."""
         generation_config = {"max_output_tokens": self.max_tokens}
         if self.request_config.temperature is not None:
             generation_config["temperature"] = self.request_config.temperature
@@ -324,7 +342,9 @@ class AuditRequestClient:
                 "name": "google",
                 "endpoint": "models.generate_content",
                 "response_id": getattr(response, "response_id", None),
-                "response_model": getattr(response, "model_version", self.model),
+                "response_model": getattr(
+                    response, "model_version", self.model
+                ),
             },
             "usage": _usage_result(
                 usage,
@@ -335,7 +355,9 @@ class AuditRequestClient:
                     usage, "cached_content_token_count", 0
                 )
                 or 0,
-                reasoning_tokens=getattr(usage, "thoughts_token_count", 0) or 0,
+                reasoning_tokens=(
+                    getattr(usage, "thoughts_token_count", 0) or 0
+                ),
             ),
             "stop_reason": (
                 response.candidates[0].finish_reason.name
