@@ -1,5 +1,6 @@
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,8 @@ from vision_aid.evaluation.audit import (
     AuditExecutionError,
     build_audit_plan,
     execute_audit_run,
+    load_audit_plan,
+    load_verified_audit_plan,
 )
 from vision_aid.evaluation.pricing import PriceSchedule
 from vision_aid.evaluation.schemas import ReferenceSet
@@ -375,6 +378,75 @@ def test_live_execution_revalidates_frozen_evidence_before_requests(
         )
 
     assert client.outcomes == []
+
+
+def test_copied_run_cannot_be_executed_as_a_fresh_destination(
+    tmp_path: Path,
+) -> None:
+    """Copying an unexecuted run cannot create another billable run."""
+    snapshot = tmp_path / "source.html"
+    snapshot.write_text("<html></html>", encoding="utf-8")
+    run_directory = tmp_path / "workspace" / "runs" / "run"
+    build_audit_plan(
+        snapshot,
+        run_directory,
+        maximum_audit_cost_usd="1",
+        reference_set_path=_reference_set_path(run_directory),
+        workbook_sha256="a" * 64,
+        snapshot_sha256=hashlib.sha256(snapshot.read_bytes()).hexdigest(),
+        reference_set_version="references-v1",
+        eligibility_identity=REFERENCE_IDENTITY,
+        pipeline=_fake_pipeline,
+        repository=tmp_path,
+    )
+    copied_run = tmp_path / "other-workspace" / "runs" / "run"
+    shutil.copytree(run_directory, copied_run)
+    client = FakeClient([])
+
+    with pytest.raises(AuditExecutionError, match="live destination"):
+        execute_audit_run(
+            copied_run,
+            live=True,
+            api_key="secret",
+            approval_mode="auto",
+            approved_at=APPROVED_AT,
+            client=client,
+            sleep=lambda _delay: None,
+        )
+
+    assert client.outcomes == []
+
+
+def test_historical_plan_loading_does_not_require_current_execution_inputs(
+    tmp_path: Path,
+) -> None:
+    """Review and reporting can use a run after pricing or snapshot changes."""
+    snapshot = tmp_path / "source.html"
+    snapshot.write_text("<html></html>", encoding="utf-8")
+    run_directory = tmp_path / "run"
+    current_schedule = PriceSchedule.default()
+    historical_schedule = PriceSchedule(
+        data=current_schedule.data,
+        identity="historical-pricing-identity",
+    )
+    build_audit_plan(
+        snapshot,
+        run_directory,
+        maximum_audit_cost_usd="1",
+        reference_set_path=_reference_set_path(run_directory),
+        workbook_sha256="a" * 64,
+        snapshot_sha256=hashlib.sha256(snapshot.read_bytes()).hexdigest(),
+        reference_set_version="references-v1",
+        eligibility_identity=REFERENCE_IDENTITY,
+        pipeline=_fake_pipeline,
+        repository=tmp_path,
+        schedule=historical_schedule,
+    )
+    snapshot.unlink()
+
+    assert load_audit_plan(run_directory)["run_id"] == "run"
+    with pytest.raises(AuditExecutionError):
+        load_verified_audit_plan(run_directory)
 
 
 def test_cost_guard_is_checked_before_each_retry(tmp_path: Path) -> None:

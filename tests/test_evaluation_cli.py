@@ -615,6 +615,15 @@ def test_live_option_combinations_keep_every_spending_gate_mandatory(
 ) -> None:
     """Automation cannot blur planning, live intent, credentials, or cost."""
     run_directory = create_planned_run(tmp_path, monkeypatch, capsys)
+    workspace = PrivateWorkspace.from_evaluation_run(run_directory)
+    existing_runs = {path.name for path in (workspace.root / "runs").iterdir()}
+
+    with pytest.raises(SystemExit):
+        evaluation_main(["audit", "--max-audit-cost-usd", "0"])
+    assert "greater than zero" in capsys.readouterr().err
+    assert {
+        path.name for path in (workspace.root / "runs").iterdir()
+    } == existing_runs
 
     with pytest.raises(SystemExit):
         evaluation_main(["audit", "--auto-approve"])
@@ -831,6 +840,11 @@ def test_cli_completes_the_synthetic_private_workflow(
     assert "fresh evaluation run" in capsys.readouterr().err
     for name, original_bytes in live_artifacts.items():
         assert (run_directory / name).read_bytes() == original_bytes
+
+    snapshot_path = (
+        workspace / "snapshots" / "pristine-homepage" / "source.html"
+    )
+    snapshot_path.unlink()
 
     finding_path = run_directory / "canonical-audit-findings.json"
     review_directory = workspace / "reviews" / run_manifest["run_id"]

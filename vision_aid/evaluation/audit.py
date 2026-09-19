@@ -92,6 +92,11 @@ def _positive_cost(value: str) -> Decimal:
     return cost_limit
 
 
+def normalize_audit_cost(value: str) -> str:
+    """Validate and normalize one planned maximum audit cost."""
+    return format(_positive_cost(value).normalize(), "f")
+
+
 def _recorded_path(path: Path, run_directory: Path) -> str:
     """Prefer a run-relative evidence path while supporting external inputs."""
     resolved = path.resolve()
@@ -146,7 +151,7 @@ def build_audit_plan(
     run_id: str | None = None,
 ) -> dict[str, Any]:
     """Run the existing pipeline dry and freeze the billable intent."""
-    cost_limit = _positive_cost(maximum_audit_cost_usd)
+    normalized_cost = normalize_audit_cost(maximum_audit_cost_usd)
     if _sha256(snapshot_path) != snapshot_sha256:
         raise AuditExecutionError(
             "Benchmark snapshot checksum drift detected before audit planning."
@@ -199,9 +204,7 @@ def build_audit_plan(
         raise AuditExecutionError(
             "Frozen eligibility decisions do not match the plan."
         )
-    resolved_run_id = run_id or (
-        "run-" + json_digest([snapshot_sha256, now])[:16]
-    )
+    resolved_run_id = run_id or output_directory.resolve().name
     raw_programmatic_path = output_directory / "programmatic_findings.json"
     raw_programmatic = json.loads(
         raw_programmatic_path.read_text(encoding="utf-8")
@@ -240,7 +243,8 @@ def build_audit_plan(
         "pricing_version": price_schedule.version,
         "pricing_identity": price_schedule.identity,
         "retry_policy": RETRY_POLICY,
-        "maximum_audit_cost_usd": format(cost_limit.normalize(), "f"),
+        "maximum_audit_cost_usd": normalized_cost,
+        "execution_destination": str(output_directory.resolve()),
         "snapshot_evidence": {
             "path": _recorded_path(snapshot_path, output_directory),
             "sha256": snapshot_sha256,
@@ -279,12 +283,8 @@ def build_audit_plan(
     return plan
 
 
-def load_verified_audit_plan(
-    run_directory: Path,
-    *,
-    schedule: PriceSchedule | None = None,
-) -> dict[str, Any]:
-    """Load an evaluation run and revalidate every frozen plan identity."""
+def load_audit_plan(run_directory: Path) -> dict[str, Any]:
+    """Load one run's immutable plan and self-contained evidence."""
     run_directory = run_directory.resolve()
     plan_path = run_directory / PLAN_FILENAME
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
@@ -295,11 +295,82 @@ def load_verified_audit_plan(
         raise AuditExecutionError(
             "The saved evaluation plan has changed since creation."
         )
+    if plan.get("kind") != "model-evaluation-audit-plan":
+        raise AuditExecutionError("The evaluation run has an invalid plan kind.")
+    if plan.get("run_id") != run_directory.name:
+        raise AuditExecutionError(
+            "The evaluation run identifier does not match its directory. "
+            "Create a fresh evaluation run instead of copying or renaming one."
+        )
+    _positive_cost(str(plan.get("maximum_audit_cost_usd", "")))
+    reference = plan.get("reference_evidence") or {}
+    reference_path = _resolve_recorded_path(
+        str(reference.get("path", "")), run_directory
+    )
+    if (
+        not reference_path.is_file()
+        or _sha256(reference_path) != reference.get("sha256")
+    ):
+        raise AuditExecutionError(
+            "Frozen reference-set bytes differ from the evaluation plan."
+        )
+    reference_set = load_reference_set(reference_path)
+    if (
+        reference_set.workbook_sha256 != plan.get("workbook_sha256")
+        or reference_set.version != plan.get("reference_set_version")
+        or reference_set_identity(reference_set)
+        != plan.get("eligibility_identity")
+    ):
+        raise AuditExecutionError(
+            "Frozen reference-set identities differ from the evaluation plan."
+        )
+    programmatic = plan.get("programmatic_findings") or {}
+    programmatic_path = run_directory / str(programmatic.get("path", ""))
+    if (
+        not programmatic_path.is_file()
+        or _sha256(programmatic_path) != programmatic.get("sha256")
+    ):
+        raise AuditExecutionError(
+            "Programmatic findings differ from the evaluation plan."
+        )
+    return plan
+
+
+def _verified_prompt_text(
+    run_directory: Path,
+    plan: dict[str, Any],
+    prompt: dict[str, Any],
+) -> str:
+    """Load one prompt only when its saved content identity still matches."""
+    name = str(prompt["name"])
+    prompt_path = run_directory / str(prompt["path"])
+    prompt_data = json.loads(prompt_path.read_text(encoding="utf-8"))
+    prompt_text = str(prompt_data["prompt_text"])
+    if (
+        hashlib.sha256(prompt_text.encode()).hexdigest()
+        != plan["prompt_hashes"].get(name)
+    ):
+        raise AuditExecutionError(f"Prompt content drift detected for {name}.")
+    return prompt_text
+
+
+def load_verified_audit_plan(
+    run_directory: Path,
+    *,
+    schedule: PriceSchedule | None = None,
+) -> dict[str, Any]:
+    """Revalidate every point-of-use identity before live execution."""
+    run_directory = run_directory.resolve()
+    plan = load_audit_plan(run_directory)
+    if plan.get("execution_destination") != str(run_directory):
+        raise AuditExecutionError(
+            "The live destination differs from the planned evaluation run. "
+            "Create a fresh evaluation run instead of copying one."
+        )
     if plan.get("configuration") != FROZEN_CONFIGURATION:
         raise AuditExecutionError(
             "The planned configuration is not the frozen Luna POC."
         )
-    _positive_cost(str(plan.get("maximum_audit_cost_usd", "")))
     price_schedule = schedule or PriceSchedule.default()
     if plan.get("pricing_identity") != price_schedule.identity:
         raise AuditExecutionError(
@@ -322,48 +393,8 @@ def load_verified_audit_plan(
         raise AuditExecutionError(
             "Benchmark snapshot identity differs from the evaluation plan."
         )
-    reference = plan.get("reference_evidence") or {}
-    reference_path = _resolve_recorded_path(
-        str(reference.get("path", "")), run_directory
-    )
-    if (
-        not reference_path.is_file()
-        or _sha256(reference_path) != reference.get("sha256")
-    ):
-        raise AuditExecutionError(
-            "Frozen reference-set bytes differ from the evaluation plan."
-        )
-    reference_set = load_reference_set(reference_path)
-    if (
-        reference_set.workbook_sha256 != plan.get("workbook_sha256")
-        or reference_set.version != plan.get("reference_set_version")
-        or reference_set_identity(reference_set)
-        != plan.get("eligibility_identity")
-    ):
-        raise AuditExecutionError(
-            "Frozen reference-set identities differ from the evaluation plan."
-        )
     for prompt in plan.get("prompts", ()):
-        name = str(prompt["name"])
-        prompt_path = run_directory / str(prompt["path"])
-        prompt_data = json.loads(prompt_path.read_text(encoding="utf-8"))
-        prompt_text = str(prompt_data["prompt_text"])
-        if (
-            hashlib.sha256(prompt_text.encode()).hexdigest()
-            != plan["prompt_hashes"].get(name)
-        ):
-            raise AuditExecutionError(
-                f"Prompt content drift detected for {name}."
-            )
-    programmatic = plan.get("programmatic_findings") or {}
-    programmatic_path = run_directory / str(programmatic.get("path", ""))
-    if (
-        not programmatic_path.is_file()
-        or _sha256(programmatic_path) != programmatic.get("sha256")
-    ):
-        raise AuditExecutionError(
-            "Programmatic findings differ from the evaluation plan."
-        )
+        _verified_prompt_text(run_directory, plan, prompt)
     return plan
 
 
@@ -473,17 +504,8 @@ def execute_audit_run(
             complete = False
             incomplete_reason = "audit_cost_limit_exhausted"
             break
-        prompt_path = output_directory / prompt["path"]
-        prompt_data = json.loads(prompt_path.read_text(encoding="utf-8"))
-        prompt_text = str(prompt_data["prompt_text"])
+        prompt_text = _verified_prompt_text(output_directory, plan, prompt)
         name = str(prompt["name"])
-        if (
-            hashlib.sha256(prompt_text.encode()).hexdigest()
-            != plan["prompt_hashes"][name]
-        ):
-            raise AuditExecutionError(
-                f"Prompt content drift detected for {name}."
-            )
         attempts = []
         final_result: dict[str, Any] | None = None
         budget_exhausted = False

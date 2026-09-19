@@ -5,6 +5,7 @@ import json
 import os
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -39,6 +40,15 @@ from vision_aid.evaluation.workspace import (
 )
 
 CommandHandler = Callable[[argparse.Namespace], int]
+
+
+@dataclass(frozen=True)
+class RequiredRunArtifact:
+    """One conventional report input and its optional recovery review kind."""
+
+    label: str
+    path: Path
+    review_kind: str | None = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -283,10 +293,9 @@ def _audit(arguments: argparse.Namespace) -> int:
         ensure_live_destination_available,
         execute_audit_run,
         load_verified_audit_plan,
+        normalize_audit_cost,
     )
 
-    workspace = PrivateWorkspace.from_current_directory()
-    workspace.require_initialized()
     if arguments.auto_approve and not arguments.live:
         raise PrivateInputError("--auto-approve is accepted only with --live.")
     if arguments.live:
@@ -327,6 +336,8 @@ def _audit(arguments: argparse.Namespace) -> int:
         return 0
     if arguments.run_dir is not None:
         raise PrivateInputError("--run-dir is accepted only with --live.")
+    workspace = PrivateWorkspace.from_current_directory()
+    workspace.require_initialized()
     reference_path = workspace.root / "references" / "approved.json"
     snapshot_directory = workspace.root / "snapshots" / "pristine-homepage"
     snapshot_path = snapshot_directory / "source.html"
@@ -352,6 +363,7 @@ def _audit(arguments: argparse.Namespace) -> int:
                 "Audit planning requires --max-audit-cost-usd as a positive "
                 "spending guardrail."
             )
+        maximum_cost = normalize_audit_cost(arguments.max_audit_cost_usd)
         eligibility_identity = reference_set_identity(reference_set)
         run_id, run_directory = workspace.create_evaluation_run()
         frozen_reference_path = run_directory / "reference-set.json"
@@ -359,7 +371,7 @@ def _audit(arguments: argparse.Namespace) -> int:
         plan = build_audit_plan(
             snapshot_path,
             run_directory,
-            maximum_audit_cost_usd=arguments.max_audit_cost_usd,
+            maximum_audit_cost_usd=maximum_cost,
             reference_set_path=frozen_reference_path,
             workbook_sha256=reference_set.workbook_sha256,
             snapshot_sha256=snapshot_metadata["sha256"],
@@ -381,9 +393,9 @@ def _audit(arguments: argparse.Namespace) -> int:
 
 def _review(arguments: argparse.Namespace) -> int:
     """Expose the private review workflow shell."""
-    workspace = PrivateWorkspace.from_current_directory()
-    workspace.require_initialized()
     if arguments.eligibility_workbook:
+        workspace = PrivateWorkspace.from_current_directory()
+        workspace.require_initialized()
         reference_path = arguments.reference_set or (
             workspace.root / "references" / "imported.json"
         )
@@ -411,10 +423,11 @@ def _review(arguments: argparse.Namespace) -> int:
                 "Match review requires --run-dir and --kind "
                 "(audit or programmatic)."
             )
-        from vision_aid.evaluation.audit import load_verified_audit_plan
+        from vision_aid.evaluation.audit import load_audit_plan
 
         run_directory = arguments.run_dir.resolve()
-        plan = load_verified_audit_plan(run_directory)
+        workspace = PrivateWorkspace.from_evaluation_run(run_directory)
+        plan = load_audit_plan(run_directory)
         run_id = str(plan["run_id"])
         review_directory = workspace.root / "reviews" / run_id
         reference_path = arguments.reference_set or (
@@ -447,6 +460,8 @@ def _review(arguments: argparse.Namespace) -> int:
             export_match_workbook(references, findings, workbook_path)
             print(f"Matches review workbook: {workbook_path.resolve()}")
         return 0
+    workspace = PrivateWorkspace.from_current_directory()
+    workspace.require_initialized()
     print(
         f"Private review workspace: {(workspace.root / 'reviews').resolve()}"
     )
@@ -455,41 +470,54 @@ def _review(arguments: argparse.Namespace) -> int:
 
 def _report(arguments: argparse.Namespace) -> int:
     """Discover verified run evidence and write every report projection."""
-    workspace = PrivateWorkspace.from_current_directory()
-    workspace.require_initialized()
-    from vision_aid.evaluation.audit import load_verified_audit_plan
+    from vision_aid.evaluation.audit import load_audit_plan
 
     run_directory = arguments.run_dir.resolve()
-    plan = load_verified_audit_plan(run_directory)
+    workspace = PrivateWorkspace.from_evaluation_run(run_directory)
+    plan = load_audit_plan(run_directory)
     run_id = str(plan["run_id"])
     review_directory = workspace.root / "reviews" / run_id
-    inputs = {
-        "frozen reference set": run_directory / "reference-set.json",
-        "audit findings": run_directory / "canonical-audit-findings.json",
-        "programmatic findings": run_directory / "canonical-programmatic.json",
-        "audit match decisions": (
-            review_directory / "audit-match-decisions.json"
+    artifacts = (
+        RequiredRunArtifact(
+            "frozen reference set", run_directory / "reference-set.json"
         ),
-        "programmatic match decisions": (
-            review_directory / "programmatic-match-decisions.json"
+        RequiredRunArtifact(
+            "audit findings", run_directory / "canonical-audit-findings.json"
         ),
-        "live manifest": run_directory / "live-manifest.json",
-    }
-    for label, path in inputs.items():
-        if path.is_file():
+        RequiredRunArtifact(
+            "programmatic findings",
+            run_directory / "canonical-programmatic.json",
+        ),
+        RequiredRunArtifact(
+            "audit match decisions",
+            review_directory / "audit-match-decisions.json",
+            "audit",
+        ),
+        RequiredRunArtifact(
+            "programmatic match decisions",
+            review_directory / "programmatic-match-decisions.json",
+            "programmatic",
+        ),
+        RequiredRunArtifact(
+            "live manifest", run_directory / "live-manifest.json"
+        ),
+    )
+    for artifact in artifacts:
+        if artifact.path.is_file():
             continue
-        if "match decisions" in label:
-            kind = label.split()[0]
+        if artifact.review_kind is not None:
             raise PrivateInputError(
-                f"Missing {label} at {path}. Run "
+                f"Missing {artifact.label} at {artifact.path}. Run "
                 f"'visionaid-evaluate review --run-dir {run_directory} "
-                f"--kind {kind}', complete the workbook, then rerun with "
+                f"--kind {artifact.review_kind}', complete the workbook, "
+                "then rerun with "
                 "--import-matches."
             )
         raise PrivateInputError(
-            f"Missing {label} at {path}; complete the evaluation run before "
-            "reporting."
+            f"Missing {artifact.label} at {artifact.path}; complete the "
+            "evaluation run before reporting."
         )
+    inputs = {artifact.label: artifact.path for artifact in artifacts}
     reference_set = load_reference_set(inputs["frozen reference set"])
     live_manifest = json.loads(
         inputs["live manifest"].read_text(encoding="utf-8")

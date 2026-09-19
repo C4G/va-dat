@@ -33,6 +33,19 @@ class PrivateWorkspace:
         worktree = find_worktree_root(current_directory)
         return cls((worktree or current_directory) / DEFAULT_WORKSPACE)
 
+    @classmethod
+    def from_evaluation_run(cls, run_directory: Path) -> "PrivateWorkspace":
+        """Recover the private workspace associated with one planned run."""
+        resolved_run = run_directory.resolve()
+        if resolved_run.parent.name != "runs":
+            raise PrivateInputError(
+                f"Evaluation run {resolved_run} is not inside a runs "
+                "partition."
+            )
+        workspace = cls(resolved_run.parent.parent)
+        workspace.require_initialized()
+        return workspace
+
     @property
     def partitions(self) -> tuple[Path, ...]:
         """Return every required private artifact partition."""
