@@ -8,10 +8,7 @@ import json
 import os
 from pathlib import Path
 
-import anthropic
-import openai
 from dotenv import load_dotenv
-from google import genai
 
 # Project root is two levels up from this file (processing_scripts/llm_client/)
 _ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
@@ -81,9 +78,11 @@ class AuditClient:
     ):
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
-            raise EnvironmentError(
+            raise OSError(
                 f"ANTHROPIC_API_KEY not found. Expected in {_ENV_FILE}"
             )
+        import anthropic
+
         self._client = anthropic.Anthropic(api_key=api_key)
         self.model = model
         self.temperature = temperature
@@ -154,9 +153,11 @@ class OpenAIAuditClient:
     ):
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
-            raise EnvironmentError(
+            raise OSError(
                 f"OPENAI_API_KEY not found. Expected in {_ENV_FILE}"
             )
+        import openai
+
         self._client = openai.OpenAI(api_key=api_key)
         self.model = model
         self.temperature = temperature
@@ -223,9 +224,11 @@ class GeminiAuditClient:
     ):
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
-            raise EnvironmentError(
+            raise OSError(
                 f"GEMINI_API_KEY not found. Expected in {_ENV_FILE}"
             )
+        from google import genai
+
         self._client = genai.Client(api_key=api_key)
         self.model = model
         self.temperature = temperature

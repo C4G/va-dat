@@ -276,9 +276,71 @@ The fixed `.model-evaluation/` workspace contains separate `references/`,
 ignore rule.
 
 Run `uv run visionaid-evaluate --help` to discover the `prepare`, `audit`,
-`review`, and `report` workflows. At this bootstrap milestone, `audit` is
-always a network-free dry run—even when an API key is present—and live
-execution is not exposed.
+`review`, and `report` workflows. To import the homepage rows, record the
+authorized workbook checksum and canonical homepage URL. This creates a
+lossless private reference set and an Eligibility workbook:
+
+```bash
+uv run visionaid-evaluate prepare \
+  --workbook-sha256 "$AUTHORIZED_WORKBOOK_SHA256" \
+  --homepage-url "$PRISTINE_HOMEPAGE_URL"
+```
+
+Complete every row in
+`.model-evaluation/reviews/eligibility.xlsx`, including classification,
+decision, rationale, reviewer, confidence, and timestamp, then validate it:
+
+```bash
+uv run visionaid-evaluate review \
+  --eligibility-workbook .model-evaluation/reviews/eligibility.xlsx
+```
+
+Only the four classifications `llm_eligible`, `programmatic`,
+`unavailable_evidence`, and `ambiguous` are accepted. Global rows remain one
+workbook-row scoring unit supported by homepage evidence.
+
+`audit` is network-free by default even if `OPENAI_API_KEY` exists. With an
+approved reference set and benchmark snapshot it runs the production
+extractors, filters, programmatic checks, slicers, and unchanged prompts to
+write an exact Luna dry-run plan:
+
+```bash
+uv run visionaid-evaluate audit
+```
+
+Review the request count, prompt hashes, estimated input usage, model
+configuration, pricing identity, and authorization digest in the printed
+summary. A billable run requires all of the following: `--live`, the exact
+saved plan and digest, `OPENAI_API_KEY`, and a positive cost limit. One
+authorization covers the summarized run and its policy-compliant retries:
+
+```bash
+uv run visionaid-evaluate audit \
+  --live \
+  --plan .model-evaluation/runs/dry-run/evaluation-manifest.json \
+  --authorize "$REVIEWED_AUTHORIZATION_DIGEST" \
+  --max-audit-cost-usd "$APPROVED_LIMIT"
+```
+
+The runner uses `gpt-5.6-luna` through Chat Completions with medium reasoning,
+omits temperature, keeps summaries disabled, and preserves every attempt and
+raw response. It retries only transient timeout, rate-limit, and server
+failures (at most twice). Exhausted failures make a run incomplete and
+unrankable; successful malformed JSON is retained as a format failure and is
+not retried.
+
+Canonical audit findings and programmatic findings are reviewed through a
+private Matches workbook. Accepted matches require compatible page scope,
+underlying failure, and location or element-group evidence; WCAG labels and
+remediation wording are supporting evidence. The scorer is network-free,
+enforces one-to-one matching and all required sub-defects, and emits JSON, CSV,
+and Markdown from one score object.
+
+Workbook-row recall over approved LLM-eligible rows is the primary ranking
+metric. Unrounded estimated audit cost is the only tie-breaker. Programmatic
+and combined coverage, tokens, latency, evaluation cost, unmatched findings,
+and format failures remain informational. The homepage result is illustrative
+and cannot establish broad small-versus-large model equivalence.
 
 ## Running the Web App
 
@@ -318,6 +380,7 @@ everything it does is free:
 
 - `uv.lock` is in sync with `pyproject.toml`, and `requirements.txt` matches the lock
 - entry points import
+- the complete synthetic pytest suite, with no private data or provider calls
 - a full pipeline dry run, asserting prompts generated, findings found, and zero tokens consumed
 - `index.html`'s inline JavaScript parses
 - the Docker image builds, becomes healthy, serves the site, and returns a valid NDJSON audit

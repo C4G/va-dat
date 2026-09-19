@@ -30,5 +30,10 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 
-[tool.setuptools]
-packages = ["vision_aid", "vision_aid.evaluation"]
+[tool.setuptools.packages.find]
+include = ["vision_aid*", "processing_scripts*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+"vision_aid.evaluation" = ["pricing.v1.json"]
+"processing_scripts.llm" = ["*.txt"]
