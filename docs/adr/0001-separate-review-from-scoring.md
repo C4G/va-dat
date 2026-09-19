@@ -1,0 +1,3 @@
+# Separate review from deterministic scoring
+
+The evaluation framework separates eligibility and match review from scoring: `EligibilityReviewer` and `MatchReviewer` produce structured decisions through human-reviewed file adapters initially and optional model-backed adapters later, while the scorer consumes only approved decisions and remains deterministic. This keeps identical normalized inputs exactly reproducible, lets an Astra reviewer replace tedious human review without rewriting import, scoring, or reporting, and allows workbook-derived review artifacts to remain private even though authorized models may process them.
