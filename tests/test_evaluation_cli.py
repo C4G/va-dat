@@ -1,18 +1,22 @@
-import json
 import hashlib
+import json
 import os
 import subprocess
 import sys
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
-from typing import Callable, Iterator
 
-import pytest
 import openpyxl
+import pytest
+
+from vision_aid.evaluation import audit as evaluation_audit
+from vision_aid.evaluation.audit import live_authorization_digest
+from vision_aid.evaluation.cli import main as evaluation_main
 
 PROJECT_ROOT = Path(__file__).parents[1]
 SNAPSHOT_BODY = (
@@ -39,7 +43,7 @@ class SnapshotHTTPServer(ThreadingHTTPServer):
 class SnapshotHandler(BaseHTTPRequestHandler):
     """Return a byte-sensitive local response without external network access."""
 
-    def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
+    def do_GET(self) -> None:
         """Serve the synthetic homepage and record acquisition metadata."""
         server = self.server
         assert isinstance(server, SnapshotHTTPServer)
@@ -252,9 +256,7 @@ def test_prepare_captures_exact_html_with_snapshot_provenance(
         "request_user_agent": "Mozilla/5.0",
         "status_code": 200,
     }
-    retrieved_at = datetime.fromisoformat(
-        metadata["retrieved_at"].replace("Z", "+00:00")
-    )
+    retrieved_at = datetime.fromisoformat(metadata["retrieved_at"])
     assert retrieved_at.tzinfo is not None
 
 
@@ -457,7 +459,11 @@ def test_audit_defaults_to_a_network_free_dry_run_even_with_an_api_key(
     assert "No network requests were made" in result.stdout
 
 
-def test_cli_completes_the_synthetic_private_workflow(tmp_path: Path) -> None:
+def test_cli_completes_the_synthetic_private_workflow(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """Prepare, review, audit, and report compose without provider access."""
     workbook_path = tmp_path / "synthetic.xlsx"
     workbook = openpyxl.Workbook()
@@ -529,83 +535,111 @@ def test_cli_completes_the_synthetic_private_workflow(tmp_path: Path) -> None:
 
     approved_path = workspace / "references" / "approved.json"
     approved = json.loads(approved_path.read_text(encoding="utf-8"))
-    reference_id = approved["references"][0]["reference_id"]
     run_directory = workspace / "runs" / "dry-run"
-    finding_path = run_directory / "synthetic-audit-findings.json"
-    finding_path.write_text(
-        json.dumps(
-            [
-                {
-                    "finding_id": "finding-1",
-                    "source": "audit",
-                    "run_id": "synthetic-run",
-                    "model": "gpt-5.6-luna",
-                    "prompt": "informative_alt_quality",
-                    "checklist": "CL03",
-                    "page_url": "https://example.test/",
-                    "problem_family": "informative_alt_quality",
-                    "problem": "Hero alternative text is misleading",
-                    "element": "img",
-                    "location": "Hero image",
-                    "wcag_evidence": ["1.1.1"],
-                    "raw_source": {"issues": ["Misleading alt"]},
-                    "parse_status": "parsed",
-                }
-            ]
-        ),
-        encoding="utf-8",
-    )
-    empty_findings = run_directory / "empty-findings.json"
-    empty_findings.write_text("[]", encoding="utf-8")
-    audit_matches = run_directory / "audit-matches.json"
-    audit_matches.write_text(
-        json.dumps(
-            [
-                {
-                    "reference_id": reference_id,
-                    "finding_id": "finding-1",
-                    "state": "accepted",
-                    "provenance": {
-                        "reviewer": "reviewer@example.test",
-                        "rationale": "Same failure and hero image.",
-                        "confidence": 0.9,
-                        "timestamp": "2026-09-19T12:30:00Z",
-                    },
-                    "required_subdefect": None,
-                    "page_compatible": True,
-                    "failure_compatible": True,
-                    "location_compatible": True,
-                    "notes": "",
-                }
-            ]
-        ),
-        encoding="utf-8",
-    )
-    empty_matches = run_directory / "empty-matches.json"
-    empty_matches.write_text("[]", encoding="utf-8")
     plan_path = run_directory / "evaluation-manifest.json"
     run_manifest = json.loads(plan_path.read_text(encoding="utf-8"))
-    run_manifest.update(
-        {
-            "complete": True,
-            "estimated_audit_cost_usd": "0.001",
-            "usage": {"input_tokens": 10, "output_tokens": 5},
-            "wall_time_seconds": 1.5,
-            "request_durations_seconds": [1.0],
-        }
+
+    class SyntheticClient:
+        """Return deterministic successful responses without network access."""
+
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def call(self, _prompt: str) -> dict[str, object]:
+            return {
+                "success": True,
+                "response": json.dumps(
+                    {
+                        "problem": "Hero alternative text is misleading",
+                        "element": "img",
+                        "location": "Hero image",
+                        "wcag": "1.1.1",
+                    }
+                ),
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+                "duration_seconds": 0.01,
+                "stop_reason": "stop",
+            }
+
+    maximum_cost = "0.01"
+    authorization = live_authorization_digest(
+        run_manifest["plan_digest"], maximum_cost
     )
-    synthetic_manifest = run_directory / "synthetic-live-manifest.json"
-    synthetic_manifest.write_text(json.dumps(run_manifest), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-key")
+    monkeypatch.setattr(evaluation_audit, "AuditRequestClient", SyntheticClient)
+    assert (
+        evaluation_main(
+            [
+                "audit",
+                "--live",
+                "--plan",
+                str(plan_path),
+                "--authorize",
+                authorization,
+                "--max-audit-cost-usd",
+                maximum_cost,
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    finding_path = run_directory / "canonical-audit-findings.json"
+    matches_workbook = workspace / "reviews" / "matches.xlsx"
+    generated = run_cli(
+        "review",
+        "--reference-set",
+        str(approved_path),
+        "--findings",
+        str(finding_path),
+        "--matches-workbook",
+        str(matches_workbook),
+        cwd=tmp_path,
+    )
+    assert generated.returncode == 0, generated.stderr
+    match_review = openpyxl.load_workbook(matches_workbook)
+    matches = match_review["Matches"]
+    match_columns = {cell.value: cell.column for cell in matches[1]}
+    for row in range(2, matches.max_row + 1):
+        values = {
+            "decision": "accepted" if row == 2 else "rejected",
+            "page_compatible": True,
+            "failure_compatible": True,
+            "location_compatible": True,
+            "rationale": "Same reviewed homepage evidence.",
+            "reviewer": "reviewer@example.test",
+            "confidence": 0.9,
+            "timestamp": "2026-09-19T12:30:00Z",
+        }
+        for name, value in values.items():
+            matches.cell(row, match_columns[name], value)
+    match_review.save(matches_workbook)
+    imported = run_cli(
+        "review",
+        "--reference-set",
+        str(approved_path),
+        "--findings",
+        str(finding_path),
+        "--matches-workbook",
+        str(matches_workbook),
+        "--import-matches",
+        cwd=tmp_path,
+    )
+    assert imported.returncode == 0, imported.stderr
+
+    empty_matches = run_directory / "empty-matches.json"
+    empty_matches.write_text("[]", encoding="utf-8")
     bundle_path = workspace / "synthetic-bundle.json"
     bundle_path.write_text(
         json.dumps(
             {
                 "reference_set": "references/approved.json",
-                "audit_findings": "runs/dry-run/synthetic-audit-findings.json",
-                "programmatic_findings": "runs/dry-run/empty-findings.json",
-                "audit_matches": "runs/dry-run/audit-matches.json",
+                "audit_findings": "runs/dry-run/canonical-audit-findings.json",
+                "programmatic_findings": "runs/dry-run/canonical-programmatic.json",
+                "audit_matches": "reviews/match-decisions.json",
                 "programmatic_matches": "runs/dry-run/empty-matches.json",
-                "run_manifest": "runs/dry-run/synthetic-live-manifest.json",
+                "run_manifest": "runs/dry-run/live-manifest.json",
             }
         ),
         encoding="utf-8",
@@ -615,3 +649,22 @@ def test_cli_completes_the_synthetic_private_workflow(tmp_path: Path) -> None:
 
     assert reported.returncode == 0, reported.stderr
     assert (workspace / "reports" / f"{run_manifest['run_id']}.json").is_file()
+
+    findings = json.loads(finding_path.read_text(encoding="utf-8"))
+    findings[0]["run_id"] = "different-run"
+    finding_path.write_text(json.dumps(findings), encoding="utf-8")
+    rejected_finding = run_cli(
+        "report", "--bundle", str(bundle_path), cwd=tmp_path
+    )
+    assert rejected_finding.returncode == 2
+    assert "do not belong to the verified run" in rejected_finding.stderr
+
+    findings[0]["run_id"] = run_manifest["run_id"]
+    finding_path.write_text(json.dumps(findings), encoding="utf-8")
+    approved["references"][0]["eligibility_review"]["rationale"] = "Changed"
+    approved_path.write_text(json.dumps(approved), encoding="utf-8")
+    rejected_eligibility = run_cli(
+        "report", "--bundle", str(bundle_path), cwd=tmp_path
+    )
+    assert rejected_eligibility.returncode == 2
+    assert "eligibility decisions" in rejected_eligibility.stderr

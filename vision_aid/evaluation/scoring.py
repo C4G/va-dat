@@ -114,6 +114,33 @@ def score_evaluation(
     parse_failures: Sequence[str] = (),
 ) -> EvaluationScore:
     """Calculate binary workbook-row credit from approved normalized inputs."""
+    invalid_audit_findings = [
+        item.finding_id
+        for item in audit_findings
+        if item.source != "audit"
+        or item.run_id != run.run_id
+        or item.model != run.model
+        or (run.homepage_url and item.page_url != run.homepage_url)
+        or (run.prompt_names and item.prompt not in run.prompt_names)
+    ]
+    if invalid_audit_findings:
+        raise ValueError(
+            "Audit findings do not belong to the verified run: "
+            + ", ".join(invalid_audit_findings)
+        )
+    invalid_programmatic_findings = [
+        item.finding_id
+        for item in programmatic_findings
+        if item.source != "programmatic"
+        or item.run_id != run.run_id
+        or item.model is not None
+        or (run.homepage_url and item.page_url != run.homepage_url)
+    ]
+    if invalid_programmatic_findings:
+        raise ValueError(
+            "Programmatic findings do not belong to the verified run: "
+            + ", ".join(invalid_programmatic_findings)
+        )
     unapproved = [
         item.reference_id
         for item in reference_set.references

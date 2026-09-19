@@ -39,6 +39,11 @@ def json_digest(value: object) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def reference_set_identity(reference_set: ReferenceSet) -> str:
+    """Hash all approved reference and eligibility decision content."""
+    return json_digest(reference_set.to_dict())
+
+
 def save_reference_set(path: Path, reference_set: ReferenceSet) -> None:
     """Persist a canonical reference set."""
     write_json(path, reference_set.to_dict())
@@ -147,6 +152,11 @@ def load_verified_run_metadata(
         raise ValueError(
             "Run manifest reference-set version does not match references."
         )
+    expected_eligibility = reference_set_identity(reference_set)
+    if manifest["eligibility_identity"] != expected_eligibility:
+        raise ValueError(
+            "Run manifest eligibility decisions do not match references."
+        )
     usage_value = manifest.get("usage", {})
     usage = Usage(
         **{
@@ -185,4 +195,6 @@ def load_verified_run_metadata(
                 "filters": manifest["filters"],
             }
         ),
+        homepage_url=str(manifest["homepage_url"]),
+        prompt_names=tuple(item["name"] for item in manifest["prompts"]),
     )

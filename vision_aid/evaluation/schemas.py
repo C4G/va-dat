@@ -127,3 +127,5 @@ class RunMetadata:
     parser_identity: str = ""
     eligibility_identity: str = ""
     configuration_identity: str = ""
+    homepage_url: str = ""
+    prompt_names: tuple[str, ...] = ()

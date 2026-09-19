@@ -288,12 +288,22 @@ def test_equal_recall_is_ranked_only_by_unrounded_audit_cost() -> None:
         eligibility_identity="eligibility-v1",
         configuration_identity="configuration-v1",
     )
+    expensive_finding = replace(
+        finding,
+        run_id=base_run.run_id,
+        model=base_run.model,
+    )
     expensive = score_evaluation(
-        references, (finding,), (), (_match("ref1", "finding1"),), (), base_run
+        references,
+        (expensive_finding,),
+        (),
+        (_match("ref1", "finding1"),),
+        (),
+        base_run,
     )
     cheap = score_evaluation(
         references,
-        (replace(finding, run_id="cheap"),),
+        (replace(finding, run_id="cheap", model="model-cheap"),),
         (),
         (_match("ref1", "finding1"),),
         (),
@@ -313,7 +323,7 @@ def test_equal_recall_is_ranked_only_by_unrounded_audit_cost() -> None:
 
     incompatible = score_evaluation(
         replace(references, version="v2"),
-        (finding,),
+        (replace(finding, run_id="incompatible", model="other"),),
         (),
         (_match("ref1", "finding1"),),
         (),
@@ -342,7 +352,13 @@ def test_equal_recall_is_ranked_only_by_unrounded_audit_cost() -> None:
         )
         changed = score_evaluation(
             references,
-            (finding,),
+            (
+                replace(
+                    finding,
+                    run_id=changed_run.run_id,
+                    model=changed_run.model,
+                ),
+            ),
             (),
             (_match("ref1", "finding1"),),
             (),

@@ -1,7 +1,6 @@
 """Command-line shell for the private model-evaluation lifecycle."""
 
 import argparse
-import hashlib
 import json
 import os
 from collections.abc import Callable, Sequence
@@ -25,6 +24,7 @@ from vision_aid.evaluation.serialization import (
     load_match_decisions,
     load_reference_set,
     load_verified_run_metadata,
+    reference_set_identity,
     save_match_decisions,
     save_reference_set,
 )
@@ -255,9 +255,7 @@ def _audit(arguments: argparse.Namespace) -> int:
         snapshot_metadata = json.loads(
             metadata_path.read_text(encoding="utf-8")
         )
-        eligibility_identity = hashlib.sha256(
-            reference_path.read_bytes()
-        ).hexdigest()
+        eligibility_identity = reference_set_identity(reference_set)
         run_directory = (
             arguments.run_dir or workspace.root / "runs" / "dry-run"
         )
