@@ -11,12 +11,17 @@ from vision_aid.evaluation.normalization import (
 
 @pytest.mark.parametrize(
     "prompt_name,output_type",
-    [(spec.name, spec.output_type) for spec in PROMPT_REGISTRY if not spec.is_summary],
+    [
+        (spec.name, spec.output_type)
+        for spec in PROMPT_REGISTRY
+        if not spec.is_summary
+    ],
 )
 def test_every_active_prompt_has_a_lossless_normalizer(
     prompt_name: str,
     output_type: str,
 ) -> None:
+    """Every active prompt can emit a canonical evidence-preserving finding."""
     item = {
         "problem": "Synthetic accessibility failure",
         "location": "hero image",
@@ -44,7 +49,8 @@ def test_every_active_prompt_has_a_lossless_normalizer(
     assert finding.wcag_evidence == ("1.1.1",)
 
 
-def test_normalization_records_fenced_empty_malformed_and_unknown_responses() -> None:
+def test_normalization_records_nonstandard_responses() -> None:
+    """All structured-output outcomes remain explicit and deterministic."""
     fenced = normalize_prompt_response(
         "link_clarity",
         '```json\n[{"issue": "Unclear link", "text": "Read more"}]\n```',
@@ -83,6 +89,7 @@ def test_normalization_records_fenced_empty_malformed_and_unknown_responses() ->
 
 
 def test_programmatic_normalization_retains_rule_and_raw_source() -> None:
+    """Programmatic records keep their checker identity and raw evidence."""
     raw = {
         "rule_id": "HEAD_002",
         "message": "Multiple H1 elements",
@@ -100,3 +107,27 @@ def test_programmatic_normalization_retains_rule_and_raw_source() -> None:
     assert findings[0].source == "programmatic"
     assert findings[0].problem_family == "HEAD_002"
     assert findings[0].raw_source == raw
+
+
+def test_normalization_emits_only_failures_from_assessment_responses() -> None:
+    """Compliant assessments stay observable without becoming findings."""
+    clear_link = normalize_prompt_response(
+        "link_clarity",
+        '[{"text":"Donate","is_clear":true,"issues":[]}]',
+        run_id="run-1",
+        model="gpt-5.6-luna",
+        page_url="https://example.test/",
+    )
+    table_failure = normalize_prompt_response(
+        "table_semantics",
+        '{"is_data_table":true,"caption_clear":false,'
+        '"issues":["Vague caption"]}',
+        run_id="run-1",
+        model="gpt-5.6-luna",
+        page_url="https://example.test/",
+    )
+
+    assert clear_link.parse_status == "empty"
+    assert clear_link.findings == ()
+    assert table_failure.parse_status == "parsed"
+    assert table_failure.findings[0].problem == "Vague caption"

@@ -103,7 +103,8 @@ class AuditClient:
         usage : dict
             ``{"input_tokens": int, "output_tokens": int}``
         """
-        filled = prompt_text.replace("{payload}", json.dumps(payload, separators=(",", ":")))
+        serialized_payload = json.dumps(payload, separators=(",", ":"))
+        filled = prompt_text.replace("{payload}", serialized_payload)
 
         request_kwargs = {
             "model": self.model,
@@ -175,7 +176,8 @@ class OpenAIAuditClient:
         usage : dict
             ``{"input_tokens": int, "output_tokens": int}``
         """
-        filled = prompt_text.replace("{payload}", json.dumps(payload, separators=(",", ":")))
+        serialized_payload = json.dumps(payload, separators=(",", ":"))
+        filled = prompt_text.replace("{payload}", serialized_payload)
 
         response = self._client.chat.completions.create(
             model=self.model,
@@ -246,7 +248,8 @@ class GeminiAuditClient:
         usage : dict
             ``{"input_tokens": int, "output_tokens": int}``
         """
-        filled = prompt_text.replace("{payload}", json.dumps(payload, separators=(",", ":")))
+        serialized_payload = json.dumps(payload, separators=(",", ":"))
+        filled = prompt_text.replace("{payload}", serialized_payload)
 
         response = self._client.models.generate_content(
             model=self.model,
@@ -279,7 +282,19 @@ def create_audit_client(
 ) -> AuditClient | OpenAIAuditClient | GeminiAuditClient:
     """Factory that returns the right client class based on the model ID."""
     if is_openai_model(model):
-        return OpenAIAuditClient(model=model, temperature=temperature, max_tokens=max_tokens)
+        return OpenAIAuditClient(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
     if is_gemini_model(model):
-        return GeminiAuditClient(model=model, temperature=temperature, max_tokens=max_tokens)
-    return AuditClient(model=model, temperature=temperature, max_tokens=max_tokens)
+        return GeminiAuditClient(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    return AuditClient(
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )

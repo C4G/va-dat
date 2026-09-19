@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -11,16 +12,17 @@ from threading import Thread
 from typing import Callable, Iterator
 
 import pytest
+import openpyxl
 
 PROJECT_ROOT = Path(__file__).parents[1]
 SNAPSHOT_BODY = (
     b'<!doctype html>\r\n<html lang="en"><head><title>Pristine</title></head>'
     b"<body>caf\xc3\xa9</body></html>\r\n"
 )
-SNAPSHOT_SHA256 = "aadf66066b05d9c8d8268ba7e28ebcef8a2ed81f672fc2e2285d9236be00e89d"
-TEMPORAL_ASSUMPTION = (
-    "Stakeholders report that the homepage has not changed since the workbook audit."
+SNAPSHOT_SHA256 = (
+    "aadf66066b05d9c8d8268ba7e28ebcef8a2ed81f672fc2e2285d9236be00e89d"
 )
+TEMPORAL_ASSUMPTION = "Stakeholders report that the homepage has not changed since the workbook audit."
 
 
 class SnapshotHTTPServer(ThreadingHTTPServer):
@@ -366,7 +368,10 @@ def test_prepare_publishes_the_snapshot_as_one_immutable_bundle(
             encoding="utf-8",
         )
 
-    with local_snapshot_server(publish_competing_snapshot) as (source_url, _server):
+    with local_snapshot_server(publish_competing_snapshot) as (
+        source_url,
+        _server,
+    ):
         result = run_cli(
             "prepare",
             "--workbook",
@@ -380,7 +385,9 @@ def test_prepare_publishes_the_snapshot_as_one_immutable_bundle(
 
     assert result.returncode == 2
     assert "appeared during capture" in result.stderr
-    assert [path.name for path in snapshot_directory.iterdir()] == ["race-marker"]
+    assert [path.name for path in snapshot_directory.iterdir()] == [
+        "race-marker"
+    ]
 
 
 def test_prepare_rejects_the_dat_vision_aid_fixture_as_a_snapshot(
@@ -400,10 +407,15 @@ def test_prepare_rejects_the_dat_vision_aid_fixture_as_a_snapshot(
     )
 
     assert result.returncode == 2
-    assert "DAT Vision Aid fixture is not a Pristine benchmark input" in result.stderr
+    assert (
+        "DAT Vision Aid fixture is not a Pristine benchmark input"
+        in result.stderr
+    )
 
 
-@pytest.mark.parametrize("api_key_name", ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"])
+@pytest.mark.parametrize(
+    "api_key_name", ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
+)
 def test_audit_defaults_to_a_network_free_dry_run_even_with_an_api_key(
     tmp_path: Path,
     synthetic_workbook: Path,
@@ -440,3 +452,163 @@ def test_audit_defaults_to_a_network_free_dry_run_even_with_an_api_key(
     assert result.returncode == 0, result.stderr
     assert "DRY RUN" in result.stdout
     assert "No network requests were made" in result.stdout
+
+
+def test_cli_completes_the_synthetic_private_workflow(tmp_path: Path) -> None:
+    """Prepare, review, audit, and report compose without provider access."""
+    workbook_path = tmp_path / "synthetic.xlsx"
+    workbook = openpyxl.Workbook()
+    source = workbook.active
+    source.title = "Defects"
+    source.append(["Page", "URL", "Problem", "Location", "WCAG"])
+    source.append(
+        [
+            "Home",
+            "https://example.test/",
+            "Hero alternative text is misleading",
+            "Hero image",
+            "1.1.1",
+        ]
+    )
+    workbook.save(workbook_path)
+    workbook_sha256 = hashlib.sha256(workbook_path.read_bytes()).hexdigest()
+
+    with local_snapshot_server() as (source_url, _server):
+        prepared = run_cli(
+            "prepare",
+            "--workbook",
+            str(workbook_path),
+            "--workbook-sha256",
+            workbook_sha256,
+            "--homepage-url",
+            "https://example.test/",
+            "--snapshot-url",
+            source_url,
+            "--temporal-assumption",
+            TEMPORAL_ASSUMPTION,
+            cwd=tmp_path,
+        )
+    assert prepared.returncode == 0, prepared.stderr
+
+    workspace = tmp_path / ".model-evaluation"
+    eligibility_path = workspace / "reviews" / "eligibility.xlsx"
+    review = openpyxl.load_workbook(eligibility_path)
+    eligibility = review["Eligibility"]
+    columns = {cell.value: cell.column for cell in eligibility[1]}
+    for name, value in {
+        "classification": "llm_eligible",
+        "decision": "accepted",
+        "rationale": "The model receives the image context.",
+        "reviewer": "reviewer@example.test",
+        "confidence": 0.9,
+        "timestamp": "2026-09-19T12:00:00Z",
+    }.items():
+        eligibility.cell(2, columns[name], value)
+    review.save(eligibility_path)
+
+    reviewed = run_cli(
+        "review",
+        "--eligibility-workbook",
+        str(eligibility_path),
+        cwd=tmp_path,
+    )
+    assert reviewed.returncode == 0, reviewed.stderr
+
+    planned = run_cli(
+        "audit",
+        "--max-audit-cost-usd",
+        "0.01",
+        cwd=tmp_path,
+    )
+    assert planned.returncode == 0, planned.stderr
+    assert "DRY RUN" in planned.stdout
+    assert "Live authorization digest" in planned.stdout
+
+    approved_path = workspace / "references" / "approved.json"
+    approved = json.loads(approved_path.read_text(encoding="utf-8"))
+    reference_id = approved["references"][0]["reference_id"]
+    run_directory = workspace / "runs" / "dry-run"
+    finding_path = run_directory / "synthetic-audit-findings.json"
+    finding_path.write_text(
+        json.dumps(
+            [
+                {
+                    "finding_id": "finding-1",
+                    "source": "audit",
+                    "run_id": "synthetic-run",
+                    "model": "gpt-5.6-luna",
+                    "prompt": "informative_alt_quality",
+                    "checklist": "CL03",
+                    "page_url": "https://example.test/",
+                    "problem_family": "informative_alt_quality",
+                    "problem": "Hero alternative text is misleading",
+                    "element": "img",
+                    "location": "Hero image",
+                    "wcag_evidence": ["1.1.1"],
+                    "raw_source": {"issues": ["Misleading alt"]},
+                    "parse_status": "parsed",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    empty_findings = run_directory / "empty-findings.json"
+    empty_findings.write_text("[]", encoding="utf-8")
+    audit_matches = run_directory / "audit-matches.json"
+    audit_matches.write_text(
+        json.dumps(
+            [
+                {
+                    "reference_id": reference_id,
+                    "finding_id": "finding-1",
+                    "state": "accepted",
+                    "provenance": {
+                        "reviewer": "reviewer@example.test",
+                        "rationale": "Same failure and hero image.",
+                        "confidence": 0.9,
+                        "timestamp": "2026-09-19T12:30:00Z",
+                    },
+                    "required_subdefect": None,
+                    "page_compatible": True,
+                    "failure_compatible": True,
+                    "location_compatible": True,
+                    "notes": "",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    empty_matches = run_directory / "empty-matches.json"
+    empty_matches.write_text("[]", encoding="utf-8")
+    plan_path = run_directory / "evaluation-manifest.json"
+    run_manifest = json.loads(plan_path.read_text(encoding="utf-8"))
+    run_manifest.update(
+        {
+            "complete": True,
+            "estimated_audit_cost_usd": "0.001",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+            "wall_time_seconds": 1.5,
+            "request_durations_seconds": [1.0],
+        }
+    )
+    synthetic_manifest = run_directory / "synthetic-live-manifest.json"
+    synthetic_manifest.write_text(json.dumps(run_manifest), encoding="utf-8")
+    bundle_path = workspace / "synthetic-bundle.json"
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "reference_set": "references/approved.json",
+                "audit_findings": "runs/dry-run/synthetic-audit-findings.json",
+                "programmatic_findings": "runs/dry-run/empty-findings.json",
+                "audit_matches": "runs/dry-run/audit-matches.json",
+                "programmatic_matches": "runs/dry-run/empty-matches.json",
+                "run_manifest": "runs/dry-run/synthetic-live-manifest.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    reported = run_cli("report", "--bundle", str(bundle_path), cwd=tmp_path)
+
+    assert reported.returncode == 0, reported.stderr
+    assert (workspace / "reports" / f"{run_manifest['run_id']}.json").is_file()

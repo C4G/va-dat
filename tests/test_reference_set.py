@@ -13,15 +13,21 @@ from vision_aid.evaluation.references import (
 
 
 def _write_workbook(path: Path) -> str:
+    """Write a synthetic multi-scope workbook and return its checksum."""
     workbook = openpyxl.Workbook()
     sheet = workbook.active
     sheet.title = "Defects"
-    sheet.append(["Page", "URL", "Problem", "Location", "WCAG", "Recommendation"])
+    sheet.append(
+        ["Page", "URL", "Problem", "Location", "WCAG", "Recommendation"]
+    )
     sheet.append(
         [
             "Home",
             "https://example.test/",
-            "Decorative image has descriptive alt text\n(second line retained)",
+            (
+                "Decorative image has descriptive alt text\n"
+                "(second line retained)"
+            ),
             "Hero image",
             "1.1.1",
             "Use empty alternative text",
@@ -54,6 +60,7 @@ def _write_workbook(path: Path) -> str:
 def test_import_homepage_references_retains_every_home_and_global_source_row(
     tmp_path: Path,
 ) -> None:
+    """Home and Global imports remain lossless and source-addressed."""
     workbook_path = tmp_path / "synthetic.xlsx"
     checksum = _write_workbook(workbook_path)
 
@@ -65,7 +72,8 @@ def test_import_homepage_references_retains_every_home_and_global_source_row(
     )
 
     assert [
-        (item.source_sheet, item.source_row) for item in reference_set.references
+        (item.source_sheet, item.source_row)
+        for item in reference_set.references
     ] == [
         ("Defects", 2),
         ("Defects", 3),
@@ -89,6 +97,7 @@ def test_import_homepage_references_retains_every_home_and_global_source_row(
 def test_human_eligibility_review_round_trips_validated_provenance(
     tmp_path: Path,
 ) -> None:
+    """Eligibility decisions validate and retain human provenance."""
     workbook_path = tmp_path / "synthetic.xlsx"
     checksum = _write_workbook(workbook_path)
     reference_set = import_homepage_references(
@@ -107,7 +116,9 @@ def test_human_eligibility_review_round_trips_validated_provenance(
         ("llm_eligible", "accepted", "Human judgment is required."),
         ("programmatic", "accepted", "A deterministic rule owns this defect."),
     ]
-    for row, (classification, state, rationale) in enumerate(decisions, start=2):
+    for row, (classification, state, rationale) in enumerate(
+        decisions, start=2
+    ):
         sheet.cell(row, headings["classification"], classification)
         sheet.cell(row, headings["decision"], state)
         sheet.cell(row, headings["rationale"], rationale)

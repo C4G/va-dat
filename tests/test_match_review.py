@@ -11,6 +11,7 @@ from vision_aid.evaluation.schemas import CanonicalFinding, ReferenceDefect
 
 
 def _reference(identifier: str, scope: str = "home") -> ReferenceDefect:
+    """Build one synthetic image reference defect."""
     return ReferenceDefect(
         reference_id=identifier,
         workbook_filename="synthetic.xlsx",
@@ -26,7 +27,10 @@ def _reference(identifier: str, scope: str = "home") -> ReferenceDefect:
     )
 
 
-def _finding(identifier: str, page: str = "https://example.test/") -> CanonicalFinding:
+def _finding(
+    identifier: str, page: str = "https://example.test/"
+) -> CanonicalFinding:
+    """Build one synthetic canonical audit finding."""
     return CanonicalFinding(
         finding_id=identifier,
         source="audit",
@@ -46,12 +50,15 @@ def _finding(identifier: str, page: str = "https://example.test/") -> CanonicalF
 
 
 def test_candidate_generation_only_removes_hard_incompatibilities() -> None:
+    """Global evidence remains eligible while different Home pages do not."""
     home = _reference("home")
     global_reference = _reference("global", "global")
     same_page = _finding("same")
     other_page = _finding("other", "https://example.test/contact")
 
-    candidates = generate_candidates((home, global_reference), (same_page, other_page))
+    candidates = generate_candidates(
+        (home, global_reference), (same_page, other_page)
+    )
 
     assert ("home", "same") in candidates
     assert ("home", "other") not in candidates
@@ -59,7 +66,10 @@ def test_candidate_generation_only_removes_hard_incompatibilities() -> None:
     assert ("global", "other") in candidates
 
 
-def test_human_match_review_round_trips_side_by_side_evidence(tmp_path: Path) -> None:
+def test_human_match_review_round_trips_side_by_side_evidence(
+    tmp_path: Path,
+) -> None:
+    """The Matches workbook returns provenance-complete decisions."""
     references = (_reference("ref1"),)
     findings = (_finding("finding1"),)
     review_path = tmp_path / "matches.xlsx"

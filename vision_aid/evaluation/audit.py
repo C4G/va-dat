@@ -13,12 +13,16 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Protocol
 
-from processing_scripts.llm_client.audit import AuditRequestClient, AuditRequestConfig
+from processing_scripts.llm_client.audit import (
+    AuditRequestClient,
+    AuditRequestConfig,
+)
 from vision_aid.evaluation.normalization import (
     normalize_programmatic_findings,
     normalize_prompt_response,
 )
 from vision_aid.evaluation.pricing import PriceSchedule
+from vision_aid.evaluation.serialization import json_digest, write_json
 
 MODEL = "gpt-5.6-luna"
 REQUEST_CONFIG = AuditRequestConfig(
@@ -49,20 +53,12 @@ Pipeline = Callable[..., dict[str, Any]]
 
 
 def _sha256(path: Path) -> str:
+    """Hash one artifact without transforming its bytes."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _json_digest(value: object) -> str:
-    encoded = json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    ).encode()
-    return hashlib.sha256(encoded).hexdigest()
-
-
 def _repository_state(repository: Path) -> dict[str, Any]:
+    """Return the source-control commit and dirty state when available."""
     try:
         commit = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -136,24 +132,22 @@ def build_audit_plan(
     price_schedule = schedule or PriceSchedule.default()
     parser_path = Path(__file__).with_name("normalization.py")
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-    run_id = "dry-" + _json_digest([snapshot_sha256, now])[:16]
+    run_id = "dry-" + json_digest([snapshot_sha256, now])[:16]
     raw_programmatic_path = output_directory / "programmatic_findings.json"
-    raw_programmatic = json.loads(raw_programmatic_path.read_text(encoding="utf-8"))
+    raw_programmatic = json.loads(
+        raw_programmatic_path.read_text(encoding="utf-8")
+    )
     canonical_programmatic = normalize_programmatic_findings(
         raw_programmatic,
         run_id=run_id,
         page_url=homepage_url,
     )
-    canonical_programmatic_path = output_directory / "canonical-programmatic.json"
-    canonical_programmatic_path.write_text(
-        json.dumps(
-            [asdict(item) for item in canonical_programmatic],
-            indent=2,
-            sort_keys=True,
-            ensure_ascii=False,
-        )
-        + "\n",
-        encoding="utf-8",
+    canonical_programmatic_path = (
+        output_directory / "canonical-programmatic.json"
+    )
+    write_json(
+        canonical_programmatic_path,
+        [asdict(item) for item in canonical_programmatic],
     )
     plan: dict[str, Any] = {
         "kind": "model-evaluation-audit-plan",
@@ -188,11 +182,13 @@ def build_audit_plan(
         "repository": _repository_state(repository or Path.cwd()),
         "programmatic_findings": {
             "count": len(canonical_programmatic),
-            "path": str(canonical_programmatic_path.relative_to(output_directory)),
+            "path": str(
+                canonical_programmatic_path.relative_to(output_directory)
+            ),
             "sha256": _sha256(canonical_programmatic_path),
         },
     }
-    plan["benchmark_identity"] = _json_digest(
+    plan["benchmark_identity"] = json_digest(
         {
             key: plan[key]
             for key in (
@@ -208,15 +204,21 @@ def build_audit_plan(
             )
         }
     )
-    plan["authorization_digest"] = _json_digest(plan)
-    (output_directory / "evaluation-manifest.json").write_text(
-        json.dumps(plan, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    plan["plan_digest"] = json_digest(plan)
+    write_json(output_directory / "evaluation-manifest.json", plan)
     return plan
 
 
+def live_authorization_digest(plan_digest: str, maximum_cost_usd: str) -> str:
+    """Bind one explicit authorization to a plan and cost guardrail."""
+    cost = format(Decimal(maximum_cost_usd).normalize(), "f")
+    return json_digest(
+        {"plan_digest": plan_digest, "maximum_audit_cost_usd": cost}
+    )
+
+
 def _failure_classification(result: dict[str, Any]) -> str:
+    """Classify a provider failure for the bounded retry policy."""
     failure = result.get("failure") or {}
     status = failure.get("status_code")
     failure_type = str(failure.get("type") or "").casefold()
@@ -230,7 +232,11 @@ def _failure_classification(result: dict[str, Any]) -> str:
         return "timeout"
     if isinstance(status, int) and status >= 500:
         return "server_error"
-    if status in {401, 403} or "auth" in failure_type or "permission" in failure_type:
+    if (
+        status in {401, 403}
+        or "auth" in failure_type
+        or "permission" in failure_type
+    ):
         return "authentication"
     if isinstance(status, int) and 400 <= status < 500:
         return "invalid_request"
@@ -238,6 +244,7 @@ def _failure_classification(result: dict[str, Any]) -> str:
 
 
 def _empty_usage() -> dict[str, int]:
+    """Create the token-category accumulator used across attempts."""
     return {
         "input_tokens": 0,
         "cached_input_tokens": 0,
@@ -248,6 +255,7 @@ def _empty_usage() -> dict[str, int]:
 
 
 def _add_usage(total: dict[str, int], result: dict[str, Any]) -> None:
+    """Add API-reported categories from one possibly billed attempt."""
     usage = result.get("usage") or {}
     for key in total:
         total[key] += int(usage.get(key, 0) or 0)
@@ -264,14 +272,17 @@ def execute_authorized_audit(
     schedule: PriceSchedule | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
-    """Execute the exact reviewed plan only after every spending gate passes."""
+    """Execute an exact reviewed plan after every spending gate passes."""
     if not live:
-        raise AuditExecutionError("Live execution requires the explicit --live flag.")
+        raise AuditExecutionError(
+            "Live execution requires the explicit --live flag."
+        )
     if not api_key:
         raise AuditExecutionError("Live execution requires OPENAI_API_KEY.")
     if max_audit_cost_usd is None:
         raise AuditExecutionError(
-            "Live execution requires --max-audit-cost-usd as a spending guardrail."
+            "Live execution requires --max-audit-cost-usd as a spending "
+            "guardrail."
         )
     try:
         cost_limit = Decimal(max_audit_cost_usd)
@@ -280,18 +291,25 @@ def execute_authorized_audit(
             "The audit cost limit must be a decimal amount."
         ) from error
     if cost_limit <= 0:
-        raise AuditExecutionError("The audit cost limit must be greater than zero.")
+        raise AuditExecutionError(
+            "The audit cost limit must be greater than zero."
+        )
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
-    recorded_digest = plan.get("authorization_digest")
+    recorded_digest = plan.get("plan_digest")
     digest_input = dict(plan)
-    digest_input.pop("authorization_digest", None)
-    if recorded_digest != _json_digest(digest_input):
+    digest_input.pop("plan_digest", None)
+    if recorded_digest != json_digest(digest_input):
         raise AuditExecutionError(
             "The saved dry-run summary has changed since creation."
         )
-    if authorization != recorded_digest:
+    expected_authorization = live_authorization_digest(
+        str(recorded_digest),
+        str(cost_limit),
+    )
+    if authorization != expected_authorization:
         raise AuditExecutionError(
-            "Live authorization does not match the exact summarized configuration."
+            "Live authorization does not match the summarized configuration "
+            "and cost guardrail."
         )
     if plan.get("configuration") != {
         "model": MODEL,
@@ -315,6 +333,17 @@ def execute_authorized_audit(
         request_config=REQUEST_CONFIG,
     )
     output_directory = plan_path.parent
+    authorization_receipt = output_directory / (
+        f".authorization-{expected_authorization}.used"
+    )
+    try:
+        authorization_receipt.touch(exist_ok=False)
+    except FileExistsError as error:
+        raise AuditExecutionError(
+            "This live authorization has already been used; a rerun requires "
+            "a "
+            "new dry-run summary and authorization."
+        ) from error
     requests: list[dict[str, Any]] = []
     totals = _empty_usage()
     format_failures: list[str] = []
@@ -322,6 +351,7 @@ def execute_authorized_audit(
     complete = True
     incomplete_reason: str | None = None
     started = time.monotonic()
+    raw_attempts_path = output_directory / "raw-attempts.json"
     for prompt in plan["prompts"]:
         current_cost = Decimal(price_schedule.estimate(MODEL, totals))
         if current_cost >= cost_limit:
@@ -336,14 +366,25 @@ def execute_authorized_audit(
             hashlib.sha256(prompt_text.encode()).hexdigest()
             != plan["prompt_hashes"][name]
         ):
-            raise AuditExecutionError(f"Prompt content drift detected for {name}.")
+            raise AuditExecutionError(
+                f"Prompt content drift detected for {name}."
+            )
         attempts = []
         final_result: dict[str, Any] | None = None
+        budget_exhausted = False
         for attempt_index in range(3):
+            current_cost = Decimal(price_schedule.estimate(MODEL, totals))
+            if current_cost >= cost_limit:
+                complete = False
+                incomplete_reason = "audit_cost_limit_exhausted"
+                budget_exhausted = True
+                break
             result = request_client.call(prompt_text)
             _add_usage(totals, result)
             classification = (
-                "success" if result.get("success") else _failure_classification(result)
+                "success"
+                if result.get("success")
+                else _failure_classification(result)
             )
             attempts.append(
                 {
@@ -353,6 +394,17 @@ def execute_authorized_audit(
                 }
             )
             final_result = result
+            write_json(
+                raw_attempts_path,
+                {
+                    "plan_digest": recorded_digest,
+                    "requests": [
+                        *requests,
+                        {"name": name, "attempts": attempts},
+                    ],
+                    "usage": totals,
+                },
+            )
             if result.get("success"):
                 break
             if classification not in RETRYABLE_FAILURES:
@@ -361,12 +413,18 @@ def execute_authorized_audit(
                 break
             if attempt_index < 2:
                 sleep(BACKOFF_SECONDS[attempt_index])
+        if budget_exhausted:
+            if attempts:
+                requests.append({"name": name, "attempts": attempts})
+            break
         assert final_result is not None
         request_record = {"name": name, "attempts": attempts}
         requests.append(request_record)
         if not final_result.get("success"):
             complete = False
-            incomplete_reason = incomplete_reason or "transient_failures_exhausted"
+            incomplete_reason = (
+                incomplete_reason or "transient_failures_exhausted"
+            )
             break
         normalized = normalize_prompt_response(
             name,
@@ -382,6 +440,7 @@ def execute_authorized_audit(
         **plan,
         "kind": "model-evaluation-live-run",
         "authorized_plan_digest": recorded_digest,
+        "authorization_digest": expected_authorization,
         "maximum_audit_cost_usd": str(cost_limit),
         "completed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "complete": complete,
@@ -399,13 +458,9 @@ def execute_authorized_audit(
         "format_failures": format_failures,
         "canonical_findings": canonical_findings,
     }
-    (output_directory / "canonical-audit-findings.json").write_text(
-        json.dumps(canonical_findings, indent=2, sort_keys=True, ensure_ascii=False)
-        + "\n",
-        encoding="utf-8",
+    write_json(
+        output_directory / "canonical-audit-findings.json",
+        canonical_findings,
     )
-    (output_directory / "live-manifest.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(output_directory / "live-manifest.json", manifest)
     return manifest

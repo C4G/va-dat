@@ -8,6 +8,7 @@ from vision_aid.evaluation.audit import (
     AuditExecutionError,
     build_audit_plan,
     execute_authorized_audit,
+    live_authorization_digest,
 )
 from vision_aid.evaluation.pricing import PriceSchedule
 
@@ -22,6 +23,7 @@ def _fake_pipeline(
     progress_callback=None,
     request_config=None,
 ) -> dict:
+    """Write two deterministic prompt artifacts through the adapter seam."""
     assert api_key is None
     assert dry_run is True
     assert include_summaries is False
@@ -32,7 +34,9 @@ def _fake_pipeline(
     prompts = output_dir / "prompts"
     prompts.mkdir(parents=True)
     entries = []
-    for index, name in enumerate(("heading_structure", "link_clarity"), start=1):
+    for index, name in enumerate(
+        ("heading_structure", "link_clarity"), start=1
+    ):
         prompt_text = f"prompt {index}"
         (prompts / f"{name}.json").write_text(
             json.dumps(
@@ -57,7 +61,9 @@ def _fake_pipeline(
                 "status": "dry_run",
             }
         )
-    (output_dir / "programmatic_findings.json").write_text("[]", encoding="utf-8")
+    (output_dir / "programmatic_findings.json").write_text(
+        "[]", encoding="utf-8"
+    )
     return {
         "html_file": html_path,
         "model": model,
@@ -73,8 +79,11 @@ def _fake_pipeline(
 def test_dry_plan_freezes_configuration_content_and_code_identities(
     tmp_path: Path,
 ) -> None:
+    """A dry plan records the complete frozen benchmark configuration."""
     snapshot = tmp_path / "source.html"
-    snapshot.write_text("<html><title>Synthetic</title></html>", encoding="utf-8")
+    snapshot.write_text(
+        "<html><title>Synthetic</title></html>", encoding="utf-8"
+    )
     snapshot_sha256 = hashlib.sha256(snapshot.read_bytes()).hexdigest()
     run_directory = tmp_path / "run"
 
@@ -103,19 +112,24 @@ def test_dry_plan_freezes_configuration_content_and_code_identities(
     assert list(plan["prompt_hashes"]) == ["heading_structure", "link_clarity"]
     assert len(plan["parser_hash"]) == 64
     assert len(plan["pricing_identity"]) == 64
-    assert len(plan["authorization_digest"]) == 64
+    assert len(plan["plan_digest"]) == 64
     assert (run_directory / "evaluation-manifest.json").is_file()
 
 
 class FakeClient:
     def __init__(self, outcomes: list[dict]):
+        """Queue provider outcomes in request order."""
         self.outcomes = outcomes
 
     def call(self, prompt: str) -> dict:
+        """Return the next provider outcome without network access."""
         return self.outcomes.pop(0)
 
 
-def _success(response: str, input_tokens: int = 10, output_tokens: int = 5) -> dict:
+def _success(
+    response: str, input_tokens: int = 10, output_tokens: int = 5
+) -> dict:
+    """Return one successful synthetic provider result."""
     return {
         "success": True,
         "response": response,
@@ -137,6 +151,7 @@ def _success(response: str, input_tokens: int = 10, output_tokens: int = 5) -> d
 
 
 def _transient() -> dict:
+    """Return one billed, retryable rate-limit result."""
     return {
         "success": False,
         "response": None,
@@ -158,9 +173,22 @@ def _transient() -> dict:
     }
 
 
-def test_live_execution_requires_every_gate_and_records_retries_and_format_failures(
+def _permanent(status_code: int, failure_type: str) -> dict:
+    """Return an unbilled provider rejection that must not be retried."""
+    result = _transient()
+    result["usage"]["input_tokens"] = 0
+    result["usage"]["total_tokens"] = 0
+    result["failure"] = {
+        "type": failure_type,
+        "status_code": status_code,
+    }
+    return result
+
+
+def test_live_gates_retries_and_format_failures(
     tmp_path: Path,
 ) -> None:
+    """A live run enforces gates and preserves retries and malformed output."""
     snapshot = tmp_path / "source.html"
     snapshot.write_text("<html></html>", encoding="utf-8")
     snapshot_sha256 = hashlib.sha256(snapshot.read_bytes()).hexdigest()
@@ -176,12 +204,13 @@ def test_live_execution_requires_every_gate_and_records_retries_and_format_failu
         repository=tmp_path,
     )
     plan_path = run_directory / "evaluation-manifest.json"
+    authorization = live_authorization_digest(plan["plan_digest"], "1")
 
     with pytest.raises(AuditExecutionError, match="--live"):
         execute_authorized_audit(
             plan_path,
             live=False,
-            authorization=plan["authorization_digest"],
+            authorization=authorization,
             api_key="secret",
             max_audit_cost_usd="1",
             client=FakeClient([]),
@@ -208,7 +237,7 @@ def test_live_execution_requires_every_gate_and_records_retries_and_format_failu
     manifest = execute_authorized_audit(
         plan_path,
         live=True,
-        authorization=plan["authorization_digest"],
+        authorization=authorization,
         api_key="secret",
         max_audit_cost_usd="1",
         client=client,
@@ -222,9 +251,138 @@ def test_live_execution_requires_every_gate_and_records_retries_and_format_failu
     assert manifest["usage"]["input_tokens"] == 22
     assert manifest["estimated_audit_cost_usd"] == "0.0000164"
     assert manifest["configuration"]["temperature"] is None
+    raw_attempts = json.loads(
+        (run_directory / "raw-attempts.json").read_text(encoding="utf-8")
+    )
+    assert len(raw_attempts["requests"][0]["attempts"]) == 2
+
+    with pytest.raises(AuditExecutionError, match="already been used"):
+        execute_authorized_audit(
+            plan_path,
+            live=True,
+            authorization=authorization,
+            api_key="secret",
+            max_audit_cost_usd="1",
+            client=FakeClient([]),
+            sleep=lambda _delay: None,
+        )
+
+
+def test_cost_guard_is_checked_before_each_retry(tmp_path: Path) -> None:
+    """A billed failure can exhaust the limit before an automatic retry."""
+    snapshot = tmp_path / "source.html"
+    snapshot.write_text("<html></html>", encoding="utf-8")
+    snapshot_sha256 = hashlib.sha256(snapshot.read_bytes()).hexdigest()
+    run_directory = tmp_path / "run"
+    plan = build_audit_plan(
+        snapshot,
+        run_directory,
+        workbook_sha256="a" * 64,
+        snapshot_sha256=snapshot_sha256,
+        reference_set_version="references-v1",
+        eligibility_identity="c" * 64,
+        pipeline=_fake_pipeline,
+        repository=tmp_path,
+    )
+    limit = "0.0000001"
+    client = FakeClient([_transient(), _success("[]")])
+
+    manifest = execute_authorized_audit(
+        run_directory / "evaluation-manifest.json",
+        live=True,
+        authorization=live_authorization_digest(plan["plan_digest"], limit),
+        api_key="secret",
+        max_audit_cost_usd=limit,
+        client=client,
+        sleep=lambda _delay: None,
+    )
+
+    assert manifest["complete"] is False
+    assert manifest["incomplete_reason"] == "audit_cost_limit_exhausted"
+    assert len(manifest["requests"]) == 1
+    assert len(manifest["requests"][0]["attempts"]) == 1
+    assert len(client.outcomes) == 1
+
+
+@pytest.mark.parametrize(
+    "outcome,expected",
+    [
+        (_permanent(401, "AuthenticationError"), "authentication"),
+        (_permanent(400, "BadRequestError"), "invalid_request"),
+    ],
+)
+def test_permanent_provider_failures_are_not_retried(
+    tmp_path: Path,
+    outcome: dict,
+    expected: str,
+) -> None:
+    """Authentication and invalid requests stop after one recorded attempt."""
+    snapshot = tmp_path / "source.html"
+    snapshot.write_text("<html></html>", encoding="utf-8")
+    run_directory = tmp_path / "run"
+    plan = build_audit_plan(
+        snapshot,
+        run_directory,
+        workbook_sha256="a" * 64,
+        snapshot_sha256=hashlib.sha256(snapshot.read_bytes()).hexdigest(),
+        reference_set_version="references-v1",
+        eligibility_identity="c" * 64,
+        pipeline=_fake_pipeline,
+        repository=tmp_path,
+    )
+    client = FakeClient([outcome, _success("[]")])
+
+    manifest = execute_authorized_audit(
+        run_directory / "evaluation-manifest.json",
+        live=True,
+        authorization=live_authorization_digest(plan["plan_digest"], "1"),
+        api_key="secret",
+        max_audit_cost_usd="1",
+        client=client,
+        sleep=lambda _delay: None,
+    )
+
+    assert manifest["incomplete_reason"] == expected
+    assert len(manifest["requests"][0]["attempts"]) == 1
+    assert len(client.outcomes) == 1
+
+
+def test_exhausted_transient_failures_make_the_run_unranked(
+    tmp_path: Path,
+) -> None:
+    """Record three transient attempts before marking the run incomplete."""
+    snapshot = tmp_path / "source.html"
+    snapshot.write_text("<html></html>", encoding="utf-8")
+    run_directory = tmp_path / "run"
+    plan = build_audit_plan(
+        snapshot,
+        run_directory,
+        workbook_sha256="a" * 64,
+        snapshot_sha256=hashlib.sha256(snapshot.read_bytes()).hexdigest(),
+        reference_set_version="references-v1",
+        eligibility_identity="c" * 64,
+        pipeline=_fake_pipeline,
+        repository=tmp_path,
+    )
+
+    manifest = execute_authorized_audit(
+        run_directory / "evaluation-manifest.json",
+        live=True,
+        authorization=live_authorization_digest(plan["plan_digest"], "1"),
+        api_key="secret",
+        max_audit_cost_usd="1",
+        client=FakeClient([_transient(), _transient(), _transient()]),
+        sleep=lambda _delay: None,
+    )
+
+    assert manifest["complete"] is False
+    assert manifest["rankable"] is False
+    assert manifest["incomplete_reason"] == "transient_failures_exhausted"
+    assert len(manifest["requests"][0]["attempts"]) == 3
 
 
 def test_versioned_price_schedule_uses_reported_token_categories() -> None:
+    """Pricing distinguishes uncached, cached, written, and output tokens."""
     schedule = PriceSchedule.default()
     assert (
         schedule.estimate(

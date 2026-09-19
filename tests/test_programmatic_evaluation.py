@@ -6,6 +6,7 @@ from vision_aid.evaluation.programmatic import run_programmatic_audit
 def test_existing_programmatic_checks_are_adapted_without_duplicating_rules(
     tmp_path: Path,
 ) -> None:
+    """The evaluation adapter calls all existing deterministic checkers."""
     html = tmp_path / "benchmark.html"
     html.write_text(
         "<html lang='en'><head><title>Synthetic</title></head>"
@@ -23,4 +24,7 @@ def test_existing_programmatic_checks_are_adapted_without_duplicating_rules(
     assert "HEAD_002" in rule_ids
     assert "NON_TEXT_001" in rule_ids
     assert result.raw_findings
-    assert all(finding.raw_source in result.raw_findings for finding in result.findings)
+    assert all(
+        finding.raw_source in result.raw_findings
+        for finding in result.findings
+    )

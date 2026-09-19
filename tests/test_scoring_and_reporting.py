@@ -32,6 +32,7 @@ def _reference(
     *,
     required_subdefects: tuple[str, ...] = (),
 ) -> ReferenceDefect:
+    """Build one approved synthetic reference defect."""
     return ReferenceDefect(
         reference_id=identifier,
         workbook_filename="synthetic.xlsx",
@@ -52,6 +53,7 @@ def _reference(
 
 
 def _finding(identifier: str, source: str = "audit") -> CanonicalFinding:
+    """Build one synthetic canonical finding."""
     return CanonicalFinding(
         finding_id=identifier,
         source=source,  # type: ignore[arg-type]
@@ -70,7 +72,10 @@ def _finding(identifier: str, source: str = "audit") -> CanonicalFinding:
     )
 
 
-def _match(reference: str, finding: str, subdefect: str | None = None) -> MatchDecision:
+def _match(
+    reference: str, finding: str, subdefect: str | None = None
+) -> MatchDecision:
+    """Build one accepted, evidence-compatible match decision."""
     return MatchDecision(
         reference_id=reference,
         finding_id=finding,
@@ -83,9 +88,8 @@ def _match(reference: str, finding: str, subdefect: str | None = None) -> MatchD
     )
 
 
-def test_deterministic_score_separates_model_programmatic_and_combined_coverage() -> (
-    None
-):
+def test_deterministic_score_separates_coverage() -> None:
+    """Scoring separates coverage and requires every compound sub-defect."""
     references = ReferenceSet(
         version="v1",
         workbook_filename="synthetic.xlsx",
@@ -99,7 +103,11 @@ def test_deterministic_score_separates_model_programmatic_and_combined_coverage(
             _reference("ref5", "ambiguous"),
         ),
     )
-    audit_findings = (_finding("finding1"), _finding("finding2"), _finding("extra"))
+    audit_findings = (
+        _finding("finding1"),
+        _finding("finding2"),
+        _finding("extra"),
+    )
     programmatic_findings = (_finding("program1", "programmatic"),)
     run = RunMetadata(
         run_id="run-1",
@@ -136,8 +144,16 @@ def test_deterministic_score_separates_model_programmatic_and_combined_coverage(
         parse_failures=("heading_structure",),
     )
 
-    assert partial.workbook_row_recall == {"caught": 1, "denominator": 2, "rate": "0.5"}
-    assert complete.workbook_row_recall == {"caught": 2, "denominator": 2, "rate": "1"}
+    assert partial.workbook_row_recall == {
+        "caught": 1,
+        "denominator": 2,
+        "rate": "0.5",
+    }
+    assert complete.workbook_row_recall == {
+        "caught": 2,
+        "denominator": 2,
+        "rate": "1",
+    }
     assert complete.programmatic_coverage == {
         "caught": 1,
         "denominator": 1,
@@ -170,6 +186,7 @@ def test_deterministic_score_separates_model_programmatic_and_combined_coverage(
 
 
 def test_match_conflicts_and_incomplete_runs_cannot_be_ranked() -> None:
+    """Conflicting matches and incomplete runs fail closed."""
     references = ReferenceSet(
         version="v1",
         workbook_filename="synthetic.xlsx",
@@ -204,6 +221,7 @@ def test_match_conflicts_and_incomplete_runs_cannot_be_ranked() -> None:
 
 
 def test_reports_are_projections_of_one_score_object(tmp_path: Path) -> None:
+    """Every format exposes the same totals, latency, and row disposition."""
     references = ReferenceSet(
         version="v1",
         workbook_filename="synthetic.xlsx",
@@ -235,11 +253,19 @@ def test_reports_are_projections_of_one_score_object(tmp_path: Path) -> None:
         csv_rows = list(csv.DictReader(stream))
     markdown = paths.markdown.read_text(encoding="utf-8")
     assert json_report["workbook_row_recall"]["caught"] == 1
+    assert json_report["request_duration_sum_seconds"] == 0
     assert csv_rows[0]["model_caught"] == "True"
+    assert csv_rows[0]["workbook_recall_caught"] == "1"
+    assert csv_rows[0]["request_duration_sum_seconds"] == "0"
     assert "1/1 (100.00%)" in markdown
+    assert "Input tokens: 0" in markdown
+    assert "Request duration sum: 0s" in markdown
+    assert "finding1" in markdown
+    assert REVIEW.rationale in markdown
 
 
 def test_equal_recall_is_ranked_only_by_unrounded_audit_cost() -> None:
+    """Operational metrics cannot displace cost as the recall tie-breaker."""
     references = ReferenceSet(
         version="v1",
         workbook_filename="synthetic.xlsx",
@@ -254,6 +280,13 @@ def test_equal_recall_is_ranked_only_by_unrounded_audit_cost() -> None:
         complete=True,
         comparable_identity="benchmark-v1",
         audit_cost_usd="0.0012349",
+        workbook_sha256="a" * 64,
+        snapshot_sha256="snapshot-v1",
+        reference_set_version="v1",
+        prompt_hashes_identity="prompts-v1",
+        parser_identity="parser-v1",
+        eligibility_identity="eligibility-v1",
+        configuration_identity="configuration-v1",
     )
     expensive = score_evaluation(
         references, (finding,), (), (_match("ref1", "finding1"),), (), base_run
@@ -277,3 +310,43 @@ def test_equal_recall_is_ranked_only_by_unrounded_audit_cost() -> None:
         "model-cheap",
         "model-expensive",
     ]
+
+    incompatible = score_evaluation(
+        replace(references, version="v2"),
+        (finding,),
+        (),
+        (_match("ref1", "finding1"),),
+        (),
+        replace(
+            base_run,
+            run_id="incompatible",
+            model="other",
+            reference_set_version="v2",
+        ),
+    )
+    with pytest.raises(ValueError, match="incompatible benchmark"):
+        rank_scores((expensive, incompatible))
+
+    for field in (
+        "snapshot_sha256",
+        "prompt_hashes_identity",
+        "parser_identity",
+        "eligibility_identity",
+        "configuration_identity",
+    ):
+        changed_run = replace(
+            base_run,
+            run_id=f"changed-{field}",
+            model="other",
+            **{field: "changed"},
+        )
+        changed = score_evaluation(
+            references,
+            (finding,),
+            (),
+            (_match("ref1", "finding1"),),
+            (),
+            changed_run,
+        )
+        with pytest.raises(ValueError, match="incompatible benchmark"):
+            rank_scores((expensive, changed))

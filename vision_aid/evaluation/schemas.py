@@ -120,3 +120,10 @@ class RunMetadata:
     usage: Usage = field(default_factory=Usage)
     wall_time_seconds: float = 0
     request_durations_seconds: tuple[float, ...] = ()
+    workbook_sha256: str = ""
+    snapshot_sha256: str = ""
+    reference_set_version: str = ""
+    prompt_hashes_identity: str = ""
+    parser_identity: str = ""
+    eligibility_identity: str = ""
+    configuration_identity: str = ""

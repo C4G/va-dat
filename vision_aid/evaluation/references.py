@@ -69,20 +69,25 @@ ELIGIBILITY_COLUMNS = (
 
 
 def _text(value: object) -> str:
+    """Retain workbook cell content as text without semantic rewriting."""
     if value is None:
         return ""
     return str(value)
 
 
 def _canonical_url(value: str) -> str:
+    """Normalize URL identity while discarding query and fragment drift."""
     parts = urlsplit(value.strip())
     if not parts.scheme or not parts.netloc:
         return value.strip()
     path = parts.path or "/"
-    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, "", ""))
+    return urlunsplit(
+        (parts.scheme.lower(), parts.netloc.lower(), path, "", "")
+    )
 
 
 def _field(headers: dict[str, str], raw: dict[str, str], name: str) -> str:
+    """Read one canonical field through the supported workbook aliases."""
     for alias in _ALIASES[name]:
         header = headers.get(alias)
         if header is not None:
@@ -91,6 +96,7 @@ def _field(headers: dict[str, str], raw: dict[str, str], name: str) -> str:
 
 
 def _wcag_values(value: str) -> tuple[str, ...]:
+    """Extract ordered WCAG success-criterion identifiers."""
     return tuple(dict.fromkeys(re.findall(r"\b\d+\.\d+\.\d+\b", value)))
 
 
@@ -104,21 +110,27 @@ def import_homepage_references(
     """Import every Home and Global row, retaining source text verbatim."""
     if not workbook_path.is_file():
         raise ReferenceSetError(
-            f"Private workbook not found at {workbook_path}. Obtain it from an "
+            f"Private workbook not found at {workbook_path}. Obtain it from "
+            "an "
             "authorized project source or pass an explicit local path."
         )
     actual_sha256 = hashlib.sha256(workbook_path.read_bytes()).hexdigest()
     if actual_sha256.lower() != expected_sha256.lower():
         raise ReferenceSetError(
             "Private workbook checksum drift detected: expected "
-            f"{expected_sha256}, found {actual_sha256}. Review and record the new "
+            f"{expected_sha256}, found {actual_sha256}. Review and record "
+            "the new "
             "authorized workbook before importing it."
         )
 
     try:
-        workbook = openpyxl.load_workbook(workbook_path, read_only=True, data_only=True)
+        workbook = openpyxl.load_workbook(
+            workbook_path, read_only=True, data_only=True
+        )
     except (OSError, ValueError, TypeError) as error:
-        raise ReferenceSetError(f"Could not read private workbook: {error}") from error
+        raise ReferenceSetError(
+            f"Could not read private workbook: {error}"
+        ) from error
 
     canonical_homepage = _canonical_url(homepage_url)
     imported: list[ReferenceDefect] = []
@@ -139,7 +151,9 @@ def import_homepage_references(
                 for header, value in zip(header_names, values, strict=False)
                 if header
             }
-            scope_text = _field(normalized_headers, raw, "scope").strip().casefold()
+            scope_text = (
+                _field(normalized_headers, raw, "scope").strip().casefold()
+            )
             row_url = _canonical_url(_field(normalized_headers, raw, "url"))
             is_global = scope_text == "global" or row_url.casefold() in {
                 "global",
@@ -150,11 +164,14 @@ def import_homepage_references(
             is_home = scope_text in {"home", "homepage", "home page"}
             if not is_home and not is_global and row_url != canonical_homepage:
                 continue
-            page_scope: Literal["home", "global"] = "global" if is_global else "home"
+            page_scope: Literal["home", "global"] = (
+                "global" if is_global else "home"
+            )
             identity = f"{actual_sha256}:{sheet.title}:{row_number}".encode()
             imported.append(
                 ReferenceDefect(
-                    reference_id="ref-" + hashlib.sha256(identity).hexdigest()[:16],
+                    reference_id="ref-"
+                    + hashlib.sha256(identity).hexdigest()[:16],
                     workbook_filename=workbook_path.name,
                     workbook_sha256=actual_sha256,
                     source_sheet=sheet.title,
@@ -164,14 +181,19 @@ def import_homepage_references(
                     page_scope=page_scope,
                     problem=_field(normalized_headers, raw, "problem"),
                     location=_field(normalized_headers, raw, "location"),
-                    wcag_evidence=_wcag_values(_field(normalized_headers, raw, "wcag")),
-                    recommendation=_field(normalized_headers, raw, "recommendation"),
+                    wcag_evidence=_wcag_values(
+                        _field(normalized_headers, raw, "wcag")
+                    ),
+                    recommendation=_field(
+                        normalized_headers, raw, "recommendation"
+                    ),
                 )
             )
     workbook.close()
     if not imported:
         raise ReferenceSetError(
-            "The workbook contained no Home or applicable Global rows. Check the "
+            "The workbook contained no Home or applicable Global rows. "
+            "Check the "
             "homepage URL and workbook column names."
         )
     return ReferenceSet(
@@ -204,7 +226,9 @@ def export_eligibility_workbook(
                 reference.location,
                 ", ".join(reference.wcag_evidence),
                 reference.recommendation,
-                json.dumps(reference.raw_evidence, ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    reference.raw_evidence, ensure_ascii=False, sort_keys=True
+                ),
                 reference.eligibility or "",
                 reference.eligibility_state or "needs_review",
                 (
@@ -239,7 +263,9 @@ def export_eligibility_workbook(
     sheet.column_dimensions["M"].width = 45
     for row in sheet.iter_rows(min_row=2):
         for cell in row:
-            cell.alignment = openpyxl.styles.Alignment(wrap_text=True, vertical="top")
+            cell.alignment = openpyxl.styles.Alignment(
+                wrap_text=True, vertical="top"
+            )
     classification_validation = DataValidation(
         type="list",
         formula1='"' + ",".join(ELIGIBILITY_VALUES) + '"',
@@ -260,6 +286,7 @@ class HumanEligibilityReviewer:
     """Load eligibility decisions from the private review workbook."""
 
     def __init__(self, review_path: Path):
+        """Select the private Eligibility workbook to read."""
         self.review_path = review_path
 
     def review(self, reference_set: ReferenceSet) -> ReferenceSet:
@@ -306,7 +333,8 @@ class HumanEligibilityReviewer:
                 )
             if state not in DECISION_VALUES:
                 raise ReferenceSetError(
-                    f"Eligibility row {row_number} has invalid decision {state!r}."
+                    f"Eligibility row {row_number} has invalid decision "
+                    f"{state!r}."
                 )
             for field in ("rationale", "reviewer", "timestamp"):
                 if not record[field]:
@@ -317,11 +345,13 @@ class HumanEligibilityReviewer:
                 confidence = float(record["confidence"])
             except ValueError as error:
                 raise ReferenceSetError(
-                    f"Eligibility row {row_number} requires numeric confidence."
+                    f"Eligibility row {row_number} requires numeric "
+                    "confidence."
                 ) from error
             if not 0 <= confidence <= 1:
                 raise ReferenceSetError(
-                    f"Eligibility row {row_number} confidence must be 0 through 1."
+                    f"Eligibility row {row_number} confidence must be 0 "
+                    "through 1."
                 )
             record["confidence"] = str(confidence)
             decisions[reference_id] = record

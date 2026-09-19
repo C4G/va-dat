@@ -305,14 +305,17 @@ extractors, filters, programmatic checks, slicers, and unchanged prompts to
 write an exact Luna dry-run plan:
 
 ```bash
-uv run visionaid-evaluate audit
+uv run visionaid-evaluate audit \
+  --max-audit-cost-usd "$PROPOSED_LIMIT"
 ```
 
 Review the request count, prompt hashes, estimated input usage, model
 configuration, pricing identity, and authorization digest in the printed
-summary. A billable run requires all of the following: `--live`, the exact
-saved plan and digest, `OPENAI_API_KEY`, and a positive cost limit. One
-authorization covers the summarized run and its policy-compliant retries:
+summary. The live authorization digest binds both the exact plan and proposed
+cost limit. A billable run requires all of the following: `--live`, the exact
+saved plan and live authorization digest, `OPENAI_API_KEY`, and that same
+positive cost limit. The authorization is single-use and covers the summarized
+run and its policy-compliant retries:
 
 ```bash
 uv run visionaid-evaluate audit \

@@ -24,7 +24,7 @@ from vision_aid.evaluation.serialization import (
     load_findings,
     load_match_decisions,
     load_reference_set,
-    load_run_metadata,
+    load_verified_run_metadata,
     save_match_decisions,
     save_reference_set,
 )
@@ -63,7 +63,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path(DEFAULT_WORKBOOK_FILENAME),
         help=(
-            f"authorized local source workbook (default: ./{DEFAULT_WORKBOOK_FILENAME})"
+            "authorized local source workbook "
+            f"(default: ./{DEFAULT_WORKBOOK_FILENAME})"
         ),
     )
     prepare.add_argument(
@@ -72,7 +73,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prepare.add_argument(
         "--homepage-url",
-        help="canonical Pristine homepage URL used to select Home and Global rows",
+        help=(
+            "canonical Pristine homepage URL used to select Home and Global "
+            "rows"
+        ),
     )
     prepare.add_argument(
         "--reference-set-version",
@@ -96,11 +100,21 @@ def build_parser() -> argparse.ArgumentParser:
         "audit",
         help="inspect the prepared audit plan in network-free dry-run mode",
     )
-    audit.add_argument("--live", action="store_true", help="enable billable execution")
-    audit.add_argument("--plan", type=Path, help="exact dry-run manifest to execute")
-    audit.add_argument("--authorize", help="authorization digest shown by dry run")
-    audit.add_argument("--max-audit-cost-usd", help="required live cost guardrail")
-    audit.add_argument("--reference-set", type=Path, help="approved reference-set JSON")
+    audit.add_argument(
+        "--live", action="store_true", help="enable billable execution"
+    )
+    audit.add_argument(
+        "--plan", type=Path, help="exact dry-run manifest to execute"
+    )
+    audit.add_argument(
+        "--authorize", help="authorization digest shown by dry run"
+    )
+    audit.add_argument(
+        "--max-audit-cost-usd", help="required live cost guardrail"
+    )
+    audit.add_argument(
+        "--reference-set", type=Path, help="approved reference-set JSON"
+    )
     audit.add_argument(
         "--run-dir", type=Path, help="private output directory for the plan"
     )
@@ -115,8 +129,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="apply a completed Eligibility workbook",
     )
-    review.add_argument("--reference-set", type=Path, help="reference-set JSON input")
-    review.add_argument("--findings", type=Path, help="canonical findings JSON")
+    review.add_argument(
+        "--reference-set", type=Path, help="reference-set JSON input"
+    )
+    review.add_argument(
+        "--findings", type=Path, help="canonical findings JSON"
+    )
     review.add_argument(
         "--matches-workbook",
         type=Path,
@@ -125,7 +143,9 @@ def build_parser() -> argparse.ArgumentParser:
     review.add_argument(
         "--import-matches",
         action="store_true",
-        help="import decisions from --matches-workbook instead of generating it",
+        help=(
+            "import decisions from --matches-workbook instead of generating it"
+        ),
     )
     review.set_defaults(handler=_review)
 
@@ -138,7 +158,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="private JSON bundle containing score inputs",
     )
-    report.add_argument("--output-dir", type=Path, help="private report directory")
+    report.add_argument(
+        "--output-dir", type=Path, help="private report directory"
+    )
     report.set_defaults(handler=_report)
     return parser
 
@@ -148,11 +170,13 @@ def _prepare(arguments: argparse.Namespace) -> int:
     workbook = require_private_workbook(arguments.workbook)
     workspace = PrivateWorkspace.from_current_directory()
     workspace.initialize()
-    print(f"Private evaluation workspace initialized at {workspace.root.resolve()}")
+    resolved_workspace = workspace.root.resolve()
+    print(f"Private evaluation workspace initialized at {resolved_workspace}")
     print(f"Private source workbook: {workbook}")
     if bool(arguments.workbook_sha256) != bool(arguments.homepage_url):
         raise PrivateInputError(
-            "Reference import requires both --workbook-sha256 and --homepage-url."
+            "Reference import requires both --workbook-sha256 and "
+            "--homepage-url."
         )
     if arguments.workbook_sha256:
         reference_set = import_homepage_references(
@@ -168,7 +192,9 @@ def _prepare(arguments: argparse.Namespace) -> int:
         print(f"Imported reference set: {imported_path.resolve()}")
         print(f"Eligibility review workbook: {review_path.resolve()}")
     if arguments.temporal_assumption and not arguments.snapshot_url:
-        raise PrivateInputError("--temporal-assumption requires --snapshot-url.")
+        raise PrivateInputError(
+            "--temporal-assumption requires --snapshot-url."
+        )
     if arguments.snapshot_url:
         snapshot = prepare_benchmark_snapshot(
             workspace,
@@ -189,7 +215,9 @@ def _audit(arguments: argparse.Namespace) -> int:
         from vision_aid.evaluation.audit import execute_authorized_audit
 
         if arguments.plan is None:
-            raise PrivateInputError("--live requires --plan from a reviewed dry run.")
+            raise PrivateInputError(
+                "--live requires --plan from a reviewed dry run."
+            )
         manifest = execute_authorized_audit(
             arguments.plan,
             live=True,
@@ -206,19 +234,33 @@ def _audit(arguments: argparse.Namespace) -> int:
     snapshot_directory = workspace.root / "snapshots" / "pristine-homepage"
     snapshot_path = snapshot_directory / "source.html"
     metadata_path = snapshot_directory / "metadata.json"
-    if reference_path.is_file() and snapshot_path.is_file() and metadata_path.is_file():
-        from vision_aid.evaluation.audit import build_audit_plan
+    if (
+        reference_path.is_file()
+        and snapshot_path.is_file()
+        and metadata_path.is_file()
+    ):
+        from vision_aid.evaluation.audit import (
+            build_audit_plan,
+            live_authorization_digest,
+        )
 
         reference_set = load_reference_set(reference_path)
         if any(
-            item.eligibility_state != "accepted" for item in reference_set.references
+            item.eligibility_state != "accepted"
+            for item in reference_set.references
         ):
             raise PrivateInputError(
                 "The reference set has unresolved eligibility decisions."
             )
-        snapshot_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        eligibility_identity = hashlib.sha256(reference_path.read_bytes()).hexdigest()
-        run_directory = arguments.run_dir or workspace.root / "runs" / "dry-run"
+        snapshot_metadata = json.loads(
+            metadata_path.read_text(encoding="utf-8")
+        )
+        eligibility_identity = hashlib.sha256(
+            reference_path.read_bytes()
+        ).hexdigest()
+        run_directory = (
+            arguments.run_dir or workspace.root / "runs" / "dry-run"
+        )
         plan = build_audit_plan(
             snapshot_path,
             run_directory,
@@ -230,10 +272,20 @@ def _audit(arguments: argparse.Namespace) -> int:
         )
         print(f"DRY RUN: {plan['request_count']} sequential requests planned.")
         print(f"Estimated input tokens: {plan['estimated_input_tokens']}")
-        print(f"Authorization digest: {plan['authorization_digest']}")
-        print(f"Plan: {(run_directory / 'evaluation-manifest.json').resolve()}")
+        print(f"Plan digest: {plan['plan_digest']}")
+        if arguments.max_audit_cost_usd:
+            authorization = live_authorization_digest(
+                plan["plan_digest"],
+                arguments.max_audit_cost_usd,
+            )
+            print(f"Live authorization digest: {authorization}")
+        print(
+            f"Plan: {(run_directory / 'evaluation-manifest.json').resolve()}"
+        )
         return 0
-    print("DRY RUN: No network requests were made and no API usage was incurred.")
+    print(
+        "DRY RUN: No network requests were made and no API usage was incurred."
+    )
     print(f"Private evaluation workspace: {workspace.root.resolve()}")
     return 0
 
@@ -246,9 +298,9 @@ def _review(arguments: argparse.Namespace) -> int:
         reference_path = arguments.reference_set or (
             workspace.root / "references" / "imported.json"
         )
-        reviewed = HumanEligibilityReviewer(arguments.eligibility_workbook).review(
-            load_reference_set(reference_path)
-        )
+        reviewed = HumanEligibilityReviewer(
+            arguments.eligibility_workbook
+        ).review(load_reference_set(reference_path))
         approved_path = workspace.root / "references" / "approved.json"
         save_reference_set(approved_path, reviewed)
         print(f"Validated reference set: {approved_path.resolve()}")
@@ -269,10 +321,15 @@ def _review(arguments: argparse.Namespace) -> int:
             save_match_decisions(output, decisions)
             print(f"Validated match decisions: {output.resolve()}")
         else:
-            export_match_workbook(references, findings, arguments.matches_workbook)
-            print(f"Matches review workbook: {arguments.matches_workbook.resolve()}")
+            export_match_workbook(
+                references, findings, arguments.matches_workbook
+            )
+            resolved_review = arguments.matches_workbook.resolve()
+            print(f"Matches review workbook: {resolved_review}")
         return 0
-    print(f"Private review workspace: {(workspace.root / 'reviews').resolve()}")
+    print(
+        f"Private review workspace: {(workspace.root / 'reviews').resolve()}"
+    )
     return 0
 
 
@@ -283,13 +340,22 @@ def _report(arguments: argparse.Namespace) -> int:
     if arguments.bundle:
         bundle = json.loads(arguments.bundle.read_text(encoding="utf-8"))
         base = arguments.bundle.parent
+        reference_set = load_reference_set(base / bundle["reference_set"])
+        if "run_manifest" not in bundle:
+            raise PrivateInputError(
+                "Report bundles require run_manifest so benchmark identities "
+                "can be verified."
+            )
         score = score_evaluation(
-            load_reference_set(base / bundle["reference_set"]),
+            reference_set,
             load_findings(base / bundle["audit_findings"]),
             load_findings(base / bundle["programmatic_findings"]),
             load_match_decisions(base / bundle["audit_matches"]),
             load_match_decisions(base / bundle["programmatic_matches"]),
-            load_run_metadata(bundle["run"]),
+            load_verified_run_metadata(
+                base / bundle["run_manifest"],
+                reference_set,
+            ),
             parse_failures=tuple(bundle.get("parse_failures", ())),
         )
         output_directory = arguments.output_dir or workspace.root / "reports"
@@ -298,7 +364,9 @@ def _report(arguments: argparse.Namespace) -> int:
         print(f"CSV report: {paths.csv.resolve()}")
         print(f"Markdown report: {paths.markdown.resolve()}")
         return 0
-    print(f"Private report workspace: {(workspace.root / 'reports').resolve()}")
+    print(
+        f"Private report workspace: {(workspace.root / 'reports').resolve()}"
+    )
     return 0
 
 

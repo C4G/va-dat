@@ -23,18 +23,23 @@ class PriceSchedule:
 
     @classmethod
     def load(cls, path: Path) -> PriceSchedule:
+        """Load and content-address one JSON price schedule."""
         raw = path.read_bytes()
         data = json.loads(raw)
-        if not isinstance(data, dict) or not isinstance(data.get("models"), dict):
+        if not isinstance(data, dict) or not isinstance(
+            data.get("models"), dict
+        ):
             raise TypeError("Price schedule must contain a models object.")
         return cls(data=data, identity=hashlib.sha256(raw).hexdigest())
 
     @classmethod
     def default(cls) -> PriceSchedule:
+        """Load the committed public pricing schedule."""
         return cls.load(DEFAULT_SCHEDULE)
 
     @property
     def version(self) -> str:
+        """Return the curator-assigned price-schedule version."""
         return str(self.data["version"])
 
     def estimate(self, model: str, usage: Mapping[str, int]) -> str:
@@ -47,7 +52,9 @@ class PriceSchedule:
             ) from error
         input_tokens = Decimal(usage.get("input_tokens", 0))
         cached_tokens = Decimal(usage.get("cached_input_tokens", 0))
-        cache_creation_tokens = Decimal(usage.get("cache_creation_input_tokens", 0))
+        cache_creation_tokens = Decimal(
+            usage.get("cache_creation_input_tokens", 0)
+        )
         output_tokens = Decimal(usage.get("output_tokens", 0))
         uncached_tokens = max(Decimal(0), input_tokens - cached_tokens)
         input_multiplier = Decimal(1)
@@ -55,9 +62,13 @@ class PriceSchedule:
         threshold = Decimal(rates.get("long_context_threshold_tokens", 0))
         if threshold and input_tokens > threshold:
             input_multiplier = Decimal(rates["long_context_input_multiplier"])
-            output_multiplier = Decimal(rates["long_context_output_multiplier"])
+            output_multiplier = Decimal(
+                rates["long_context_output_multiplier"]
+            )
         cost = (
-            uncached_tokens * Decimal(rates["input_per_million_usd"]) * input_multiplier
+            uncached_tokens
+            * Decimal(rates["input_per_million_usd"])
+            * input_multiplier
             + cached_tokens
             * Decimal(rates["cached_input_per_million_usd"])
             * input_multiplier

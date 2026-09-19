@@ -18,7 +18,10 @@ from vision_aid.evaluation.schemas import (
 
 
 def _metric(caught: int, denominator: int) -> dict[str, int | str]:
-    rate = Decimal(caught) / Decimal(denominator) if denominator else Decimal(0)
+    """Represent one exact count, denominator, and decimal rate."""
+    rate = (
+        Decimal(caught) / Decimal(denominator) if denominator else Decimal(0)
+    )
     return {"caught": caught, "denominator": denominator, "rate": str(rate)}
 
 
@@ -38,18 +41,21 @@ class RowScore:
     model_caught: bool
     model_finding_ids: tuple[str, ...]
     programmatic_finding_ids: tuple[str, ...]
+    model_evidence: tuple[str, ...]
+    programmatic_evidence: tuple[str, ...]
     disposition: str
 
 
 @dataclass(frozen=True)
 class EvaluationScore:
-    """The complete deterministic object from which every report is projected."""
+    """Complete deterministic source object for every report projection."""
 
     run_id: str
     model: str
     complete: bool
     rankable: bool
     comparable_identity: str
+    compatibility: dict[str, str]
     reference_set_version: str
     workbook_sha256: str
     workbook_row_recall: dict[str, int | str]
@@ -61,6 +67,7 @@ class EvaluationScore:
     usage: dict[str, int]
     wall_time_seconds: float
     request_durations_seconds: tuple[float, ...]
+    request_duration_sum_seconds: float
     unmatched_audit_finding_ids: tuple[str, ...]
     parse_failures: tuple[str, ...]
     rows: tuple[RowScore, ...]
@@ -74,6 +81,7 @@ def _caught_references(
     references: Sequence[ReferenceDefect],
     decisions: Sequence[MatchDecision],
 ) -> tuple[set[str], dict[str, tuple[str, ...]]]:
+    """Calculate binary row credit and its accepted finding evidence."""
     accepted = [item for item in decisions if item.state == "accepted"]
     by_reference: dict[str, list[MatchDecision]] = {}
     for decision in accepted:
@@ -113,8 +121,8 @@ def score_evaluation(
     ]
     if unapproved:
         raise ValueError(
-            "Scoring requires accepted eligibility decisions for every reference: "
-            + ", ".join(unapproved)
+            "Scoring requires accepted eligibility decisions for every "
+            "reference: " + ", ".join(unapproved)
         )
     audit_matches = validate_match_decisions(
         reference_set.references,
@@ -132,6 +140,10 @@ def score_evaluation(
     programmatic_caught, programmatic_evidence = _caught_references(
         reference_set.references, programmatic_matches
     )
+    audit_finding_by_id = {item.finding_id: item for item in audit_findings}
+    programmatic_finding_by_id = {
+        item.finding_id: item for item in programmatic_findings
+    }
     llm_references = {
         item.reference_id
         for item in reference_set.references
@@ -178,7 +190,21 @@ def score_evaluation(
                 programmatic_caught=programmatic_hit,
                 model_caught=model_hit,
                 model_finding_ids=model_evidence[reference.reference_id],
-                programmatic_finding_ids=programmatic_evidence[reference.reference_id],
+                programmatic_finding_ids=programmatic_evidence[
+                    reference.reference_id
+                ],
+                model_evidence=tuple(
+                    f"{audit_finding_by_id[finding_id].problem} @ "
+                    f"{audit_finding_by_id[finding_id].location}"
+                    for finding_id in model_evidence[reference.reference_id]
+                ),
+                programmatic_evidence=tuple(
+                    f"{programmatic_finding_by_id[finding_id].problem} @ "
+                    f"{programmatic_finding_by_id[finding_id].location}"
+                    for finding_id in programmatic_evidence[
+                        reference.reference_id
+                    ]
+                ),
                 disposition=disposition,
             )
         )
@@ -186,12 +212,37 @@ def score_evaluation(
         item.finding_id for item in audit_matches if item.state == "accepted"
     }
     total_cost = Decimal(run.audit_cost_usd) + Decimal(run.evaluation_cost_usd)
+    if (
+        run.reference_set_version
+        and run.reference_set_version != reference_set.version
+    ):
+        raise ValueError(
+            "Run metadata reference-set version does not match the scored "
+            "input."
+        )
+    if (
+        run.workbook_sha256
+        and run.workbook_sha256 != reference_set.workbook_sha256
+    ):
+        raise ValueError(
+            "Run metadata workbook checksum does not match the scored input."
+        )
     return EvaluationScore(
         run_id=run.run_id,
         model=run.model,
         complete=run.complete,
         rankable=run.complete,
         comparable_identity=run.comparable_identity,
+        compatibility={
+            "benchmark": run.comparable_identity,
+            "workbook": reference_set.workbook_sha256,
+            "snapshot": run.snapshot_sha256,
+            "reference_set": reference_set.version,
+            "prompts": run.prompt_hashes_identity,
+            "parser": run.parser_identity,
+            "eligibility": run.eligibility_identity,
+            "configuration": run.configuration_identity,
+        },
         reference_set_version=reference_set.version,
         workbook_sha256=reference_set.workbook_sha256,
         workbook_row_recall=_metric(
@@ -210,6 +261,7 @@ def score_evaluation(
         usage=asdict(run.usage),
         wall_time_seconds=run.wall_time_seconds,
         request_durations_seconds=run.request_durations_seconds,
+        request_duration_sum_seconds=sum(run.request_durations_seconds),
         unmatched_audit_finding_ids=tuple(
             sorted(
                 item.finding_id
@@ -222,14 +274,19 @@ def score_evaluation(
     )
 
 
-def rank_scores(scores: Sequence[EvaluationScore]) -> tuple[EvaluationScore, ...]:
-    """Rank comparable complete runs by recall, then unrounded audit cost only."""
+def rank_scores(
+    scores: Sequence[EvaluationScore],
+) -> tuple[EvaluationScore, ...]:
+    """Rank complete runs by recall, then unrounded audit cost only."""
     if any(not item.rankable for item in scores):
-        raise ValueError("An incomplete run is unranked and cannot be compared.")
-    identities = {item.comparable_identity for item in scores}
+        raise ValueError(
+            "An incomplete run is unranked and cannot be compared."
+        )
+    identities = {tuple(sorted(item.compatibility.items())) for item in scores}
     if len(identities) > 1:
         raise ValueError(
-            "Runs use incompatible benchmark versions; cross-version analysis must "
+            "Runs use incompatible benchmark versions; cross-version analysis "
+            "must "
             "be explicitly requested and labeled."
         )
     return tuple(
@@ -238,7 +295,6 @@ def rank_scores(scores: Sequence[EvaluationScore]) -> tuple[EvaluationScore, ...
             key=lambda item: (
                 -Decimal(str(item.workbook_row_recall["rate"])),
                 Decimal(item.audit_cost_usd),
-                item.run_id,
             ),
         )
     )

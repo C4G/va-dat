@@ -76,10 +76,19 @@ def generate_candidates(
             if not page_compatible:
                 continue
             reference_location = reference.location.casefold()
-            finding_evidence = f"{finding.element} {finding.location}".casefold()
+            finding_evidence = (
+                f"{finding.element} {finding.location}".casefold()
+            )
             if reference_location and finding_evidence:
-                # Only treat explicit, disjoint element categories as impossible.
-                categories = ("image", "heading", "link", "form", "table", "media")
+                # Only explicit, disjoint element categories are impossible.
+                categories = (
+                    "image",
+                    "heading",
+                    "link",
+                    "form",
+                    "table",
+                    "media",
+                )
                 ref_categories = {
                     item for item in categories if item in reference_location
                 }
@@ -106,7 +115,9 @@ def validate_match_decisions(
     """Require resolved evidence-backed decisions and one-to-one findings."""
     reference_by_id = {item.reference_id: item for item in references}
     finding_ids = {item.finding_id for item in findings}
-    pair_counts = Counter((item.reference_id, item.finding_id) for item in decisions)
+    pair_counts = Counter(
+        (item.reference_id, item.finding_id) for item in decisions
+    )
     repeated = [pair for pair, count in pair_counts.items() if count > 1]
     if repeated:
         raise MatchValidationError(
@@ -125,8 +136,13 @@ def validate_match_decisions(
             raise MatchValidationError(
                 "Unresolved needs_review match decisions cannot be scored."
             )
-        if not decision.provenance.reviewer or not decision.provenance.rationale:
-            raise MatchValidationError("Every match decision requires provenance.")
+        if (
+            not decision.provenance.reviewer
+            or not decision.provenance.rationale
+        ):
+            raise MatchValidationError(
+                "Every match decision requires provenance."
+            )
         if not 0 <= decision.provenance.confidence <= 1:
             raise MatchValidationError("Match confidence must be 0 through 1.")
         if decision.state != "accepted":
@@ -139,19 +155,26 @@ def validate_match_decisions(
             )
         ):
             raise MatchValidationError(
-                "An accepted match requires compatible page, underlying failure, "
+                "An accepted match requires compatible page, underlying "
+                "failure, "
                 "and location or element-group evidence."
             )
         reference = reference_by_id[decision.reference_id]
         if reference.required_subdefects:
-            if decision.required_subdefect not in reference.required_subdefects:
+            if (
+                decision.required_subdefect
+                not in reference.required_subdefects
+            ):
+                reference_id = reference.reference_id
                 raise MatchValidationError(
-                    f"Accepted match for {reference.reference_id} must identify one "
+                    f"Accepted match for {reference_id} must identify "
+                    "one "
                     "of its required sub-defects."
                 )
         elif decision.required_subdefect:
             raise MatchValidationError(
-                f"Reference {reference.reference_id} has no required sub-defects."
+                f"Reference {reference.reference_id} has no required "
+                "sub-defects."
             )
     accepted = [item for item in decisions if item.state == "accepted"]
     finding_counts = Counter(item.finding_id for item in accepted)
@@ -166,7 +189,9 @@ def validate_match_decisions(
         for item in accepted
         if not reference_by_id[item.reference_id].required_subdefects
     )
-    conflicts = [item for item, count in plain_reference_counts.items() if count > 1]
+    conflicts = [
+        item for item, count in plain_reference_counts.items() if count > 1
+    ]
     if conflicts:
         raise MatchValidationError(
             "Accepted matches must be one-to-one; reference "
@@ -182,7 +207,8 @@ def validate_match_decisions(
     ]
     if subdefect_conflicts:
         raise MatchValidationError(
-            "Accepted matches must be one-to-one at the required sub-defect level."
+            "Accepted matches must be one-to-one at the required "
+            "sub-defect level."
         )
     return tuple(decisions)
 
@@ -210,13 +236,17 @@ def export_match_workbook(
                 reference.problem,
                 reference.location,
                 ", ".join(reference.wcag_evidence),
-                json.dumps(reference.raw_evidence, ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    reference.raw_evidence, ensure_ascii=False, sort_keys=True
+                ),
                 finding.prompt,
                 finding.problem,
                 finding.element,
                 finding.location,
                 ", ".join(finding.wcag_evidence),
-                json.dumps(finding.raw_source, ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    finding.raw_source, ensure_ascii=False, sort_keys=True
+                ),
                 "needs_review",
                 "",
                 "",
@@ -253,10 +283,12 @@ def export_match_workbook(
 
 
 def _text(value: Any) -> str:
+    """Normalize an optional worksheet cell to stripped text."""
     return "" if value is None else str(value).strip()
 
 
 def _boolean(value: Any, *, row: int, field: str) -> bool | None:
+    """Parse an optional human-entered worksheet boolean."""
     if value in (None, ""):
         return None
     if isinstance(value, bool):
@@ -273,6 +305,7 @@ class HumanMatchReviewer:
     """Load human match decisions through the shared reviewer contract."""
 
     def __init__(self, review_path: Path):
+        """Select the private Matches workbook to read."""
         self.review_path = review_path
 
     def review(
@@ -280,7 +313,7 @@ class HumanMatchReviewer:
         references: Sequence[ReferenceDefect],
         findings: Sequence[CanonicalFinding],
     ) -> tuple[MatchDecision, ...]:
-        """Load provenance-complete decisions and validate accepted conflicts."""
+        """Load complete decisions and validate accepted conflicts."""
         try:
             workbook = openpyxl.load_workbook(
                 self.review_path,
@@ -298,7 +331,8 @@ class HumanMatchReviewer:
         missing = set(MATCH_COLUMNS) - set(headers)
         if missing:
             raise MatchValidationError(
-                "Matches review is missing columns: " + ", ".join(sorted(missing))
+                "Matches review is missing columns: "
+                + ", ".join(sorted(missing))
             )
         decisions = []
         for row_number, values in enumerate(rows, start=2):
@@ -317,7 +351,8 @@ class HumanMatchReviewer:
             timestamp = _text(record.get("timestamp"))
             if not reviewer or not rationale or not timestamp:
                 raise MatchValidationError(
-                    f"Match row {row_number} requires reviewer, rationale, and timestamp."
+                    f"Match row {row_number} requires reviewer, rationale, "
+                    "and timestamp."
                 )
             try:
                 raw_confidence = record.get("confidence")

@@ -8,7 +8,9 @@ from typing import Any
 
 from processing_scripts.programmatic.forms_checklist_02 import audit_forms
 from processing_scripts.programmatic.nontext_checklist_03 import audit_nontext
-from processing_scripts.programmatic.semantic_checklist_01 import audit_html_file
+from processing_scripts.programmatic.semantic_checklist_01 import (
+    audit_html_file,
+)
 from vision_aid.evaluation.normalization import normalize_programmatic_findings
 from vision_aid.evaluation.schemas import CanonicalFinding
 
@@ -29,7 +31,9 @@ def run_programmatic_audit(
 ) -> ProgrammaticAudit:
     """Run the existing three checker entry points against a benchmark file."""
     path = str(html_path)
-    raw = tuple(audit_html_file(path) + audit_forms(path) + audit_nontext(path))
+    raw = tuple(
+        audit_html_file(path) + audit_forms(path) + audit_nontext(path)
+    )
     return ProgrammaticAudit(
         raw_findings=raw,
         findings=normalize_programmatic_findings(
