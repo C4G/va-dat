@@ -212,5 +212,12 @@ output/
 # CI smoke-test output
 ci-output/
 
+# Node.js / Next.js generated files
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+web/prisma/generated/
+
 # Stray git worktrees — never belong in the index
 .claude/worktrees/
