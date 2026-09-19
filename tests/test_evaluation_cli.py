@@ -1,12 +1,66 @@
+import json
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
+from datetime import datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Thread
+from typing import Iterator
 
 import pytest
 
 PROJECT_ROOT = Path(__file__).parents[1]
+SNAPSHOT_BODY = (
+    b'<!doctype html>\r\n<html lang="en"><head><title>Pristine</title></head>'
+    b"<body>caf\xc3\xa9</body></html>\r\n"
+)
+SNAPSHOT_SHA256 = "aadf66066b05d9c8d8268ba7e28ebcef8a2ed81f672fc2e2285d9236be00e89d"
+TEMPORAL_ASSUMPTION = (
+    "Stakeholders report that the homepage has not changed since the workbook audit."
+)
+
+
+class SnapshotHTTPServer(ThreadingHTTPServer):
+    """Serve one synthetic HTML response and record benchmark fetches."""
+
+    request_count = 0
+
+
+class SnapshotHandler(BaseHTTPRequestHandler):
+    """Return a byte-sensitive local response without external network access."""
+
+    def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
+        server = self.server
+        assert isinstance(server, SnapshotHTTPServer)
+        server.request_count += 1
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(SNAPSHOT_BODY)))
+        self.send_header("ETag", '"synthetic-v1"')
+        self.send_header("Last-Modified", "Wed, 16 Sep 2026 14:00:00 GMT")
+        self.end_headers()
+        self.wfile.write(SNAPSHOT_BODY)
+
+    def log_message(self, format: str, *args: object) -> None:
+        """Keep the test output free of local server access logs."""
+
+
+@contextmanager
+def local_snapshot_server() -> Iterator[tuple[str, SnapshotHTTPServer]]:
+    """Run the synthetic benchmark source on an ephemeral loopback port."""
+    server = SnapshotHTTPServer(("127.0.0.1", 0), SnapshotHandler)
+    thread = Thread(target=server.serve_forever)
+    thread.start()
+    host, port = server.server_address
+    try:
+        yield f"http://{host}:{port}/pristine-homepage", server
+    finally:
+        server.shutdown()
+        thread.join()
+        server.server_close()
 
 
 def run_cli(
@@ -123,6 +177,146 @@ def test_prepare_rejects_an_unignored_workbook_inside_the_worktree(
     assert result.returncode == 2
     assert "would be visible to version control" in result.stderr
     assert "outside the repository" in result.stderr
+
+
+def test_prepare_captures_exact_html_with_snapshot_provenance(tmp_path: Path) -> None:
+    """Prepare freezes the HTTP body consumed by the audit pipeline."""
+    workbook = tmp_path / "synthetic-reference.xlsx"
+    workbook.write_bytes(b"synthetic workbook placeholder")
+
+    with local_snapshot_server() as (source_url, server):
+        result = run_cli(
+            "prepare",
+            "--workbook",
+            str(workbook),
+            "--snapshot-url",
+            source_url,
+            "--temporal-assumption",
+            TEMPORAL_ASSUMPTION,
+            cwd=tmp_path,
+        )
+
+    assert result.returncode == 0, result.stderr
+    assert "Benchmark snapshot captured" in result.stdout
+    assert server.request_count == 1
+
+    snapshot_directory = tmp_path / ".model-evaluation" / "snapshots"
+    html_path = snapshot_directory / "pristine-homepage.html"
+    metadata_path = snapshot_directory / "pristine-homepage.json"
+    assert html_path.read_bytes() == SNAPSHOT_BODY
+
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["source_url"] == source_url
+    assert metadata["sha256"] == SNAPSHOT_SHA256
+    assert metadata["byte_length"] == len(SNAPSHOT_BODY)
+    assert metadata["temporal_assumption"] == TEMPORAL_ASSUMPTION
+    assert metadata["html_file"] == html_path.name
+    assert metadata["http"] == {
+        "content_length": str(len(SNAPSHOT_BODY)),
+        "content_type": "text/html; charset=utf-8",
+        "etag": '"synthetic-v1"',
+        "final_url": source_url,
+        "last_modified": "Wed, 16 Sep 2026 14:00:00 GMT",
+        "status_code": 200,
+    }
+    retrieved_at = datetime.fromisoformat(
+        metadata["retrieved_at"].replace("Z", "+00:00")
+    )
+    assert retrieved_at.tzinfo is not None
+
+
+def test_prepare_reuses_a_verified_snapshot_without_refetching(tmp_path: Path) -> None:
+    """An existing benchmark is verified in place and never fetched again."""
+    workbook = tmp_path / "synthetic-reference.xlsx"
+    workbook.write_bytes(b"synthetic workbook placeholder")
+
+    with local_snapshot_server() as (source_url, server):
+        first = run_cli(
+            "prepare",
+            "--workbook",
+            str(workbook),
+            "--snapshot-url",
+            source_url,
+            "--temporal-assumption",
+            TEMPORAL_ASSUMPTION,
+            cwd=tmp_path,
+        )
+        second = run_cli(
+            "prepare",
+            "--workbook",
+            str(workbook),
+            "--snapshot-url",
+            source_url,
+            cwd=tmp_path,
+        )
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    assert "Benchmark snapshot reused" in second.stdout
+    assert server.request_count == 1
+
+
+def test_prepare_refuses_to_overwrite_a_changed_snapshot(tmp_path: Path) -> None:
+    """Checksum drift fails closed without a network request or overwrite."""
+    workbook = tmp_path / "synthetic-reference.xlsx"
+    workbook.write_bytes(b"synthetic workbook placeholder")
+
+    with local_snapshot_server() as (source_url, server):
+        first = run_cli(
+            "prepare",
+            "--workbook",
+            str(workbook),
+            "--snapshot-url",
+            source_url,
+            "--temporal-assumption",
+            TEMPORAL_ASSUMPTION,
+            cwd=tmp_path,
+        )
+        assert first.returncode == 0, first.stderr
+        html_path = (
+            tmp_path
+            / ".model-evaluation"
+            / "snapshots"
+            / "pristine-homepage.html"
+        )
+        html_path.write_bytes(b"changed benchmark")
+
+        second = run_cli(
+            "prepare",
+            "--workbook",
+            str(workbook),
+            "--snapshot-url",
+            source_url,
+            cwd=tmp_path,
+        )
+
+    assert second.returncode == 2
+    assert "checksum does not match" in second.stderr
+    assert "will not be refetched or overwritten" in second.stderr
+    assert html_path.read_bytes() == b"changed benchmark"
+    assert server.request_count == 1
+
+
+def test_prepare_rejects_the_dat_vision_aid_fixture_as_a_snapshot(
+    tmp_path: Path,
+) -> None:
+    """The unrelated committed fixture cannot stand in for Pristine."""
+    workbook = tmp_path / "synthetic-reference.xlsx"
+    workbook.write_bytes(b"synthetic workbook placeholder")
+
+    result = run_cli(
+        "prepare",
+        "--workbook",
+        str(workbook),
+        "--snapshot-url",
+        str(PROJECT_ROOT / "test_files" / "dat_visionaid_home.html"),
+        "--temporal-assumption",
+        TEMPORAL_ASSUMPTION,
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 2
+    assert "DAT Vision Aid fixture is not a Pristine benchmark input" in result.stderr
 
 
 @pytest.mark.parametrize("api_key_name", ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"])

@@ -249,6 +249,25 @@ place it in the repository root, and initialize the private workspace:
 uv run visionaid-evaluate prepare
 ```
 
+To freeze the Pristine homepage for model comparisons, supply its authorized
+URL and record the stakeholder-supported temporal assumption during preparation:
+
+```bash
+uv run visionaid-evaluate prepare \
+  --snapshot-url "$PRISTINE_HOMEPAGE_URL" \
+  --temporal-assumption \
+  "Stakeholders report that the homepage has not changed since the workbook audit."
+```
+
+The command saves the HTTP response body without HTML transformation as
+`.model-evaluation/snapshots/pristine-homepage.html`. Its adjacent JSON file
+records the source and final URLs, retrieval time, HTTP status and identity
+headers, byte length, SHA-256, and temporal assumption. Repeating preparation
+for the same URL verifies and reuses those files without another request.
+Checksum drift, changed provenance, or a partial snapshot fails closed; prepare
+never silently replaces an existing benchmark. Local HTML files, including the
+unrelated DAT Vision Aid fixture, cannot be used as the Pristine snapshot.
+
 Use `--workbook PATH` for another authorized local copy outside the repository.
 The fixed `.model-evaluation/` workspace contains separate `references/`,
 `reviews/`, `snapshots/`, `runs/`, and `reports/` partitions, all covered by one

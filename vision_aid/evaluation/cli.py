@@ -4,6 +4,7 @@ import argparse
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+from vision_aid.evaluation.snapshot import prepare_benchmark_snapshot
 from vision_aid.evaluation.workspace import (
     DEFAULT_WORKBOOK_FILENAME,
     PrivateInputError,
@@ -41,6 +42,17 @@ def build_parser() -> argparse.ArgumentParser:
             f"authorized local source workbook (default: ./{DEFAULT_WORKBOOK_FILENAME})"
         ),
     )
+    prepare.add_argument(
+        "--snapshot-url",
+        help="HTTP(S) source URL for an immutable Pristine homepage capture",
+    )
+    prepare.add_argument(
+        "--temporal-assumption",
+        help=(
+            "stakeholder-supported statement relating a new capture to the "
+            "workbook audit"
+        ),
+    )
     prepare.set_defaults(handler=_prepare)
 
     audit = workflows.add_parser(
@@ -70,6 +82,19 @@ def _prepare(arguments: argparse.Namespace) -> int:
     workspace.initialize()
     print(f"Private evaluation workspace initialized at {workspace.root.resolve()}")
     print(f"Private source workbook: {workbook}")
+    if arguments.temporal_assumption and not arguments.snapshot_url:
+        raise PrivateInputError(
+            "--temporal-assumption requires --snapshot-url."
+        )
+    if arguments.snapshot_url:
+        snapshot = prepare_benchmark_snapshot(
+            workspace,
+            source_url=arguments.snapshot_url,
+            temporal_assumption=arguments.temporal_assumption,
+        )
+        action = "reused" if snapshot.reused else "captured"
+        print(f"Benchmark snapshot {action}: {snapshot.html_path.resolve()}")
+        print(f"Benchmark SHA-256: {snapshot.metadata['sha256']}")
     return 0
 
 
