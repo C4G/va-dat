@@ -14,9 +14,21 @@ dependencies = [
     "lxml>=4.9.0",
     "openai>=1.0.0",
     "google-genai>=1.0.0",
+    "openpyxl>=3.1.5",
     "python-dotenv~=1.2.1",
     "requests>=2.32.2",
 ]
 
+[project.scripts]
+visionaid-evaluate = "vision_aid.evaluation.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
 [tool.setuptools]
-packages = ["vision_aid"]
+packages = ["vision_aid", "vision_aid.evaluation"]

@@ -212,6 +212,10 @@ output/
 # CI smoke-test output
 ci-output/
 
+# Private model-evaluation inputs and derived artifacts
+/Pristine Accessibility Defect Report.xlsx
+/.model-evaluation/
+
 # Node.js / Next.js generated files
 node_modules/
 .next/

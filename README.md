@@ -238,6 +238,27 @@ GEMINI_API_KEY=AIza...
 > checks only, no LLM findings, no CSV, and still a `200 OK` from the web app.
 > The only signal is `summary.dry_run` in the response.
 
+## Private Model Evaluation
+
+The evaluation CLI keeps the employer-provided workbook and every derived
+artifact outside version control. Obtain
+`Pristine Accessibility Defect Report.xlsx` from an authorized project source,
+place it in the repository root, and initialize the private workspace:
+
+```bash
+uv run visionaid-evaluate prepare
+```
+
+Use `--workbook PATH` for another authorized local copy and `--workspace PATH`
+to override the default `.model-evaluation/` workspace. The workspace contains
+separate `references/`, `reviews/`, `snapshots/`, `runs/`, and `reports/`
+partitions, all covered by one ignore rule.
+
+Run `uv run visionaid-evaluate --help` to discover the `prepare`, `audit`,
+`review`, and `report` workflows. At this bootstrap milestone, `audit` is
+always a network-free dry run—even when an API key is present—and live
+execution is not exposed.
+
 ## Running the Web App
 
 ```bash
