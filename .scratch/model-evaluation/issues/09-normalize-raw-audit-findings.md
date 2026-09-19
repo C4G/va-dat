@@ -2,7 +2,7 @@
 
 **What to build:** Convert saved raw audit responses into lossless canonical audit findings without relying on the production CSV, suppression rules, or model-based deduplication.
 
-**Blocked by:** 08: Execute and record an authorized live audit.
+**Blocked by:** 08: Execute and record an approved live audit.
 
 **Status:** resolved
 
