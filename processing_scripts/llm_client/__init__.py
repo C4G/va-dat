@@ -12,12 +12,15 @@ Usage
     report  = run_all(client, prompts, all_slices)
 """
 
+from .audit import AuditRequestClient, AuditRequestConfig
 from .client import AuditClient, OpenAIAuditClient, create_audit_client, is_openai_model
 from .prompt_loader import load_prompts, load_all_prompts
 from .runner import run_checklist, run_all
 
 __all__ = [
     "AuditClient",
+    "AuditRequestClient",
+    "AuditRequestConfig",
     "OpenAIAuditClient",
     "create_audit_client",
     "is_openai_model",

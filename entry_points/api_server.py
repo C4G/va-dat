@@ -150,9 +150,14 @@ def run_audit(html_content: str, api_key: str, model: str, progress_callback=Non
                     "wcag_criteria": data.get("wcag_criteria", []),
                     "status": status,
                     "error": (api_result or {}).get("error"),
+                    "failure": (api_result or {}).get("failure"),
                     "parsed": parsed,
+                    "provider": (api_result or {}).get("provider"),
+                    "request": (api_result or {}).get("request"),
+                    "usage": usage,
                     "input_tokens": usage.get("input_tokens"),
                     "output_tokens": usage.get("output_tokens"),
+                    "stop_reason": (api_result or {}).get("stop_reason"),
                     "duration_seconds": (api_result or {}).get("duration_seconds"),
                 }
 
