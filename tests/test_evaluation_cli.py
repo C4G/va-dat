@@ -1,4 +1,5 @@
 import hashlib
+import io
 import json
 import os
 import subprocess
@@ -15,8 +16,10 @@ import openpyxl
 import pytest
 
 from vision_aid.evaluation import audit as evaluation_audit
-from vision_aid.evaluation.audit import live_authorization_digest
 from vision_aid.evaluation.cli import main as evaluation_main
+from vision_aid.evaluation.schemas import ReferenceSet
+from vision_aid.evaluation.serialization import save_reference_set
+from vision_aid.evaluation.workspace import PrivateWorkspace
 
 PROJECT_ROOT = Path(__file__).parents[1]
 SNAPSHOT_BODY = (
@@ -104,6 +107,48 @@ def run_cli(
         text=True,
         check=False,
     )
+
+
+class TerminalInput(io.StringIO):
+    """Provide controlled input with an explicit terminal capability."""
+
+    def __init__(self, value: str, *, terminal: bool = True) -> None:
+        super().__init__(value)
+        self.terminal = terminal
+
+    def isatty(self) -> bool:
+        """Report whether interactive confirmation is available."""
+        return self.terminal
+
+
+def create_planned_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> Path:
+    """Plan a minimal evaluation run through the public CLI boundary."""
+    monkeypatch.chdir(tmp_path)
+    workspace = PrivateWorkspace.from_current_directory()
+    workspace.initialize()
+    references = ReferenceSet(
+        version="synthetic-v1",
+        workbook_filename="synthetic.xlsx",
+        workbook_sha256="a" * 64,
+        homepage_url="https://example.test/",
+        references=(),
+    )
+    save_reference_set(workspace.root / "references" / "approved.json", references)
+    snapshot_directory = workspace.root / "snapshots" / "pristine-homepage"
+    snapshot_directory.mkdir(parents=True)
+    snapshot = snapshot_directory / "source.html"
+    snapshot.write_text("<html><body>synthetic</body></html>", encoding="utf-8")
+    (snapshot_directory / "metadata.json").write_text(
+        json.dumps({"sha256": hashlib.sha256(snapshot.read_bytes()).hexdigest()}),
+        encoding="utf-8",
+    )
+    assert evaluation_main(["audit", "--max-audit-cost-usd", "0.01"]) == 0
+    capsys.readouterr()
+    return next((workspace.root / "runs").iterdir())
 
 
 @pytest.fixture
@@ -459,6 +504,152 @@ def test_audit_defaults_to_a_network_free_dry_run_even_with_an_api_key(
     assert "No network requests were made" in result.stdout
 
 
+@pytest.mark.parametrize("option", ("--plan", "--authorize", "--bundle"))
+def test_obsolete_workflow_options_are_rejected(option: str) -> None:
+    """Removed plan, authorization, and report-bundle flags stay removed."""
+    workflow = "report" if option == "--bundle" else "audit"
+    prefix = ("--run-dir", "obsolete-run") if workflow == "report" else ()
+    result = run_cli(workflow, *prefix, option, "obsolete.json")
+
+    assert result.returncode == 2
+    assert "unrecognized arguments" in result.stderr
+
+
+def test_interactive_live_approval_accepts_trimmed_case_insensitive_yes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A terminal operator can approve the displayed run by typing yes."""
+    run_directory = create_planned_run(tmp_path, monkeypatch, capsys)
+
+    class SyntheticClient:
+        """Return empty successful findings without provider access."""
+
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def call(self, _prompt: str) -> dict[str, object]:
+            return {
+                "success": True,
+                "response": "[]",
+                "usage": {},
+                "duration_seconds": 0,
+            }
+
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-key")
+    monkeypatch.setattr(sys, "stdin", TerminalInput("  YeS  \n"))
+    monkeypatch.setattr(evaluation_audit, "AuditRequestClient", SyntheticClient)
+
+    assert (
+        evaluation_main(
+            ["audit", "--live", "--run-dir", str(run_directory)]
+        )
+        == 0
+    )
+
+    output = capsys.readouterr().out
+    manifest = json.loads(
+        (run_directory / "live-manifest.json").read_text(encoding="utf-8")
+    )
+    assert "Evaluation execution summary" in output
+    assert "Approval mode: interactive" in output
+    assert manifest["approval"]["mode"] == "interactive"
+
+
+@pytest.mark.parametrize(
+    ("response", "terminal", "message"),
+    (
+        ("no\n", True, "was not 'yes'"),
+        ("\n", True, "was not 'yes'"),
+        ("", True, "ended before confirmation"),
+        ("yes\n", False, "requires a terminal"),
+    ),
+)
+def test_failed_live_approval_stops_before_client_or_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    response: str,
+    terminal: bool,
+    message: str,
+) -> None:
+    """Ambiguous, missing, or non-terminal input cannot begin a live run."""
+    run_directory = create_planned_run(tmp_path, monkeypatch, capsys)
+
+    class ForbiddenClient:
+        """Fail if approval rejection constructs a provider client."""
+
+        def __init__(self, **_kwargs: object) -> None:
+            raise AssertionError("provider client was constructed")
+
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-key")
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        TerminalInput(response, terminal=terminal),
+    )
+    monkeypatch.setattr(evaluation_audit, "AuditRequestClient", ForbiddenClient)
+
+    with pytest.raises(SystemExit) as raised:
+        evaluation_main(
+            ["audit", "--live", "--run-dir", str(run_directory)]
+        )
+
+    assert raised.value.code == 2
+    captured = capsys.readouterr()
+    assert "Evaluation execution summary" in captured.out
+    assert message in captured.err
+    for name in (
+        "raw-attempts.json",
+        "canonical-audit-findings.json",
+        "live-manifest.json",
+    ):
+        assert not (run_directory / name).exists()
+
+
+def test_live_option_combinations_keep_every_spending_gate_mandatory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Automation cannot blur planning, live intent, credentials, or cost."""
+    run_directory = create_planned_run(tmp_path, monkeypatch, capsys)
+
+    with pytest.raises(SystemExit):
+        evaluation_main(["audit", "--auto-approve"])
+    assert "only with --live" in capsys.readouterr().err
+
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-key")
+    with pytest.raises(SystemExit):
+        evaluation_main(
+            [
+                "audit",
+                "--live",
+                "--run-dir",
+                str(run_directory),
+                "--auto-approve",
+                "--max-audit-cost-usd",
+                "1",
+            ]
+        )
+    assert "reuses the saved cost guardrail" in capsys.readouterr().err
+
+    monkeypatch.delenv("OPENAI_API_KEY")
+    with pytest.raises(SystemExit):
+        evaluation_main(
+            [
+                "audit",
+                "--live",
+                "--run-dir",
+                str(run_directory),
+                "--auto-approve",
+            ]
+        )
+    assert "requires OPENAI_API_KEY" in capsys.readouterr().err
+    assert not (run_directory / "live-manifest.json").exists()
+
+
 def test_cli_completes_the_synthetic_private_workflow(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -531,13 +722,33 @@ def test_cli_completes_the_synthetic_private_workflow(
     )
     assert planned.returncode == 0, planned.stderr
     assert "DRY RUN" in planned.stdout
-    assert "Live authorization digest" in planned.stdout
+    assert "Evaluation execution summary" in planned.stdout
+    assert "Maximum audit cost: $0.01" in planned.stdout
+    assert "Evaluation run:" in planned.stdout
 
     approved_path = workspace / "references" / "approved.json"
     approved = json.loads(approved_path.read_text(encoding="utf-8"))
-    run_directory = workspace / "runs" / "dry-run"
+    run_directories = list((workspace / "runs").iterdir())
+    assert len(run_directories) == 1
+    run_directory = run_directories[0]
     plan_path = run_directory / "evaluation-manifest.json"
     run_manifest = json.loads(plan_path.read_text(encoding="utf-8"))
+    assert run_directory.name == run_manifest["run_id"]
+    assert run_manifest["maximum_audit_cost_usd"] == "0.01"
+    frozen_reference = run_directory / "reference-set.json"
+    assert frozen_reference.read_bytes() == approved_path.read_bytes()
+    first_plan_bytes = plan_path.read_bytes()
+    repeated_plan = run_cli(
+        "audit",
+        "--max-audit-cost-usd",
+        "0.01",
+        cwd=tmp_path,
+    )
+    assert repeated_plan.returncode == 0, repeated_plan.stderr
+    repeated_directories = list((workspace / "runs").iterdir())
+    assert len(repeated_directories) == 2
+    assert len({path.name for path in repeated_directories}) == 2
+    assert plan_path.read_bytes() == first_plan_bytes
 
     class SyntheticClient:
         """Return deterministic successful responses without network access."""
@@ -561,10 +772,6 @@ def test_cli_completes_the_synthetic_private_workflow(
                 "stop_reason": "stop",
             }
 
-    maximum_cost = "0.01"
-    authorization = live_authorization_digest(
-        run_manifest["plan_digest"], maximum_cost
-    )
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-key")
     monkeypatch.setattr(evaluation_audit, "AuditRequestClient", SyntheticClient)
@@ -573,28 +780,67 @@ def test_cli_completes_the_synthetic_private_workflow(
             [
                 "audit",
                 "--live",
-                "--plan",
-                str(plan_path),
-                "--authorize",
-                authorization,
-                "--max-audit-cost-usd",
-                maximum_cost,
+                "--run-dir",
+                str(run_directory),
+                "--auto-approve",
             ]
         )
         == 0
     )
-    capsys.readouterr()
+    live_output = capsys.readouterr().out
+    for expected in (
+        "Model: gpt-5.6-luna",
+        "Endpoint: chat.completions",
+        "Reasoning effort: medium",
+        "Benchmark snapshot SHA-256:",
+        "Reference set:",
+        "Prompts (",
+        "Estimated input tokens:",
+        "Retry policy:",
+        "Maximum audit cost: $0.01",
+        f"Destination: {run_directory}",
+        "Approval mode: auto",
+    ):
+        assert expected in live_output
+    live_manifest = json.loads(
+        (run_directory / "live-manifest.json").read_text(encoding="utf-8")
+    )
+    assert live_manifest["approval"]["mode"] == "auto"
+    assert "approved_at" in live_manifest["approval"]
+    assert "authorization_digest" not in live_manifest
+    assert "authorized_plan_digest" not in live_manifest
+    live_artifacts = {
+        name: (run_directory / name).read_bytes()
+        for name in (
+            "raw-attempts.json",
+            "canonical-audit-findings.json",
+            "live-manifest.json",
+        )
+    }
+    with pytest.raises(SystemExit) as occupied:
+        evaluation_main(
+            [
+                "audit",
+                "--live",
+                "--run-dir",
+                str(run_directory),
+                "--auto-approve",
+            ]
+        )
+    assert occupied.value.code == 2
+    assert "fresh evaluation run" in capsys.readouterr().err
+    for name, original_bytes in live_artifacts.items():
+        assert (run_directory / name).read_bytes() == original_bytes
 
     finding_path = run_directory / "canonical-audit-findings.json"
-    matches_workbook = workspace / "reviews" / "matches.xlsx"
+    review_directory = workspace / "reviews" / run_manifest["run_id"]
+    matches_workbook = review_directory / "audit-matches.xlsx"
     generated = run_cli(
         "review",
-        "--reference-set",
-        str(approved_path),
-        "--findings",
-        str(finding_path),
-        "--matches-workbook",
-        str(matches_workbook),
+        "--run-dir",
+        str(run_directory),
+        "--kind",
+        "audit",
         cwd=tmp_path,
     )
     assert generated.returncode == 0, generated.stderr
@@ -617,44 +863,87 @@ def test_cli_completes_the_synthetic_private_workflow(
     match_review.save(matches_workbook)
     imported = run_cli(
         "review",
-        "--reference-set",
-        str(approved_path),
-        "--findings",
-        str(finding_path),
-        "--matches-workbook",
-        str(matches_workbook),
+        "--run-dir",
+        str(run_directory),
+        "--kind",
+        "audit",
         "--import-matches",
         cwd=tmp_path,
     )
     assert imported.returncode == 0, imported.stderr
-
-    empty_matches = run_directory / "empty-matches.json"
-    empty_matches.write_text("[]", encoding="utf-8")
-    bundle_path = workspace / "synthetic-bundle.json"
-    bundle_path.write_text(
-        json.dumps(
-            {
-                "reference_set": "references/approved.json",
-                "audit_findings": "runs/dry-run/canonical-audit-findings.json",
-                "programmatic_findings": "runs/dry-run/canonical-programmatic.json",
-                "audit_matches": "reviews/match-decisions.json",
-                "programmatic_matches": "runs/dry-run/empty-matches.json",
-                "run_manifest": "runs/dry-run/live-manifest.json",
-            }
-        ),
+    programmatic_generated = run_cli(
+        "review",
+        "--run-dir",
+        str(run_directory),
+        "--kind",
+        "programmatic",
+        cwd=tmp_path,
+    )
+    assert programmatic_generated.returncode == 0, programmatic_generated.stderr
+    programmatic_workbook = review_directory / "programmatic-matches.xlsx"
+    programmatic_review = openpyxl.load_workbook(programmatic_workbook)
+    programmatic_matches = programmatic_review["Matches"]
+    programmatic_columns = {
+        cell.value: cell.column for cell in programmatic_matches[1]
+    }
+    for row in range(2, programmatic_matches.max_row + 1):
+        for name, value in {
+            "decision": "rejected",
+            "rationale": "The deterministic finding is not the same defect.",
+            "reviewer": "reviewer@example.test",
+            "confidence": 0.9,
+            "timestamp": "2026-09-19T12:35:00Z",
+        }.items():
+            programmatic_matches.cell(row, programmatic_columns[name], value)
+    programmatic_review.save(programmatic_workbook)
+    programmatic_imported = run_cli(
+        "review",
+        "--run-dir",
+        str(run_directory),
+        "--kind",
+        "programmatic",
+        "--import-matches",
+        cwd=tmp_path,
+    )
+    assert programmatic_imported.returncode == 0, programmatic_imported.stderr
+    assert (review_directory / "audit-match-decisions.json").is_file()
+    assert (
+        review_directory / "programmatic-match-decisions.json"
+    ).is_file()
+    live_manifest["format_failures"] = ["synthetic-format"]
+    (run_directory / "live-manifest.json").write_text(
+        json.dumps(live_manifest),
         encoding="utf-8",
     )
 
-    reported = run_cli("report", "--bundle", str(bundle_path), cwd=tmp_path)
+    reported = run_cli(
+        "report", "--run-dir", str(run_directory), cwd=tmp_path
+    )
 
     assert reported.returncode == 0, reported.stderr
-    assert (workspace / "reports" / f"{run_manifest['run_id']}.json").is_file()
+    json_report = workspace / "reports" / f"{run_manifest['run_id']}.json"
+    assert json_report.is_file()
+    report_data = json.loads(json_report.read_text(encoding="utf-8"))
+    assert report_data["parse_failures"] == ["synthetic-format"]
+
+    programmatic_decisions = (
+        review_directory / "programmatic-match-decisions.json"
+    )
+    decision_bytes = programmatic_decisions.read_bytes()
+    programmatic_decisions.unlink()
+    unresolved = run_cli(
+        "report", "--run-dir", str(run_directory), cwd=tmp_path
+    )
+    assert unresolved.returncode == 2
+    assert "--kind programmatic" in unresolved.stderr
+    assert "--import-matches" in unresolved.stderr
+    programmatic_decisions.write_bytes(decision_bytes)
 
     findings = json.loads(finding_path.read_text(encoding="utf-8"))
     findings[0]["run_id"] = "different-run"
     finding_path.write_text(json.dumps(findings), encoding="utf-8")
     rejected_finding = run_cli(
-        "report", "--bundle", str(bundle_path), cwd=tmp_path
+        "report", "--run-dir", str(run_directory), cwd=tmp_path
     )
     assert rejected_finding.returncode == 2
     assert "do not belong to the verified run" in rejected_finding.stderr
@@ -662,9 +951,9 @@ def test_cli_completes_the_synthetic_private_workflow(
     findings[0]["run_id"] = run_manifest["run_id"]
     finding_path.write_text(json.dumps(findings), encoding="utf-8")
     approved["references"][0]["eligibility_review"]["rationale"] = "Changed"
-    approved_path.write_text(json.dumps(approved), encoding="utf-8")
+    frozen_reference.write_text(json.dumps(approved), encoding="utf-8")
     rejected_eligibility = run_cli(
-        "report", "--bundle", str(bundle_path), cwd=tmp_path
+        "report", "--run-dir", str(run_directory), cwd=tmp_path
     )
     assert rejected_eligibility.returncode == 2
-    assert "eligibility decisions" in rejected_eligibility.stderr
+    assert "reference-set" in rejected_eligibility.stderr

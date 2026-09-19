@@ -3,7 +3,9 @@
 import argparse
 import json
 import os
+import sys
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 from vision_aid.evaluation.matching import (
@@ -104,19 +106,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--live", action="store_true", help="enable billable execution"
     )
     audit.add_argument(
-        "--plan", type=Path, help="exact dry-run manifest to execute"
+        "--auto-approve",
+        action="store_true",
+        help="deliberately approve live execution without a terminal prompt",
     )
     audit.add_argument(
-        "--authorize", help="authorization digest shown by dry run"
+        "--max-audit-cost-usd", help="required planning cost guardrail"
     )
     audit.add_argument(
-        "--max-audit-cost-usd", help="required live cost guardrail"
-    )
-    audit.add_argument(
-        "--reference-set", type=Path, help="approved reference-set JSON"
-    )
-    audit.add_argument(
-        "--run-dir", type=Path, help="private output directory for the plan"
+        "--run-dir", type=Path, help="planned evaluation run to execute"
     )
     audit.set_defaults(handler=_audit)
 
@@ -136,6 +134,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--findings", type=Path, help="canonical findings JSON"
     )
     review.add_argument(
+        "--run-dir", type=Path, help="evaluation run being reviewed"
+    )
+    review.add_argument(
+        "--kind",
+        choices=("audit", "programmatic"),
+        help="finding collection being reviewed",
+    )
+    review.add_argument(
         "--matches-workbook",
         type=Path,
         help="generate or apply a Matches workbook",
@@ -147,6 +153,11 @@ def build_parser() -> argparse.ArgumentParser:
             "import decisions from --matches-workbook instead of generating it"
         ),
     )
+    review.add_argument(
+        "--match-decisions",
+        type=Path,
+        help="validated match-decision JSON output override",
+    )
     review.set_defaults(handler=_review)
 
     report = workflows.add_parser(
@@ -154,9 +165,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="generate private evaluation reports",
     )
     report.add_argument(
-        "--bundle",
-        type=Path,
-        help="private JSON bundle containing score inputs",
+        "--run-dir", type=Path, required=True, help="evaluation run to report"
     )
     report.add_argument(
         "--output-dir", type=Path, help="private report directory"
@@ -207,30 +216,118 @@ def _prepare(arguments: argparse.Namespace) -> int:
     return 0
 
 
+def _render_execution_summary(
+    plan: dict[str, object],
+    run_directory: Path,
+    approval_mode: str,
+) -> str:
+    """Render the complete billable intent for planning or live approval."""
+    configuration = plan["configuration"]
+    assert isinstance(configuration, dict)
+    prompts = plan["prompts"]
+    assert isinstance(prompts, list)
+    prompt_names = ", ".join(str(item["name"]) for item in prompts)
+    retry_policy = plan["retry_policy"]
+    assert isinstance(retry_policy, dict)
+    return "\n".join(
+        (
+            "Evaluation execution summary",
+            f"  Model: {configuration['model']}",
+            f"  Endpoint: {configuration['endpoint']}",
+            f"  Reasoning effort: {configuration['reasoning_effort']}",
+            f"  Benchmark snapshot SHA-256: {plan['snapshot_sha256']}",
+            f"  Reference set: {plan['reference_set_version']}",
+            f"  Reference identity: {plan['eligibility_identity']}",
+            f"  Prompts ({plan['request_count']}): {prompt_names}",
+            f"  Estimated input tokens: {plan['estimated_input_tokens']}",
+            "  Retry policy: "
+            f"{retry_policy['maximum_additional_attempts']} additional "
+            f"attempts; backoff {retry_policy['backoff_seconds']}; "
+            f"retryable {retry_policy['retryable']}",
+            f"  Maximum audit cost: ${plan['maximum_audit_cost_usd']}",
+            f"  Destination: {run_directory.resolve()}",
+            f"  Approval mode: {approval_mode}",
+        )
+    )
+
+
+def _approval_timestamp() -> str:
+    """Return the UTC timestamp recorded for live-run approval."""
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _confirm_live_execution() -> str:
+    """Require exact, terminal-originated point-of-use confirmation."""
+    if not sys.stdin.isatty():
+        raise PrivateInputError(
+            "Interactive live-run approval requires a terminal. Use "
+            "--auto-approve only for deliberate automation."
+        )
+    try:
+        response = input("Type 'yes' to begin billable execution: ")
+    except EOFError as error:
+        raise PrivateInputError(
+            "Live-run approval ended before confirmation; no request was made."
+        ) from error
+    if response.strip().casefold() != "yes":
+        raise PrivateInputError(
+            "Live-run approval was not 'yes'; no request was made."
+        )
+    return _approval_timestamp()
+
+
 def _audit(arguments: argparse.Namespace) -> int:
-    """Build a no-cost plan or execute its exact authorized configuration."""
+    """Plan a no-cost evaluation run or execute one after explicit approval."""
+    from vision_aid.evaluation.audit import (
+        build_audit_plan,
+        ensure_live_destination_available,
+        execute_audit_run,
+        load_verified_audit_plan,
+    )
+
     workspace = PrivateWorkspace.from_current_directory()
     workspace.require_initialized()
+    if arguments.auto_approve and not arguments.live:
+        raise PrivateInputError("--auto-approve is accepted only with --live.")
     if arguments.live:
-        from vision_aid.evaluation.audit import execute_authorized_audit
-
-        if arguments.plan is None:
+        if arguments.run_dir is None:
+            raise PrivateInputError("--live requires --run-dir from planning.")
+        if arguments.max_audit_cost_usd is not None:
             raise PrivateInputError(
-                "--live requires --plan from a reviewed dry run."
+                "Live execution reuses the saved cost guardrail; do not pass "
+                "--max-audit-cost-usd."
             )
-        manifest = execute_authorized_audit(
-            arguments.plan,
+        run_directory = arguments.run_dir.resolve()
+        plan = load_verified_audit_plan(run_directory)
+        ensure_live_destination_available(run_directory)
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise PrivateInputError(
+                "Live execution requires OPENAI_API_KEY in addition to "
+                "approval."
+            )
+        approval_mode = "auto" if arguments.auto_approve else "interactive"
+        print(
+            _render_execution_summary(plan, run_directory, approval_mode),
+            flush=True,
+        )
+        approved_at = (
+            _approval_timestamp()
+            if arguments.auto_approve
+            else _confirm_live_execution()
+        )
+        manifest = execute_audit_run(
+            run_directory,
             live=True,
-            authorization=arguments.authorize,
             api_key=os.environ.get("OPENAI_API_KEY"),
-            max_audit_cost_usd=arguments.max_audit_cost_usd,
+            approval_mode=approval_mode,
+            approved_at=approved_at,
         )
         print(f"Live run complete: {manifest['complete']}")
         print(f"Estimated audit cost: ${manifest['estimated_audit_cost_usd']}")
         return 0
-    reference_path = arguments.reference_set or (
-        workspace.root / "references" / "approved.json"
-    )
+    if arguments.run_dir is not None:
+        raise PrivateInputError("--run-dir is accepted only with --live.")
+    reference_path = workspace.root / "references" / "approved.json"
     snapshot_directory = workspace.root / "snapshots" / "pristine-homepage"
     snapshot_path = snapshot_directory / "source.html"
     metadata_path = snapshot_directory / "metadata.json"
@@ -239,11 +336,6 @@ def _audit(arguments: argparse.Namespace) -> int:
         and snapshot_path.is_file()
         and metadata_path.is_file()
     ):
-        from vision_aid.evaluation.audit import (
-            build_audit_plan,
-            live_authorization_digest,
-        )
-
         reference_set = load_reference_set(reference_path)
         if any(
             item.eligibility_state != "accepted"
@@ -255,31 +347,30 @@ def _audit(arguments: argparse.Namespace) -> int:
         snapshot_metadata = json.loads(
             metadata_path.read_text(encoding="utf-8")
         )
+        if arguments.max_audit_cost_usd is None:
+            raise PrivateInputError(
+                "Audit planning requires --max-audit-cost-usd as a positive "
+                "spending guardrail."
+            )
         eligibility_identity = reference_set_identity(reference_set)
-        run_directory = (
-            arguments.run_dir or workspace.root / "runs" / "dry-run"
-        )
+        run_id, run_directory = workspace.create_evaluation_run()
+        frozen_reference_path = run_directory / "reference-set.json"
+        save_reference_set(frozen_reference_path, reference_set)
         plan = build_audit_plan(
             snapshot_path,
             run_directory,
+            maximum_audit_cost_usd=arguments.max_audit_cost_usd,
+            reference_set_path=frozen_reference_path,
             workbook_sha256=reference_set.workbook_sha256,
             snapshot_sha256=snapshot_metadata["sha256"],
             reference_set_version=reference_set.version,
             eligibility_identity=eligibility_identity,
             homepage_url=reference_set.homepage_url,
+            run_id=run_id,
         )
         print(f"DRY RUN: {plan['request_count']} sequential requests planned.")
-        print(f"Estimated input tokens: {plan['estimated_input_tokens']}")
-        print(f"Plan digest: {plan['plan_digest']}")
-        if arguments.max_audit_cost_usd:
-            authorization = live_authorization_digest(
-                plan["plan_digest"],
-                arguments.max_audit_cost_usd,
-            )
-            print(f"Live authorization digest: {authorization}")
-        print(
-            f"Plan: {(run_directory / 'evaluation-manifest.json').resolve()}"
-        )
+        print(_render_execution_summary(plan, run_directory, "pending"))
+        print(f"Evaluation run: {run_directory.resolve()}")
         return 0
     print(
         "DRY RUN: No network requests were made and no API usage was incurred."
@@ -303,27 +394,58 @@ def _review(arguments: argparse.Namespace) -> int:
         save_reference_set(approved_path, reviewed)
         print(f"Validated reference set: {approved_path.resolve()}")
         return 0
-    if arguments.matches_workbook:
-        if not arguments.reference_set or not arguments.findings:
+    match_workflow_requested = any(
+        (
+            arguments.run_dir,
+            arguments.kind,
+            arguments.reference_set,
+            arguments.findings,
+            arguments.matches_workbook,
+            arguments.match_decisions,
+            arguments.import_matches,
+        )
+    )
+    if match_workflow_requested:
+        if arguments.run_dir is None or arguments.kind is None:
             raise PrivateInputError(
-                "Match review requires --reference-set and --findings."
+                "Match review requires --run-dir and --kind "
+                "(audit or programmatic)."
             )
-        references = load_reference_set(arguments.reference_set).references
-        findings = load_findings(arguments.findings)
+        from vision_aid.evaluation.audit import load_verified_audit_plan
+
+        run_directory = arguments.run_dir.resolve()
+        plan = load_verified_audit_plan(run_directory)
+        run_id = str(plan["run_id"])
+        review_directory = workspace.root / "reviews" / run_id
+        reference_path = arguments.reference_set or (
+            run_directory / "reference-set.json"
+        )
+        findings_path = arguments.findings or (
+            run_directory
+            / (
+                "canonical-audit-findings.json"
+                if arguments.kind == "audit"
+                else "canonical-programmatic.json"
+            )
+        )
+        workbook_path = arguments.matches_workbook or (
+            review_directory / f"{arguments.kind}-matches.xlsx"
+        )
+        decision_path = arguments.match_decisions or (
+            review_directory / f"{arguments.kind}-match-decisions.json"
+        )
+        references = load_reference_set(reference_path).references
+        findings = load_findings(findings_path)
         if arguments.import_matches:
-            decisions = HumanMatchReviewer(arguments.matches_workbook).review(
+            decisions = HumanMatchReviewer(workbook_path).review(
                 references,
                 findings,
             )
-            output = workspace.root / "reviews" / "match-decisions.json"
-            save_match_decisions(output, decisions)
-            print(f"Validated match decisions: {output.resolve()}")
+            save_match_decisions(decision_path, decisions)
+            print(f"Validated match decisions: {decision_path.resolve()}")
         else:
-            export_match_workbook(
-                references, findings, arguments.matches_workbook
-            )
-            resolved_review = arguments.matches_workbook.resolve()
-            print(f"Matches review workbook: {resolved_review}")
+            export_match_workbook(references, findings, workbook_path)
+            print(f"Matches review workbook: {workbook_path.resolve()}")
         return 0
     print(
         f"Private review workspace: {(workspace.root / 'reviews').resolve()}"
@@ -332,39 +454,68 @@ def _review(arguments: argparse.Namespace) -> int:
 
 
 def _report(arguments: argparse.Namespace) -> int:
-    """Expose the private report workflow shell."""
+    """Discover verified run evidence and write every report projection."""
     workspace = PrivateWorkspace.from_current_directory()
     workspace.require_initialized()
-    if arguments.bundle:
-        bundle = json.loads(arguments.bundle.read_text(encoding="utf-8"))
-        base = arguments.bundle.parent
-        reference_set = load_reference_set(base / bundle["reference_set"])
-        if "run_manifest" not in bundle:
+    from vision_aid.evaluation.audit import load_verified_audit_plan
+
+    run_directory = arguments.run_dir.resolve()
+    plan = load_verified_audit_plan(run_directory)
+    run_id = str(plan["run_id"])
+    review_directory = workspace.root / "reviews" / run_id
+    inputs = {
+        "frozen reference set": run_directory / "reference-set.json",
+        "audit findings": run_directory / "canonical-audit-findings.json",
+        "programmatic findings": run_directory / "canonical-programmatic.json",
+        "audit match decisions": (
+            review_directory / "audit-match-decisions.json"
+        ),
+        "programmatic match decisions": (
+            review_directory / "programmatic-match-decisions.json"
+        ),
+        "live manifest": run_directory / "live-manifest.json",
+    }
+    for label, path in inputs.items():
+        if path.is_file():
+            continue
+        if "match decisions" in label:
+            kind = label.split()[0]
             raise PrivateInputError(
-                "Report bundles require run_manifest so benchmark identities "
-                "can be verified."
+                f"Missing {label} at {path}. Run "
+                f"'visionaid-evaluate review --run-dir {run_directory} "
+                f"--kind {kind}', complete the workbook, then rerun with "
+                "--import-matches."
             )
-        score = score_evaluation(
-            reference_set,
-            load_findings(base / bundle["audit_findings"]),
-            load_findings(base / bundle["programmatic_findings"]),
-            load_match_decisions(base / bundle["audit_matches"]),
-            load_match_decisions(base / bundle["programmatic_matches"]),
-            load_verified_run_metadata(
-                base / bundle["run_manifest"],
-                reference_set,
-            ),
-            parse_failures=tuple(bundle.get("parse_failures", ())),
+        raise PrivateInputError(
+            f"Missing {label} at {path}; complete the evaluation run before "
+            "reporting."
         )
-        output_directory = arguments.output_dir or workspace.root / "reports"
-        paths = write_reports(score, output_directory)
-        print(f"JSON report: {paths.json.resolve()}")
-        print(f"CSV report: {paths.csv.resolve()}")
-        print(f"Markdown report: {paths.markdown.resolve()}")
-        return 0
-    print(
-        f"Private report workspace: {(workspace.root / 'reports').resolve()}"
+    reference_set = load_reference_set(inputs["frozen reference set"])
+    live_manifest = json.loads(
+        inputs["live manifest"].read_text(encoding="utf-8")
     )
+    if (
+        live_manifest.get("kind") != "model-evaluation-live-run"
+        or live_manifest.get("run_id") != run_id
+        or live_manifest.get("plan_digest") != plan.get("plan_digest")
+    ):
+        raise PrivateInputError(
+            "The live manifest does not belong to the verified evaluation run."
+        )
+    score = score_evaluation(
+        reference_set,
+        load_findings(inputs["audit findings"]),
+        load_findings(inputs["programmatic findings"]),
+        load_match_decisions(inputs["audit match decisions"]),
+        load_match_decisions(inputs["programmatic match decisions"]),
+        load_verified_run_metadata(inputs["live manifest"], reference_set),
+        parse_failures=tuple(live_manifest.get("format_failures", ())),
+    )
+    output_directory = arguments.output_dir or workspace.root / "reports"
+    paths = write_reports(score, output_directory)
+    print(f"JSON report: {paths.json.resolve()}")
+    print(f"CSV report: {paths.csv.resolve()}")
+    print(f"Markdown report: {paths.markdown.resolve()}")
     return 0
 
 

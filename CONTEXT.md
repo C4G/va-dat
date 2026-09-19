@@ -24,6 +24,10 @@ _Avoid_: Every workbook row, programmatic defect
 An immutable capture of the audited webpage used as the common input for every evaluated model, with its source and capture identity recorded.
 _Avoid_: Live page, test URL
 
+**Evaluation run**:
+One planned model evaluation and its resulting audit evidence, reviewed match decisions, and reports, identified together for reproducibility.
+_Avoid_: Dry-run folder, report bundle
+
 **Eligibility classification**:
 The reviewed assignment explaining whether a reference defect belongs to the AI model's responsibility, a programmatic check, unavailable audit evidence, or unresolved ambiguity.
 _Avoid_: Model score, exclusion without rationale
@@ -47,6 +51,10 @@ _Avoid_: Candidate match, similarity score
 **Estimated run cost**:
 The calculated cost of one audit run using API-reported token usage and a recorded model-price schedule. It is the sole tie-breaker when workbook-row recall is equal.
 _Avoid_: Invoice amount, latency score
+
+**Live-run approval**:
+An operator's explicit confirmation to execute a displayed audit plan under a maximum audit-cost guardrail.
+_Avoid_: Authorization digest, API-key presence
 
 **Comparison reviewer**:
 A human or model that proposes eligibility classifications or match decisions through the same review process. A comparison reviewer does not calculate the final score.

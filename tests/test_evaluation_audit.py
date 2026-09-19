@@ -7,10 +7,31 @@ import pytest
 from vision_aid.evaluation.audit import (
     AuditExecutionError,
     build_audit_plan,
-    execute_authorized_audit,
-    live_authorization_digest,
+    execute_audit_run,
 )
 from vision_aid.evaluation.pricing import PriceSchedule
+from vision_aid.evaluation.schemas import ReferenceSet
+from vision_aid.evaluation.serialization import (
+    reference_set_identity,
+    save_reference_set,
+)
+
+REFERENCE_SET = ReferenceSet(
+    version="references-v1",
+    workbook_filename="synthetic.xlsx",
+    workbook_sha256="a" * 64,
+    homepage_url="https://example.test/",
+    references=(),
+)
+REFERENCE_IDENTITY = reference_set_identity(REFERENCE_SET)
+APPROVED_AT = "2026-09-19T12:00:00Z"
+
+
+def _reference_set_path(directory: Path) -> Path:
+    """Write the frozen synthetic reference set used by an audit plan."""
+    path = directory / "reference-set.json"
+    save_reference_set(path, REFERENCE_SET)
+    return path
 
 
 def _fake_pipeline(
@@ -90,10 +111,12 @@ def test_dry_plan_freezes_configuration_content_and_code_identities(
     plan = build_audit_plan(
         snapshot,
         run_directory,
+        maximum_audit_cost_usd="1.00",
+        reference_set_path=_reference_set_path(run_directory),
         workbook_sha256="a" * 64,
         snapshot_sha256=snapshot_sha256,
         reference_set_version="references-v1",
-        eligibility_identity="c" * 64,
+        eligibility_identity=REFERENCE_IDENTITY,
         pipeline=_fake_pipeline,
         repository=tmp_path,
     )
@@ -109,11 +132,37 @@ def test_dry_plan_freezes_configuration_content_and_code_identities(
     }
     assert plan["request_count"] == 2
     assert plan["estimated_input_tokens"] == 30
+    assert plan["maximum_audit_cost_usd"] == "1"
     assert list(plan["prompt_hashes"]) == ["heading_structure", "link_clarity"]
     assert len(plan["parser_hash"]) == 64
     assert len(plan["pricing_identity"]) == 64
     assert len(plan["plan_digest"]) == 64
     assert (run_directory / "evaluation-manifest.json").is_file()
+
+
+@pytest.mark.parametrize("limit", ("0", "-1", "NaN", "not-a-number"))
+def test_audit_plan_requires_a_positive_finite_cost_limit(
+    tmp_path: Path,
+    limit: str,
+) -> None:
+    """Planning rejects absent economic meaning before running the pipeline."""
+    snapshot = tmp_path / "source.html"
+    snapshot.write_text("<html></html>", encoding="utf-8")
+    run_directory = tmp_path / "run"
+
+    with pytest.raises(AuditExecutionError, match="cost limit"):
+        build_audit_plan(
+            snapshot,
+            run_directory,
+            maximum_audit_cost_usd=limit,
+            reference_set_path=_reference_set_path(run_directory),
+            workbook_sha256="a" * 64,
+            snapshot_sha256=hashlib.sha256(snapshot.read_bytes()).hexdigest(),
+            reference_set_version="references-v1",
+            eligibility_identity=REFERENCE_IDENTITY,
+            pipeline=_fake_pipeline,
+            repository=tmp_path,
+        )
 
 
 class FakeClient:
@@ -196,33 +245,33 @@ def test_live_gates_retries_and_format_failures(
     plan = build_audit_plan(
         snapshot,
         run_directory,
+        maximum_audit_cost_usd="1",
+        reference_set_path=_reference_set_path(run_directory),
         workbook_sha256="a" * 64,
         snapshot_sha256=snapshot_sha256,
         reference_set_version="references-v1",
-        eligibility_identity="c" * 64,
+        eligibility_identity=REFERENCE_IDENTITY,
         pipeline=_fake_pipeline,
         repository=tmp_path,
     )
-    plan_path = run_directory / "evaluation-manifest.json"
-    authorization = live_authorization_digest(plan["plan_digest"], "1")
-
     with pytest.raises(AuditExecutionError, match="--live"):
-        execute_authorized_audit(
-            plan_path,
+        execute_audit_run(
+            run_directory,
             live=False,
-            authorization=authorization,
             api_key="secret",
-            max_audit_cost_usd="1",
+            approval_mode="interactive",
+            approved_at=APPROVED_AT,
             client=FakeClient([]),
             sleep=lambda _delay: None,
         )
-    with pytest.raises(AuditExecutionError, match="authorization"):
-        execute_authorized_audit(
-            plan_path,
+
+    with pytest.raises(AuditExecutionError, match="approval"):
+        execute_audit_run(
+            run_directory,
             live=True,
-            authorization="wrong",
             api_key="secret",
-            max_audit_cost_usd="1",
+            approval_mode="wrong",
+            approved_at=APPROVED_AT,
             client=FakeClient([]),
             sleep=lambda _delay: None,
         )
@@ -234,12 +283,12 @@ def test_live_gates_retries_and_format_failures(
             _success("not json"),
         ]
     )
-    manifest = execute_authorized_audit(
-        plan_path,
+    manifest = execute_audit_run(
+        run_directory,
         live=True,
-        authorization=authorization,
         api_key="secret",
-        max_audit_cost_usd="1",
+        approval_mode="interactive",
+        approved_at=APPROVED_AT,
         client=client,
         sleep=lambda _delay: None,
     )
@@ -251,21 +300,81 @@ def test_live_gates_retries_and_format_failures(
     assert manifest["usage"]["input_tokens"] == 22
     assert manifest["estimated_audit_cost_usd"] == "0.0000164"
     assert manifest["configuration"]["temperature"] is None
+    assert manifest["approval"] == {
+        "mode": "interactive",
+        "approved_at": APPROVED_AT,
+    }
+    assert "authorization_digest" not in manifest
     raw_attempts = json.loads(
         (run_directory / "raw-attempts.json").read_text(encoding="utf-8")
     )
     assert len(raw_attempts["requests"][0]["attempts"]) == 2
 
-    with pytest.raises(AuditExecutionError, match="already been used"):
-        execute_authorized_audit(
-            plan_path,
+    with pytest.raises(AuditExecutionError, match="fresh evaluation run"):
+        execute_audit_run(
+            run_directory,
             live=True,
-            authorization=authorization,
             api_key="secret",
-            max_audit_cost_usd="1",
+            approval_mode="interactive",
+            approved_at=APPROVED_AT,
             client=FakeClient([]),
             sleep=lambda _delay: None,
         )
+
+
+@pytest.mark.parametrize(
+    "changed_artifact",
+    ("plan", "snapshot", "reference", "prompt"),
+)
+def test_live_execution_revalidates_frozen_evidence_before_requests(
+    tmp_path: Path,
+    changed_artifact: str,
+) -> None:
+    """Any planned evidence drift fails closed before a provider request."""
+    snapshot = tmp_path / "source.html"
+    snapshot.write_text("<html></html>", encoding="utf-8")
+    run_directory = tmp_path / "run"
+    reference_path = _reference_set_path(run_directory)
+    build_audit_plan(
+        snapshot,
+        run_directory,
+        maximum_audit_cost_usd="1",
+        reference_set_path=reference_path,
+        workbook_sha256="a" * 64,
+        snapshot_sha256=hashlib.sha256(snapshot.read_bytes()).hexdigest(),
+        reference_set_version="references-v1",
+        eligibility_identity=REFERENCE_IDENTITY,
+        pipeline=_fake_pipeline,
+        repository=tmp_path,
+    )
+    if changed_artifact == "plan":
+        path = run_directory / "evaluation-manifest.json"
+        value = json.loads(path.read_text(encoding="utf-8"))
+        value["maximum_audit_cost_usd"] = "2"
+        path.write_text(json.dumps(value), encoding="utf-8")
+    elif changed_artifact == "snapshot":
+        snapshot.write_text("changed", encoding="utf-8")
+    elif changed_artifact == "reference":
+        reference_path.write_text("{}", encoding="utf-8")
+    else:
+        prompt_path = run_directory / "prompts" / "heading_structure.json"
+        value = json.loads(prompt_path.read_text(encoding="utf-8"))
+        value["prompt_text"] = "changed"
+        prompt_path.write_text(json.dumps(value), encoding="utf-8")
+    client = FakeClient([])
+
+    with pytest.raises(AuditExecutionError):
+        execute_audit_run(
+            run_directory,
+            live=True,
+            api_key="secret",
+            approval_mode="auto",
+            approved_at=APPROVED_AT,
+            client=client,
+            sleep=lambda _delay: None,
+        )
+
+    assert client.outcomes == []
 
 
 def test_cost_guard_is_checked_before_each_retry(tmp_path: Path) -> None:
@@ -274,25 +383,27 @@ def test_cost_guard_is_checked_before_each_retry(tmp_path: Path) -> None:
     snapshot.write_text("<html></html>", encoding="utf-8")
     snapshot_sha256 = hashlib.sha256(snapshot.read_bytes()).hexdigest()
     run_directory = tmp_path / "run"
+    limit = "0.0000001"
     plan = build_audit_plan(
         snapshot,
         run_directory,
+        maximum_audit_cost_usd=limit,
+        reference_set_path=_reference_set_path(run_directory),
         workbook_sha256="a" * 64,
         snapshot_sha256=snapshot_sha256,
         reference_set_version="references-v1",
-        eligibility_identity="c" * 64,
+        eligibility_identity=REFERENCE_IDENTITY,
         pipeline=_fake_pipeline,
         repository=tmp_path,
     )
-    limit = "0.0000001"
     client = FakeClient([_transient(), _success("[]")])
 
-    manifest = execute_authorized_audit(
-        run_directory / "evaluation-manifest.json",
+    manifest = execute_audit_run(
+        run_directory,
         live=True,
-        authorization=live_authorization_digest(plan["plan_digest"], limit),
         api_key="secret",
-        max_audit_cost_usd=limit,
+        approval_mode="auto",
+        approved_at=APPROVED_AT,
         client=client,
         sleep=lambda _delay: None,
     )
@@ -323,21 +434,23 @@ def test_permanent_provider_failures_are_not_retried(
     plan = build_audit_plan(
         snapshot,
         run_directory,
+        maximum_audit_cost_usd="1",
+        reference_set_path=_reference_set_path(run_directory),
         workbook_sha256="a" * 64,
         snapshot_sha256=hashlib.sha256(snapshot.read_bytes()).hexdigest(),
         reference_set_version="references-v1",
-        eligibility_identity="c" * 64,
+        eligibility_identity=REFERENCE_IDENTITY,
         pipeline=_fake_pipeline,
         repository=tmp_path,
     )
     client = FakeClient([outcome, _success("[]")])
 
-    manifest = execute_authorized_audit(
-        run_directory / "evaluation-manifest.json",
+    manifest = execute_audit_run(
+        run_directory,
         live=True,
-        authorization=live_authorization_digest(plan["plan_digest"], "1"),
         api_key="secret",
-        max_audit_cost_usd="1",
+        approval_mode="auto",
+        approved_at=APPROVED_AT,
         client=client,
         sleep=lambda _delay: None,
     )
@@ -357,20 +470,22 @@ def test_exhausted_transient_failures_make_the_run_unranked(
     plan = build_audit_plan(
         snapshot,
         run_directory,
+        maximum_audit_cost_usd="1",
+        reference_set_path=_reference_set_path(run_directory),
         workbook_sha256="a" * 64,
         snapshot_sha256=hashlib.sha256(snapshot.read_bytes()).hexdigest(),
         reference_set_version="references-v1",
-        eligibility_identity="c" * 64,
+        eligibility_identity=REFERENCE_IDENTITY,
         pipeline=_fake_pipeline,
         repository=tmp_path,
     )
 
-    manifest = execute_authorized_audit(
-        run_directory / "evaluation-manifest.json",
+    manifest = execute_audit_run(
+        run_directory,
         live=True,
-        authorization=live_authorization_digest(plan["plan_digest"], "1"),
         api_key="secret",
-        max_audit_cost_usd="1",
+        approval_mode="auto",
+        approved_at=APPROVED_AT,
         client=FakeClient([_transient(), _transient(), _transient()]),
         sleep=lambda _delay: None,
     )

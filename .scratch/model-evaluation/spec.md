@@ -12,7 +12,7 @@ Build a private, CLI-only model-evaluation framework around the existing audit p
 
 The deterministic scorer will remain separate from review. Human-reviewed files will initially implement the eligibility and match reviewer interfaces; future Astra-backed adapters can produce the same decisions without changing import, scoring, or reporting. Models will be ranked first by workbook-row recall over approved LLM-eligible rows and, only when recall is equal, by estimated audit cost. Programmatic coverage, combined workbook coverage, latency, token usage, malformed output, and unmatched findings will remain visible but will not alter model rank.
 
-Private inputs and generated artifacts will stay outside version control. The committed repository will contain only the framework, schemas, documentation, versioned public pricing configuration, and synthetic tests. Live API execution will be impossible without an explicit live flag, a cost limit, an available key, and per-run authorization after a dry-run summary.
+Private inputs and generated artifacts will stay outside version control. The committed repository will contain only the framework, schemas, documentation, versioned public pricing configuration, and synthetic tests. Live API execution will be impossible without an explicit live flag, a planned positive cost limit, an available key, and point-of-use live-run approval after the complete execution summary.
 
 ## User Stories
 
@@ -70,7 +70,7 @@ Private inputs and generated artifacts will stay outside version control. The co
 52. As a budget owner, I want the unrounded estimated audit cost used for ties, so that display rounding cannot change rank.
 53. As an operator, I want dry-run behavior by default even when an API key exists, so that environment configuration alone cannot spend money.
 54. As an operator, I want live execution to require an explicit flag, so that spending is intentional.
-55. As an operator, I want each summarized proof-of-concept run explicitly authorized, so that approval covers a known model, snapshot, request set, and configuration.
+55. As an operator, I want each summarized proof-of-concept run explicitly approved at execution time, so that approval covers a known model, snapshot, request set, configuration, and cost guardrail.
 56. As an operator, I want a required maximum audit-cost guardrail, so that a live run stops before starting another request after exhausting its budget.
 57. As an operator, I want bounded retries only for transient failures, so that recoverable provider errors do not automatically invalidate a run.
 58. As an operator, I want every retry and any billed usage recorded, so that cost and reliability reports are complete.
@@ -127,13 +127,13 @@ Private inputs and generated artifacts will stay outside version control. The co
 - A run manifest records workbook and snapshot hashes, reference-set version, source-control commit and dirty state, prompt and parser hashes, filters, summaries, model, reasoning effort, endpoint, output limit, retry policy, usage, price-schedule version, timestamps, and run ID.
 - Ordinary comparison rejects runs whose snapshot, reference set, prompts, or eligibility set differ. Cross-version analysis must be requested explicitly and labeled accordingly.
 - Reports are emitted as JSON, CSV, and Markdown from one score object. The row-level view exposes eligibility, rationale, programmatic outcome, model match, evidence, and final disposition for every in-scope workbook row.
-- The proof of concept proceeds through gates: implementation and tests; snapshot and reference preparation; human eligibility approval; dry-run summary; explicit live-run authorization; Luna audit; human match approval; final report.
-- One authorization covers the complete summarized live run, including policy-compliant automatic retries. A materially different configuration or separate rerun requires new authorization.
+- The proof of concept proceeds through gates: implementation and tests; snapshot and reference preparation; human eligibility approval; evaluation-run planning; point-of-use live-run approval; Luna audit; human match approval; final report.
+- One live-run approval covers the complete displayed execution summary, including policy-compliant automatic retries. A materially different configuration or separate rerun requires a newly planned evaluation run and new approval.
 - The homepage result is illustrative because the provisional inventory contains only three clearly LLM-eligible rows out of sixteen in-scope rows. Benchmark expansion is required before any small-versus-large model claim.
 
 ## Testing Decisions
 
-- Tests assert external behavior at module interfaces, not private helper functions or implementation order. The principal test seam is the deterministic scorer's input bundle and returned score object because it exercises eligibility, one-to-one matching, ranking data, coverage, and report inputs at the highest stable seam.
+- Tests assert external behavior at module interfaces, not private helper functions or implementation order. The principal scoring seam is the deterministic scorer's structured inputs and returned score object because it exercises eligibility, one-to-one matching, ranking data, coverage, and report inputs at the highest stable seam; the complete operator lifecycle is exercised through the evaluation CLI.
 - Workbook-import tests use synthetic Excel fixtures and assert provenance retention, homepage filtering, source-row identity, checksum validation, exact allowed eligibility states, and useful missing-file or drift errors.
 - Snapshot tests use local HTTP fakes or saved synthetic responses and assert immutable content, provenance fields, and hashing without accessing the live Pristine site.
 - Audit-adapter tests replace the production pipeline with a fake at its existing callable seam. They assert frozen configuration, raw-result preservation, manifest metadata, dry-run safety, live-flag requirements, cost-limit behavior, and retry classification without provider calls.
@@ -166,7 +166,7 @@ Private inputs and generated artifacts will stay outside version control. The co
 - Treating Global rows as verified on every site page.
 - Expanding immediately to all seventeen workbook URLs or using repeated job-page rows to claim generalization.
 - Computing an exact invoiced dollar amount or accounting for private contractual discounts unavailable from API usage metadata.
-- Making a live provider request before eligibility approval, dry-run review, explicit authorization, and a cost limit.
+- Making a live provider request before eligibility approval, evaluation-run planning, point-of-use approval, and a positive cost limit.
 
 ## Further Notes
 
@@ -174,5 +174,5 @@ Private inputs and generated artifacts will stay outside version control. The co
 - Provisional LLM-eligible examples include decorative-image alt judgment and heading-quality problems. Programmatic examples include missing landmarks, missing skip navigation, actionable empty alt, and multiple H1 elements. Unavailable-evidence examples include visual list semantics, styled text that should be headings, carousel controls, Lottie animation, decorative literal glyphs, and media operability. Ambiguities include fragmented adjacent links and a workbook alt-text claim that may conflict with the page.
 - The existing committed HTML fixture represents DAT Vision Aid, not Pristine, and cannot be used for this benchmark.
 - The workbook is the mandatory provenance source, but approved normalization may mark rows unavailable or ambiguous and may represent distinct required sub-defects. These transformations must remain traceable and reviewable.
-- The first implementation milestone ends at the eligibility-review gate and incurs no API cost. The cost limit for the first live Luna run will be selected only after the dry-run summary exposes the request set and estimated usage.
+- The first implementation milestone ends at the eligibility-review gate and incurs no API cost. The cost limit for the first live Luna run will be selected while planning the evaluation run, whose summary exposes the request set and estimated usage.
 - Future benchmark expansion should sample distinct pages and template families rather than random rows because repeated job-page patterns dominate the workbook.

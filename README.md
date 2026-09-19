@@ -302,28 +302,31 @@ workbook-row scoring unit supported by homepage evidence.
 `audit` is network-free by default even if `OPENAI_API_KEY` exists. With an
 approved reference set and benchmark snapshot it runs the production
 extractors, filters, programmatic checks, slicers, and unchanged prompts to
-write an exact Luna dry-run plan:
+create a uniquely identified evaluation run. Planning requires a positive
+maximum audit cost and freezes that guardrail and the approved reference set
+inside the run directory:
 
 ```bash
 uv run visionaid-evaluate audit \
   --max-audit-cost-usd "$PROPOSED_LIMIT"
 ```
 
-Review the request count, prompt hashes, estimated input usage, model
-configuration, pricing identity, and authorization digest in the printed
-summary. The live authorization digest binds both the exact plan and proposed
-cost limit. A billable run requires all of the following: `--live`, the exact
-saved plan and live authorization digest, `OPENAI_API_KEY`, and that same
-positive cost limit. The authorization is single-use and covers the summarized
-run and its policy-compliant retries:
+Keep the printed `.model-evaluation/runs/<RUN_ID>` path. The summary shows the
+model, endpoint, reasoning effort, benchmark and reference identities, prompt
+request set, estimated input usage, retry policy, saved cost guardrail, and
+destination. A billable run requires `--live`, that run directory, and
+`OPENAI_API_KEY`. The command revalidates the frozen evidence, prints the same
+summary, and asks a terminal operator to type `yes`:
 
 ```bash
 uv run visionaid-evaluate audit \
   --live \
-  --plan .model-evaluation/runs/dry-run/evaluation-manifest.json \
-  --authorize "$REVIEWED_AUTHORIZATION_DIGEST" \
-  --max-audit-cost-usd "$APPROVED_LIMIT"
+  --run-dir .model-evaluation/runs/<RUN_ID>
 ```
+
+Deliberate automation may add `--auto-approve`. It skips terminal input but
+does not skip the summary, API credential, integrity checks, saved cost limit,
+or overwrite protection. Any rerun requires planning a fresh evaluation run.
 
 The runner uses `gpt-5.6-luna` through Chat Completions with medium reasoning,
 omits temperature, keeps summaries disabled, and preserves every attempt and
@@ -332,12 +335,46 @@ failures (at most twice). Exhausted failures make a run incomplete and
 unrankable; successful malformed JSON is retained as a format failure and is
 not retried.
 
-Canonical audit findings and programmatic findings are reviewed through a
-private Matches workbook. Accepted matches require compatible page scope,
+Canonical audit findings and programmatic findings use separate, run-scoped
+Matches workbooks. Generate, complete, and import both review kinds:
+
+```bash
+uv run visionaid-evaluate review \
+  --run-dir .model-evaluation/runs/<RUN_ID> \
+  --kind audit
+uv run visionaid-evaluate review \
+  --run-dir .model-evaluation/runs/<RUN_ID> \
+  --kind audit \
+  --import-matches
+uv run visionaid-evaluate review \
+  --run-dir .model-evaluation/runs/<RUN_ID> \
+  --kind programmatic
+uv run visionaid-evaluate review \
+  --run-dir .model-evaluation/runs/<RUN_ID> \
+  --kind programmatic \
+  --import-matches
+```
+
+The conventional workbooks and decision files live under
+`.model-evaluation/reviews/<RUN_ID>/`. Explicit `--reference-set`, `--findings`,
+`--matches-workbook`, and `--match-decisions` overrides remain available for
+investigation and recovery. Accepted matches require compatible page scope,
 underlying failure, and location or element-group evidence; WCAG labels and
-remediation wording are supporting evidence. The scorer is network-free,
-enforces one-to-one matching and all required sub-defects, and emits JSON, CSV,
-and Markdown from one score object.
+remediation wording are supporting evidence.
+
+After both reviews, reporting discovers the frozen references, both finding
+collections, both decision files, the live manifest, and format failures from
+the evaluation run:
+
+```bash
+uv run visionaid-evaluate report \
+  --run-dir .model-evaluation/runs/<RUN_ID>
+```
+
+The scorer is network-free, enforces one-to-one matching and all required
+sub-defects, and emits JSON, CSV, and Markdown from one score object. Missing
+review artifacts produce the exact next review command instead of requiring a
+hand-written report bundle.
 
 Workbook-row recall over approved LLM-eligible rows is the primary ranking
 metric. Unrounded estimated audit cost is the only tie-breaker. Programmatic

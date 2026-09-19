@@ -1,7 +1,9 @@
 """Private filesystem conventions for model evaluation artifacts."""
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 DEFAULT_WORKBOOK_FILENAME = "Pristine Accessibility Defect Report.xlsx"
 DEFAULT_WORKSPACE = Path(".model-evaluation")
@@ -50,6 +52,15 @@ class PrivateWorkspace:
                 f"{self.root.resolve()}. Run 'visionaid-evaluate prepare' "
                 "with an authorized local workbook first."
             )
+
+    def create_evaluation_run(self) -> tuple[str, Path]:
+        """Create and return one uniquely identified evaluation run."""
+        self.require_initialized()
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+        run_id = f"run-{timestamp}-{uuid4().hex[:12]}"
+        run_directory = self.root / "runs" / run_id
+        run_directory.mkdir(exist_ok=False)
+        return run_id, run_directory
 
 
 def find_worktree_root(start: Path) -> Path | None:
