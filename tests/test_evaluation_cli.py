@@ -22,7 +22,10 @@ SNAPSHOT_BODY = (
 SNAPSHOT_SHA256 = (
     "aadf66066b05d9c8d8268ba7e28ebcef8a2ed81f672fc2e2285d9236be00e89d"
 )
-TEMPORAL_ASSUMPTION = "Stakeholders report that the homepage has not changed since the workbook audit."
+TEMPORAL_ASSUMPTION = (
+    "Stakeholders report that the homepage has not changed since the "
+    "workbook audit."
+)
 
 
 class SnapshotHTTPServer(ThreadingHTTPServer):
