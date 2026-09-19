@@ -4,10 +4,17 @@
 
 **Blocked by:** 02: Bootstrap a private, safe evaluation workspace.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The preparation workflow saves the exact raw HTML consumed by the existing audit pipeline.
-- [ ] Snapshot metadata records source URL, retrieval time, relevant HTTP metadata, SHA-256, and the stakeholder-supported temporal assumption.
-- [ ] Reusing a snapshot does not refetch or silently overwrite it.
-- [ ] The existing unrelated DAT Vision Aid fixture is rejected as a Pristine benchmark input.
-- [ ] Tests use local HTTP fakes and verify content identity, provenance, hashing, and overwrite protection.
+- [x] The preparation workflow saves the exact raw HTML consumed by the existing audit pipeline.
+- [x] Snapshot metadata records source URL, retrieval time, relevant HTTP metadata, SHA-256, and the stakeholder-supported temporal assumption.
+- [x] Reusing a snapshot does not refetch or silently overwrite it.
+- [x] The existing unrelated DAT Vision Aid fixture is rejected as a Pristine benchmark input.
+- [x] Tests use local HTTP fakes and verify content identity, provenance, hashing, and overwrite protection.
+
+## Comments
+
+- Implemented in `0bd719c` with review hardening in `fc630cb`. Verified by
+  local-HTTP snapshot tests covering byte identity, provenance, SHA-256,
+  no-refetch reuse, UTF-8 compatibility, atomic publication, fixture rejection,
+  and overwrite protection; the full suite passes with 17 tests.
