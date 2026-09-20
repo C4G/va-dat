@@ -54,8 +54,7 @@ command 3.
 uv run visionaid-evaluate prepare \
   --workbook-sha256 "$WORKBOOK_SHA256" \
   --homepage-url https://pristineai.com/ \
-  --snapshot-url https://pristineai.com/ \
-  --temporal-assumption "$TEMPORAL_ASSUMPTION"
+  --snapshot-url https://pristineai.com/
 
 # Manually complete .model-evaluation/reviews/eligibility.xlsx.
 # Classify who is responsible for each reference defect before scoring begins.
@@ -139,7 +138,7 @@ utilities. Each stage produces evidence that the next stage verifies and uses.
 
 - When supplied with a snapshot URL, it captures the exact HTML that the audit
   pipeline will consume and records the source URL, capture time, HTTP
-  metadata, temporal assumption, and SHA-256.
+  metadata, and SHA-256.
 
 - It refuses to overwrite or silently recapture an existing snapshot because
   changing page content between model runs would invalidate the comparison.

@@ -40,7 +40,6 @@ Private inputs and generated artifacts will stay outside version control. The co
 22. As a data owner, I want future Astra review to use the authorized API project without publishing inputs, so that automation does not weaken data privacy.
 23. As an evaluator, I want a benchmark snapshot captured once from the Pristine homepage, so that every model sees identical page content.
 24. As an evaluator, I want the snapshot URL, capture time, HTTP metadata, and SHA-256 recorded, so that the tested page state is identifiable.
-25. As a project lead, I want the stakeholder assertion that Pristine has not changed since the workbook audit recorded with the snapshot, so that the temporal assumption is explicit.
 26. As an evaluator, I want Global rows scored only for their homepage manifestation in this proof of concept, so that homepage evidence is not inflated into a site-wide claim.
 27. As an evaluator, I want the existing programmatic audit run against the benchmark snapshot, so that deterministic workbook coverage and checker gaps are measured.
 28. As an evaluator, I want programmatic findings excluded from the AI model score, so that model-independent results do not inflate similarity between models.
@@ -101,7 +100,7 @@ Private inputs and generated artifacts will stay outside version control. The co
 - The private source workbook remains at the repository root under its current name by default and is ignored by exact filename. A command-line override permits another local location. The importer validates a recorded SHA-256 and fails clearly on absence or drift.
 - All private derived artifacts live under one ignored evaluation workspace partitioned into references, reviews, snapshots, runs, and reports. Only code, schemas, documentation, synthetic fixtures, and public pricing data are committed.
 - `openpyxl` is added as a runtime dependency for workbook import and private review workbooks. `pytest` is added as a development dependency.
-- The Pristine homepage is captured as raw HTML because that is the production pipeline's input. The capture is immutable and accompanied by source URL, retrieval time, HTTP metadata, SHA-256, and a note that stakeholders report no change since the workbook audit.
+- The Pristine homepage is captured as raw HTML because that is the production pipeline's input. The capture is immutable and accompanied by source URL, retrieval time, HTTP metadata, and SHA-256.
 - The existing DAT Vision Aid HTML fixture is unrelated to the workbook and is never used for workbook-based scoring.
 - The proof of concept includes workbook rows scoped as Home and Global on the Pristine homepage. Global rows are labeled as global claims supported by homepage evidence and are not multiplied across pages.
 - Every source row becomes one reviewed reference record. Raw text and provenance are retained. Normalized fields include the canonical problem, location or element group, WCAG evidence, eligibility classification, rationale, approval state, and any required sub-defects.

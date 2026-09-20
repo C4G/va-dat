@@ -7,7 +7,7 @@
 **Status:** resolved
 
 - [x] The preparation workflow saves the exact raw HTML consumed by the existing audit pipeline.
-- [x] Snapshot metadata records source URL, retrieval time, relevant HTTP metadata, SHA-256, and the stakeholder-supported temporal assumption.
+- [x] Snapshot metadata records source URL, retrieval time, relevant HTTP metadata, and SHA-256.
 - [x] Reusing a snapshot does not refetch or silently overwrite it.
 - [x] The existing unrelated DAT Vision Aid fixture is rejected as a Pristine benchmark input.
 - [x] Tests use local HTTP fakes and verify content identity, provenance, hashing, and overwrite protection.

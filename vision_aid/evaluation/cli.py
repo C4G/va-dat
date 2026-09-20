@@ -112,13 +112,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--snapshot-url",
         help="HTTP(S) source URL for an immutable Pristine homepage capture",
     )
-    prepare.add_argument(
-        "--temporal-assumption",
-        help=(
-            "stakeholder-supported statement relating a new capture to the "
-            "workbook audit"
-        ),
-    )
     prepare.set_defaults(handler=_prepare)
 
     audit = workflows.add_parser(
@@ -223,15 +216,10 @@ def _prepare(arguments: argparse.Namespace) -> int:
         export_eligibility_workbook(reference_set, review_path)
         print(f"Imported reference set: {imported_path.resolve()}")
         print(f"Eligibility review workbook: {review_path.resolve()}")
-    if arguments.temporal_assumption and not arguments.snapshot_url:
-        raise PrivateInputError(
-            "--temporal-assumption requires --snapshot-url."
-        )
     if arguments.snapshot_url:
         snapshot = prepare_benchmark_snapshot(
             workspace,
             source_url=arguments.snapshot_url,
-            temporal_assumption=arguments.temporal_assumption,
         )
         action = "reused" if snapshot.reused else "captured"
         print(f"Benchmark snapshot {action}: {snapshot.html_path.resolve()}")

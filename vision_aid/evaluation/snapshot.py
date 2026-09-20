@@ -42,7 +42,6 @@ class SnapshotMetadata:
     retrieved_at: str
     sha256: str
     source_url: str
-    temporal_assumption: str
 
     def to_json(self) -> object:
         """Return the JSON-compatible representation stored beside the HTML."""
@@ -62,7 +61,6 @@ class SnapshotMetadata:
             "retrieved_at",
             "sha256",
             "source_url",
-            "temporal_assumption",
         )
         if any(not isinstance(value.get(name), str) for name in required_strings):
             raise ValueError("snapshot metadata has a missing string field")
@@ -109,7 +107,6 @@ class SnapshotMetadata:
             retrieved_at=cast(str, value["retrieved_at"]),
             sha256=cast(str, value["sha256"]),
             source_url=cast(str, value["source_url"]),
-            temporal_assumption=cast(str, value["temporal_assumption"]),
         )
 
 
@@ -126,7 +123,6 @@ class BenchmarkSnapshot:
 def prepare_benchmark_snapshot(
     workspace: PrivateWorkspace,
     source_url: str,
-    temporal_assumption: str | None,
 ) -> BenchmarkSnapshot:
     """Capture a benchmark once or verify an existing immutable capture."""
     _require_http_source(source_url)
@@ -141,14 +137,6 @@ def prepare_benchmark_snapshot(
             html_path,
             metadata_path,
             source_url,
-            temporal_assumption,
-        )
-
-    assumption = (temporal_assumption or "").strip()
-    if not assumption:
-        raise PrivateInputError(
-            "A new benchmark snapshot requires --temporal-assumption so the "
-            "stakeholder-supported relationship to the workbook audit is explicit."
         )
 
     import requests
@@ -203,7 +191,6 @@ def prepare_benchmark_snapshot(
         retrieved_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         sha256=hashlib.sha256(body).hexdigest(),
         source_url=source_url,
-        temporal_assumption=assumption,
     )
     _save_new_snapshot(snapshot_directory, body, metadata)
     return BenchmarkSnapshot(html_path, metadata_path, metadata, reused=False)
@@ -229,7 +216,6 @@ def _load_snapshot(
     html_path: Path,
     metadata_path: Path,
     source_url: str,
-    temporal_assumption: str | None,
 ) -> BenchmarkSnapshot:
     """Validate an existing snapshot without fetching or changing it."""
     if not html_path.is_file() or not metadata_path.is_file():
@@ -252,16 +238,6 @@ def _load_snapshot(
             f"{metadata.source_url!r}, "
             f"not {source_url!r}. It will not be refetched or overwritten."
         )
-    supplied_assumption = (temporal_assumption or "").strip()
-    if (
-        supplied_assumption
-        and supplied_assumption != metadata.temporal_assumption
-    ):
-        raise PrivateInputError(
-            "The supplied temporal assumption differs from the immutable snapshot "
-            "metadata. The existing snapshot will not be overwritten."
-        )
-
     try:
         body = html_path.read_bytes()
     except OSError as error:

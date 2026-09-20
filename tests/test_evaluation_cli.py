@@ -30,10 +30,6 @@ SNAPSHOT_BODY = (
 SNAPSHOT_SHA256 = (
     "aadf66066b05d9c8d8268ba7e28ebcef8a2ed81f672fc2e2285d9236be00e89d"
 )
-TEMPORAL_ASSUMPTION = (
-    "Stakeholders report that the homepage has not changed since the "
-    "workbook audit."
-)
 
 
 class SnapshotHTTPServer(ThreadingHTTPServer):
@@ -293,8 +289,6 @@ def test_prepare_captures_exact_html_with_snapshot_provenance(
             str(synthetic_workbook),
             "--snapshot-url",
             source_url,
-            "--temporal-assumption",
-            TEMPORAL_ASSUMPTION,
             cwd=tmp_path,
         )
 
@@ -314,7 +308,6 @@ def test_prepare_captures_exact_html_with_snapshot_provenance(
     assert metadata["source_url"] == source_url
     assert metadata["sha256"] == SNAPSHOT_SHA256
     assert metadata["byte_length"] == len(SNAPSHOT_BODY)
-    assert metadata["temporal_assumption"] == TEMPORAL_ASSUMPTION
     assert metadata["html_file"] == html_path.name
     assert metadata["http"] == {
         "content_length": str(len(SNAPSHOT_BODY)),
@@ -341,8 +334,6 @@ def test_prepare_reuses_a_verified_snapshot_without_refetching(
             str(synthetic_workbook),
             "--snapshot-url",
             source_url,
-            "--temporal-assumption",
-            TEMPORAL_ASSUMPTION,
             cwd=tmp_path,
         )
         second = run_cli(
@@ -372,8 +363,6 @@ def test_prepare_rejects_html_the_audit_pipeline_cannot_decode(
             str(synthetic_workbook),
             "--snapshot-url",
             source_url.replace("/pristine-homepage", "/non-utf8"),
-            "--temporal-assumption",
-            TEMPORAL_ASSUMPTION,
             cwd=tmp_path,
         )
 
@@ -395,8 +384,6 @@ def test_prepare_refuses_to_overwrite_a_changed_snapshot(
             str(synthetic_workbook),
             "--snapshot-url",
             source_url,
-            "--temporal-assumption",
-            TEMPORAL_ASSUMPTION,
             cwd=tmp_path,
         )
         assert first.returncode == 0, first.stderr
@@ -452,8 +439,6 @@ def test_prepare_publishes_the_snapshot_as_one_immutable_bundle(
             str(synthetic_workbook),
             "--snapshot-url",
             source_url,
-            "--temporal-assumption",
-            TEMPORAL_ASSUMPTION,
             cwd=tmp_path,
         )
 
@@ -475,8 +460,6 @@ def test_prepare_rejects_the_dat_vision_aid_fixture_as_a_snapshot(
         str(synthetic_workbook),
         "--snapshot-url",
         str(PROJECT_ROOT / "test_files" / "dat_visionaid_home.html"),
-        "--temporal-assumption",
-        TEMPORAL_ASSUMPTION,
         cwd=tmp_path,
     )
 
@@ -717,8 +700,6 @@ def test_cli_completes_the_synthetic_private_workflow(
             "https://example.test/",
             "--snapshot-url",
             source_url,
-            "--temporal-assumption",
-            TEMPORAL_ASSUMPTION,
             cwd=tmp_path,
         )
     assert prepared.returncode == 0, prepared.stderr

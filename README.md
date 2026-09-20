@@ -249,22 +249,19 @@ uv run visionaid-evaluate prepare
 ```
 
 To freeze the Pristine homepage for model comparisons, supply its authorized
-URL and record the stakeholder-supported temporal assumption during preparation:
+URL during preparation:
 
 ```bash
 uv run visionaid-evaluate prepare \
-  --snapshot-url "$PRISTINE_HOMEPAGE_URL" \
-  --temporal-assumption \
-  "Stakeholders report that the homepage has not changed since the workbook audit."
+  --snapshot-url "$PRISTINE_HOMEPAGE_URL"
 ```
 
 The command saves the HTTP response body without HTML transformation as
 `.model-evaluation/snapshots/pristine-homepage/source.html`. The adjacent
 `metadata.json` records the source and final URLs, retrieval time, HTTP status,
-request user agent, response identity headers, byte length, SHA-256, and
-temporal assumption. Both files are staged and published as one immutable
-bundle. Repeating preparation for the same URL verifies and reuses that bundle
-without another request.
+request user agent, response identity headers, byte length, and SHA-256. Both
+files are staged and published as one immutable bundle. Repeating preparation
+for the same URL verifies and reuses that bundle without another request.
 Checksum drift, changed provenance, or a partial snapshot fails closed; prepare
 never silently replaces an existing benchmark. Local HTML files, including the
 unrelated DAT Vision Aid fixture, cannot be used as the Pristine snapshot.
