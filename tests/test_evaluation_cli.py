@@ -16,6 +16,7 @@ import openpyxl
 import pytest
 
 from vision_aid.evaluation import audit as evaluation_audit
+from vision_aid.evaluation import cli as evaluation_cli
 from vision_aid.evaluation.cli import main as evaluation_main
 from vision_aid.evaluation.schemas import ReferenceSet
 from vision_aid.evaluation.serialization import save_reference_set
@@ -119,6 +120,29 @@ class TerminalInput(io.StringIO):
     def isatty(self) -> bool:
         """Report whether interactive confirmation is available."""
         return self.terminal
+
+
+def test_audit_loads_the_project_env_explicitly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The evaluation audit keeps local .env support without import effects."""
+    loaded_paths: list[Path] = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(evaluation_cli, "_PROJECT_ENV_LOADED", False)
+    monkeypatch.setattr(
+        evaluation_cli,
+        "load_dotenv",
+        lambda path: loaded_paths.append(Path(path)),
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        evaluation_main(["audit"])
+    with pytest.raises(SystemExit):
+        evaluation_main(["audit"])
+
+    assert exit_info.value.code == 2
+    assert loaded_paths == [PROJECT_ROOT / ".env"]
 
 
 def create_planned_run(

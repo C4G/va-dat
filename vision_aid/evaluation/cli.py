@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from vision_aid.evaluation.matching import (
     HumanMatchReviewer,
     MatchValidationError,
@@ -40,6 +42,17 @@ from vision_aid.evaluation.workspace import (
 )
 
 CommandHandler = Callable[[argparse.Namespace], int]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ENV_LOADED = False
+
+
+def _load_project_env() -> None:
+    """Load local evaluation credentials once per CLI process."""
+    global _PROJECT_ENV_LOADED
+    if _PROJECT_ENV_LOADED:
+        return
+    load_dotenv(PROJECT_ROOT / ".env")
+    _PROJECT_ENV_LOADED = True
 
 
 @dataclass(frozen=True)
@@ -288,6 +301,8 @@ def _confirm_live_execution() -> str:
 
 def _audit(arguments: argparse.Namespace) -> int:
     """Plan a no-cost evaluation run or execute one after explicit approval."""
+    _load_project_env()
+
     from vision_aid.evaluation.audit import (
         build_audit_plan,
         ensure_live_destination_available,

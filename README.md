@@ -57,10 +57,9 @@ HTML file (e.g. 1.9 MB)
 │   │   ├── forms_checklist_02.txt               #   6 prompts for form accessibility
 │   │   └── nontext_checklist_03.txt             #   8 prompts for non-text content
 │   │
-│   ├── llm_client/                              # Standalone Claude API client (Andrew)
-│   │   ├── client.py                            #   API wrapper
-│   │   ├── prompt_loader.py                     #   Prompt loading utilities
-│   │   └── runner.py                            #   End-to-end audit runner
+│   ├── llm_client/                              # Provider-independent audit requests
+│   │   ├── audit.py                             #   API requests and response metadata
+│   │   └── client.py                            #   Model-provider capability helpers
 │   │
 │   ├── llm_preprocessing/                       # HTML → structured JSON extractors
 │   │   ├── semantic_checklist_01.py             #   Headings, links, landmarks, tables, iframes
@@ -100,7 +99,7 @@ HTML file (e.g. 1.9 MB)
 ├── docs/                                       # Architecture documentation
 │   └── modular-prompts-plan.md                 #   Full architectural plan
 │
-├── reports/                                    # Raw JSON output from standalone llm_client runs
+├── reports/                                    # Historical raw JSON audit output
 │
 ├── test_results/
 │   ├── chatgpt/                                # Legacy ChatGPT testing results
