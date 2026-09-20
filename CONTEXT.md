@@ -4,6 +4,10 @@ This context describes the language used to evaluate AI-generated accessibility 
 
 ## Language
 
+**Reference workbook**:
+The authorized Excel workbook containing the human accessibility audit. Its worksheets provide source evidence for reference defects; generated eligibility and match workbooks are review artifacts, not the reference workbook.
+_Avoid_: Ground-truth spreadsheet, review workbook, evaluation report
+
 **Reference defect**:
 A human-reviewed accessibility problem derived from the mandated defect-report workbook and retained as benchmark evidence with traceable source provenance.
 _Avoid_: Ground-truth row, Excel issue, expected finding
@@ -19,6 +23,18 @@ _Avoid_: Precision, F1, aggregate quality score
 **LLM-eligible reference defect**:
 A reference defect for which the AI audit model receives enough evidence and responsibility to make the relevant accessibility judgment. Defects intentionally handled only by programmatic checks are not LLM-eligible.
 _Avoid_: Every workbook row, programmatic defect
+
+**Programmatic reference defect**:
+A reference defect assigned to deterministic audit checks rather than the AI audit model. Classification alone does not award coverage; an approved programmatic match is still required.
+_Avoid_: Programmatic finding, automatically covered defect
+
+**Unavailable-evidence reference defect**:
+A reference defect that the current audit pipeline cannot judge because its inputs omit required visual, styling, interaction, cross-page, or other evidence.
+_Avoid_: Model miss, invalid reference defect
+
+**Ambiguous reference defect**:
+A reference defect whose claim, scope, or required sub-defects cannot yet be interpreted confidently enough for fair responsibility assignment or scoring. An accepted ambiguous classification is a completed review decision, not an unresolved review state.
+_Avoid_: Model uncertainty, unavailable-evidence reference defect
 
 **Benchmark snapshot**:
 An immutable capture of the audited webpage used as the common input for every evaluated model, with its source and capture identity recorded.
