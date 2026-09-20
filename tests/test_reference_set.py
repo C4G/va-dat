@@ -94,6 +94,49 @@ def test_import_homepage_references_retains_every_home_and_global_source_row(
         )
 
 
+def test_import_homepage_references_maps_mandated_workbook_headers(
+    tmp_path: Path,
+) -> None:
+    """The mandated workbook's field names populate canonical evidence."""
+    workbook_path = tmp_path / "mandated-headers.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Defect report"
+    sheet.append(
+        [
+            "Page name",
+            "Issue Title",
+            "element name",
+            "WCAG Sc",
+            "Recommendation for Fix",
+        ]
+    )
+    sheet.append(
+        [
+            "Home",
+            "No main landmark defined on the page",
+            "Region",
+            "1.3.1",
+            "Use a main element.",
+        ]
+    )
+    workbook.save(workbook_path)
+    checksum = hashlib.sha256(workbook_path.read_bytes()).hexdigest()
+
+    reference_set = import_homepage_references(
+        workbook_path,
+        expected_sha256=checksum,
+        homepage_url="https://example.test/",
+        version="synthetic-v1",
+    )
+
+    reference = reference_set.references[0]
+    assert reference.problem == "No main landmark defined on the page"
+    assert reference.location == "Region"
+    assert reference.wcag_evidence == ("1.3.1",)
+    assert reference.recommendation == "Use a main element."
+
+
 def test_human_eligibility_review_round_trips_validated_provenance(
     tmp_path: Path,
 ) -> None:

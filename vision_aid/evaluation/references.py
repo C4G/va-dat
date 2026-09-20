@@ -34,10 +34,27 @@ class EligibilityReviewer(Protocol):
 _ALIASES = {
     "scope": ("page", "page scope", "scope", "page name"),
     "url": ("url", "page url", "web address"),
-    "problem": ("problem", "issue", "defect", "description"),
-    "location": ("location", "element", "where"),
-    "wcag": ("wcag", "wcag criteria", "success criterion", "criterion"),
-    "recommendation": ("recommendation", "remediation", "fix"),
+    "problem": (
+        "problem",
+        "issue",
+        "issue title",
+        "defect",
+        "description",
+    ),
+    "location": ("location", "element", "element name", "where"),
+    "wcag": (
+        "wcag",
+        "wcag sc",
+        "wcag criteria",
+        "success criterion",
+        "criterion",
+    ),
+    "recommendation": (
+        "recommendation",
+        "recommendation for fix",
+        "remediation",
+        "fix",
+    ),
 }
 ELIGIBILITY_VALUES = (
     "llm_eligible",
