@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Literal
+from types import SimpleNamespace
 
 from .client import is_gemini_model, is_openai_model, supports_temperature
 
@@ -34,6 +35,7 @@ class AuditRequestConfig:
     reasoning_effort: ReasoningEffort | None = None
     temperature: float | None = 0.1
     max_output_tokens: int = 8192
+    thinking_budget_tokens: int | None = None
 
     def __post_init__(self) -> None:
         """Reject configuration values that cannot form an audit request."""
@@ -42,10 +44,28 @@ class AuditRequestConfig:
         if self.max_output_tokens <= 0:
             raise ValueError("max_output_tokens must be greater than zero")
 
+        if self.thinking_budget_tokens is not None:
+            if is_openai_model(self.model) or is_gemini_model(self.model):
+                raise ValueError("thinking_budget_tokens requires Anthropic")
+            if not 1024 <= self.thinking_budget_tokens < self.max_output_tokens:
+                raise ValueError("thinking budget must be >= 1024 and below output cap")
+            if self.temperature is not None:
+                raise ValueError("temperature must be omitted with thinking")
+
     def as_metadata(self) -> dict[str, Any]:
         """Return the requested configuration as serializable metadata."""
         omitted = [] if self.temperature is not None else ["temperature"]
         return {
+            **(
+                {
+                    "thinking": {
+                        "type": "enabled",
+                        "budget_tokens": self.thinking_budget_tokens,
+                    }
+                }
+                if self.thinking_budget_tokens is not None
+                else {}
+            ),
             "model": self.model,
             "reasoning_effort": self.reasoning_effort,
             "max_output_tokens": self.max_output_tokens,
@@ -102,16 +122,14 @@ def _usage_result(
     total_tokens: int | None = None,
     cached_input_tokens: int = 0,
     cache_creation_input_tokens: int = 0,
-    reasoning_tokens: int = 0,
+    reasoning_tokens: int | None = 0,
 ) -> dict[str, Any]:
     """Return common token categories plus the lossless provider payload."""
     return {
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "total_tokens": (
-            total_tokens
-            if total_tokens is not None
-            else input_tokens + output_tokens
+            total_tokens if total_tokens is not None else input_tokens + output_tokens
         ),
         "cached_input_tokens": cached_input_tokens,
         "cache_creation_input_tokens": cache_creation_input_tokens,
@@ -221,18 +239,24 @@ class AuditRequestClient:
 
     def _call_anthropic(self, prompt: str, start: float) -> dict[str, Any]:
         """Send one prompt through Anthropic Messages."""
-        request_kwargs = {
+        request_kwargs: dict[str, Any] = {
             "model": self.model,
             "max_tokens": self.max_tokens,
             "messages": [{"role": "user", "content": prompt}],
         }
-        if (
-            self.request_config.temperature is not None
-            and supports_temperature(self.model)
+        if self.request_config.temperature is not None and supports_temperature(
+            self.model
         ):
             request_kwargs["temperature"] = self.request_config.temperature
 
-        message = self._client.messages.create(**request_kwargs)
+        if self.request_config.thinking_budget_tokens is not None:
+            request_kwargs["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": self.request_config.thinking_budget_tokens,
+            }
+            message = self._stream_anthropic(request_kwargs)
+        else:
+            message = self._client.messages.create(**request_kwargs)
         response_text = "".join(
             block.text for block in message.content if block.type == "text"
         )
@@ -250,11 +274,10 @@ class AuditRequestClient:
             },
             "usage": _usage_result(
                 message.usage,
+                reasoning_tokens=None,
                 input_tokens=message.usage.input_tokens,
                 output_tokens=message.usage.output_tokens,
-                cached_input_tokens=getattr(
-                    message.usage, "cache_read_input_tokens", 0
-                )
+                cached_input_tokens=getattr(message.usage, "cache_read_input_tokens", 0)
                 or 0,
                 cache_creation_input_tokens=getattr(
                     message.usage, "cache_creation_input_tokens", 0
@@ -266,9 +289,49 @@ class AuditRequestClient:
             "failure": None,
         }
 
+    def _stream_anthropic(self, request_kwargs: dict[str, Any]) -> Any:
+        """Consume Messages events without accumulating private thinking blocks."""
+        text_parts: list[str] = []
+        usage: dict[str, Any] = {}
+        message = None
+        stopped = False
+        with self._client.messages.create(**request_kwargs, stream=True) as stream:
+            for event in stream:
+                if event.type == "message_start":
+                    source = event.message
+                    message = SimpleNamespace(
+                        id=source.id,
+                        model=source.model,
+                        type=source.type,
+                        stop_reason=None,
+                    )
+                    usage.update(_provider_data(source.usage))
+                elif event.type == "content_block_start":
+                    if event.content_block.type == "text":
+                        text_parts.append(event.content_block.text)
+                elif event.type == "content_block_delta":
+                    if event.delta.type == "text_delta":
+                        text_parts.append(event.delta.text)
+                elif event.type == "message_delta" and message is not None:
+                    message.stop_reason = event.delta.stop_reason
+                    usage.update(
+                        {
+                            key: value
+                            for key, value in _provider_data(event.usage).items()
+                            if value is not None
+                        }
+                    )
+                elif event.type == "message_stop":
+                    stopped = True
+        if message is None or not stopped:
+            raise ValueError("Anthropic stream ended before message_stop")
+        message.content = [SimpleNamespace(type="text", text="".join(text_parts))]
+        message.usage = SimpleNamespace(**usage)
+        return message
+
     def _call_openai(self, prompt: str, start: float) -> dict[str, Any]:
         """Send one prompt through OpenAI Chat Completions."""
-        request_kwargs = {
+        request_kwargs: dict[str, Any] = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
         }
@@ -276,17 +339,13 @@ class AuditRequestClient:
             request_kwargs["max_tokens"] = self.max_tokens
         else:
             request_kwargs["max_completion_tokens"] = self.max_tokens
-            request_kwargs["reasoning_effort"] = (
-                self.request_config.reasoning_effort
-            )
+            request_kwargs["reasoning_effort"] = self.request_config.reasoning_effort
         if self.request_config.temperature is not None:
             request_kwargs["temperature"] = self.request_config.temperature
 
         response = self._client.chat.completions.create(**request_kwargs)
         prompt_details = getattr(response.usage, "prompt_tokens_details", None)
-        completion_details = getattr(
-            response.usage, "completion_tokens_details", None
-        )
+        completion_details = getattr(response.usage, "completion_tokens_details", None)
 
         return {
             "success": True,
@@ -298,22 +357,15 @@ class AuditRequestClient:
                 "response_id": getattr(response, "id", None),
                 "response_model": response.model,
                 "service_tier": getattr(response, "service_tier", None),
-                "system_fingerprint": getattr(
-                    response, "system_fingerprint", None
-                ),
+                "system_fingerprint": getattr(response, "system_fingerprint", None),
             },
             "usage": _usage_result(
                 response.usage,
                 input_tokens=response.usage.prompt_tokens,
                 output_tokens=response.usage.completion_tokens,
                 total_tokens=getattr(response.usage, "total_tokens", None),
-                cached_input_tokens=getattr(
-                    prompt_details, "cached_tokens", 0
-                )
-                or 0,
-                reasoning_tokens=getattr(
-                    completion_details, "reasoning_tokens", 0
-                )
+                cached_input_tokens=getattr(prompt_details, "cached_tokens", 0) or 0,
+                reasoning_tokens=getattr(completion_details, "reasoning_tokens", 0)
                 or 0,
             ),
             "stop_reason": response.choices[0].finish_reason,
@@ -323,7 +375,7 @@ class AuditRequestClient:
 
     def _call_gemini(self, prompt: str, start: float) -> dict[str, Any]:
         """Send one prompt through Gemini generateContent."""
-        generation_config = {"max_output_tokens": self.max_tokens}
+        generation_config: dict[str, Any] = {"max_output_tokens": self.max_tokens}
         if self.request_config.temperature is not None:
             generation_config["temperature"] = self.request_config.temperature
 
@@ -342,22 +394,16 @@ class AuditRequestClient:
                 "name": "google",
                 "endpoint": "models.generate_content",
                 "response_id": getattr(response, "response_id", None),
-                "response_model": getattr(
-                    response, "model_version", self.model
-                ),
+                "response_model": getattr(response, "model_version", self.model),
             },
             "usage": _usage_result(
                 usage,
                 input_tokens=usage.prompt_token_count,
                 output_tokens=usage.candidates_token_count,
                 total_tokens=getattr(usage, "total_token_count", None),
-                cached_input_tokens=getattr(
-                    usage, "cached_content_token_count", 0
-                )
+                cached_input_tokens=getattr(usage, "cached_content_token_count", 0)
                 or 0,
-                reasoning_tokens=(
-                    getattr(usage, "thoughts_token_count", 0) or 0
-                ),
+                reasoning_tokens=(getattr(usage, "thoughts_token_count", 0) or 0),
             ),
             "stop_reason": (
                 response.candidates[0].finish_reason.name

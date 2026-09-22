@@ -72,9 +72,7 @@ def _finding(identifier: str, source: str = "audit") -> CanonicalFinding:
     )
 
 
-def _match(
-    reference: str, finding: str, subdefect: str | None = None
-) -> MatchDecision:
+def _match(reference: str, finding: str, subdefect: str | None = None) -> MatchDecision:
     """Build one accepted, evidence-compatible match decision."""
     return MatchDecision(
         reference_id=reference,
@@ -220,7 +218,10 @@ def test_match_conflicts_and_incomplete_runs_cannot_be_ranked() -> None:
         rank_scores((score,))
 
 
-def test_reports_are_projections_of_one_score_object(tmp_path: Path) -> None:
+@pytest.mark.parametrize("reasoning_tokens", [0, None])
+def test_reports_are_projections_of_one_score_object(
+    tmp_path: Path, reasoning_tokens
+) -> None:
     """Every format exposes the same totals, latency, and row disposition."""
     references = ReferenceSet(
         version="v1",
@@ -236,6 +237,7 @@ def test_reports_are_projections_of_one_score_object(tmp_path: Path) -> None:
         complete=True,
         comparable_identity="benchmark-v1",
         audit_cost_usd="0.001",
+        usage=Usage(output_tokens=16002, reasoning_tokens=reasoning_tokens),
     )
     score = score_evaluation(
         references,
@@ -252,6 +254,10 @@ def test_reports_are_projections_of_one_score_object(tmp_path: Path) -> None:
     with paths.csv.open(newline="", encoding="utf-8") as stream:
         csv_rows = list(csv.DictReader(stream))
     markdown = paths.markdown.read_text(encoding="utf-8")
+    assert json_report["usage"]["reasoning_tokens"] == reasoning_tokens
+    assert json_report["usage"]["output_tokens"] == 16002
+    if reasoning_tokens is None:
+        assert "Reasoning tokens: unavailable" in markdown
     assert json_report["workbook_row_recall"]["caught"] == 1
     assert json_report["request_duration_sum_seconds"] == 0
     assert csv_rows[0]["model_caught"] == "True"

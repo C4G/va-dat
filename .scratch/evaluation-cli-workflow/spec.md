@@ -124,3 +124,10 @@ Implemented in `2448042` and review-hardened in `6a1e6c0`. Verified by the
 synthetic CLI lifecycle, focused approval and identity-drift tests, lower-level
 retry and cost tests, compilation, and the full network-free pytest suite. The
 operational Luna proof of concept remains open and no provider request was made.
+
+
+## Haiku retarget clarification (2026-09-22)
+
+The Luna-specific target and credential details above are historical. They are
+superseded by `.scratch/anthropic-evaluation-retarget/spec.md`; benchmark,
+review, scoring, and safety requirements remain authoritative.

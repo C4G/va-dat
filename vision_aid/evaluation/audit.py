@@ -29,12 +29,12 @@ from vision_aid.evaluation.serialization import (
     write_json,
 )
 
-MODEL = "gpt-5.6-luna"
+MODEL = "claude-haiku-4-5-20251001"
 REQUEST_CONFIG = AuditRequestConfig(
     model=MODEL,
-    reasoning_effort="medium",
+    thinking_budget_tokens=16000,
     temperature=None,
-    max_output_tokens=8192,
+    max_output_tokens=24192,
 )
 RETRYABLE_FAILURES = ("timeout", "rate_limit", "server_error")
 BACKOFF_SECONDS = (1, 2)
@@ -51,10 +51,11 @@ LIVE_OUTPUT_FILENAMES = (
 )
 FROZEN_CONFIGURATION = {
     "model": MODEL,
-    "reasoning_effort": "medium",
-    "endpoint": "chat.completions",
+    "provider": "anthropic",
+    "thinking": {"type": "enabled", "budget_tokens": 16000},
+    "endpoint": "messages",
     "temperature": None,
-    "max_output_tokens": 8192,
+    "max_output_tokens": 24192,
     "include_summaries": False,
     "execution": "sequential",
 }
@@ -369,7 +370,7 @@ def load_verified_audit_plan(
         )
     if plan.get("configuration") != FROZEN_CONFIGURATION:
         raise AuditExecutionError(
-            "The planned configuration is not the frozen Luna POC."
+            "The planned configuration is not the frozen Haiku POC."
         )
     price_schedule = schedule or PriceSchedule.default()
     if plan.get("pricing_identity") != price_schedule.identity:
@@ -439,7 +440,7 @@ def _failure_classification(result: dict[str, Any]) -> str:
     return "permanent"
 
 
-def _empty_usage() -> dict[str, int]:
+def _empty_usage() -> dict[str, int | None]:
     """Create the token-category accumulator used across attempts."""
     return {
         "input_tokens": 0,
@@ -450,11 +451,15 @@ def _empty_usage() -> dict[str, int]:
     }
 
 
-def _add_usage(total: dict[str, int], result: dict[str, Any]) -> None:
+def _add_usage(total: dict[str, int | None], result: dict[str, Any]) -> None:
     """Add API-reported categories from one possibly billed attempt."""
     usage = result.get("usage") or {}
     for key in total:
-        total[key] += int(usage.get(key, 0) or 0)
+        value = usage.get(key, 0)
+        previous = total[key]
+        total[key] = (
+            None if value is None or previous is None else previous + int(value)
+        )
 
 
 def execute_audit_run(
@@ -474,7 +479,7 @@ def execute_audit_run(
             "Live execution requires the explicit --live flag."
         )
     if not api_key:
-        raise AuditExecutionError("Live execution requires OPENAI_API_KEY.")
+        raise AuditExecutionError("Live execution requires ANTHROPIC_API_KEY.")
     if approval_mode not in {"interactive", "auto"}:
         raise AuditExecutionError(
             "Live execution requires interactive or automatic approval."

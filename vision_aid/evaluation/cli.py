@@ -245,7 +245,12 @@ def _render_execution_summary(
             "Evaluation execution summary",
             f"  Model: {configuration['model']}",
             f"  Endpoint: {configuration['endpoint']}",
-            f"  Reasoning effort: {configuration['reasoning_effort']}",
+            f"  Provider: {configuration['provider']}",
+            f"  Thinking: {configuration['thinking']['type']}; budget tokens: "
+            f"{configuration['thinking']['budget_tokens']}",
+            f"  Total output cap: {configuration['max_output_tokens']}",
+            "  Temperature: omitted",
+            f"  Pricing: {plan['pricing_version']} ({plan['pricing_identity']})",
             f"  Benchmark snapshot SHA-256: {plan['snapshot_sha256']}",
             f"  Reference set: {plan['reference_set_version']}",
             f"  Reference identity: {plan['eligibility_identity']}",
@@ -312,9 +317,9 @@ def _audit(arguments: argparse.Namespace) -> int:
         run_directory = arguments.run_dir.resolve()
         plan = load_verified_audit_plan(run_directory)
         ensure_live_destination_available(run_directory)
-        if not os.environ.get("OPENAI_API_KEY"):
+        if not os.environ.get("ANTHROPIC_API_KEY"):
             raise PrivateInputError(
-                "Live execution requires OPENAI_API_KEY in addition to "
+                "Live execution requires ANTHROPIC_API_KEY in addition to "
                 "approval."
             )
         approval_mode = "auto" if arguments.auto_approve else "interactive"
@@ -330,7 +335,7 @@ def _audit(arguments: argparse.Namespace) -> int:
         manifest = execute_audit_run(
             run_directory,
             live=True,
-            api_key=os.environ.get("OPENAI_API_KEY"),
+            api_key=os.environ.get("ANTHROPIC_API_KEY"),
             approval_mode=approval_mode,
             approved_at=approved_at,
         )

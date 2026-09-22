@@ -61,12 +61,8 @@ def load_reference_set(path: Path) -> ReferenceSet:
     for value in data["references"]:
         value = dict(value)
         value["wcag_evidence"] = tuple(value.get("wcag_evidence", ()))
-        value["required_subdefects"] = tuple(
-            value.get("required_subdefects", ())
-        )
-        value["eligibility_review"] = _provenance(
-            value.get("eligibility_review")
-        )
+        value["required_subdefects"] = tuple(value.get("required_subdefects", ()))
+        value["eligibility_review"] = _provenance(value.get("eligibility_review"))
         references.append(ReferenceDefect(**value))
     return ReferenceSet(
         version=data["version"],
@@ -92,9 +88,7 @@ def load_findings(path: Path) -> tuple[CanonicalFinding, ...]:
     return tuple(findings)
 
 
-def save_match_decisions(
-    path: Path, decisions: tuple[MatchDecision, ...]
-) -> None:
+def save_match_decisions(path: Path, decisions: tuple[MatchDecision, ...]) -> None:
     """Persist reviewed match decisions."""
     write_json(path, [asdict(item) for item in decisions])
 
@@ -145,30 +139,27 @@ def load_verified_run_metadata(
             "Run manifest benchmark identities are inconsistent or changed."
         )
     if manifest["workbook_sha256"] != reference_set.workbook_sha256:
-        raise ValueError(
-            "Run manifest workbook checksum does not match references."
-        )
+        raise ValueError("Run manifest workbook checksum does not match references.")
     if manifest["reference_set_version"] != reference_set.version:
         raise ValueError(
             "Run manifest reference-set version does not match references."
         )
     expected_eligibility = reference_set_identity(reference_set)
     if manifest["eligibility_identity"] != expected_eligibility:
-        raise ValueError(
-            "Run manifest eligibility decisions do not match references."
-        )
+        raise ValueError("Run manifest eligibility decisions do not match references.")
     usage_value = manifest.get("usage", {})
+    reasoning_tokens = usage_value.get("reasoning_tokens", 0)
     usage = Usage(
+        reasoning_tokens=None if reasoning_tokens is None else int(reasoning_tokens),
         **{
             key: int(usage_value.get(key, 0))
             for key in (
                 "input_tokens",
                 "cached_input_tokens",
                 "output_tokens",
-                "reasoning_tokens",
                 "cache_creation_input_tokens",
             )
-        }
+        },
     )
     return RunMetadata(
         run_id=str(manifest["run_id"]),
@@ -180,8 +171,7 @@ def load_verified_run_metadata(
         usage=usage,
         wall_time_seconds=float(manifest.get("wall_time_seconds", 0)),
         request_durations_seconds=tuple(
-            float(value)
-            for value in manifest.get("request_durations_seconds", ())
+            float(value) for value in manifest.get("request_durations_seconds", ())
         ),
         workbook_sha256=str(manifest["workbook_sha256"]),
         snapshot_sha256=str(manifest["snapshot_sha256"]),

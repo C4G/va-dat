@@ -10,7 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-DEFAULT_SCHEDULE = Path(__file__).with_name("pricing.v1.json")
+DEFAULT_SCHEDULE = Path(__file__).with_name("pricing.v2.json")
 MILLION = Decimal(1_000_000)
 
 
@@ -42,7 +42,7 @@ class PriceSchedule:
         """Return the curator-assigned price-schedule version."""
         return str(self.data["version"])
 
-    def estimate(self, model: str, usage: Mapping[str, int]) -> str:
+    def estimate(self, model: str, usage: Mapping[str, int | None]) -> str:
         """Price reported categories without rounding away tie precision."""
         try:
             rates = self.data["models"][model]
@@ -50,12 +50,12 @@ class PriceSchedule:
             raise ValueError(
                 f"No versioned pricing exists for model {model!r}."
             ) from error
-        input_tokens = Decimal(usage.get("input_tokens", 0))
-        cached_tokens = Decimal(usage.get("cached_input_tokens", 0))
+        input_tokens = Decimal(usage.get("input_tokens", 0) or 0)
+        cached_tokens = Decimal(usage.get("cached_input_tokens", 0) or 0)
         cache_creation_tokens = Decimal(
-            usage.get("cache_creation_input_tokens", 0)
+            usage.get("cache_creation_input_tokens", 0) or 0
         )
-        output_tokens = Decimal(usage.get("output_tokens", 0))
+        output_tokens = Decimal(usage.get("output_tokens", 0) or 0)
         uncached_tokens = max(Decimal(0), input_tokens - cached_tokens)
         input_multiplier = Decimal(1)
         output_multiplier = Decimal(1)

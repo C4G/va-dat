@@ -27,9 +27,7 @@ SNAPSHOT_BODY = (
     b'<!doctype html>\r\n<html lang="en"><head><title>Pristine</title></head>'
     b"<body>caf\xc3\xa9</body></html>\r\n"
 )
-SNAPSHOT_SHA256 = (
-    "aadf66066b05d9c8d8268ba7e28ebcef8a2ed81f672fc2e2285d9236be00e89d"
-)
+SNAPSHOT_SHA256 = "aadf66066b05d9c8d8268ba7e28ebcef8a2ed81f672fc2e2285d9236be00e89d"
 
 
 class SnapshotHTTPServer(ThreadingHTTPServer):
@@ -444,9 +442,7 @@ def test_prepare_publishes_the_snapshot_as_one_immutable_bundle(
 
     assert result.returncode == 2
     assert "appeared during capture" in result.stderr
-    assert [path.name for path in snapshot_directory.iterdir()] == [
-        "race-marker"
-    ]
+    assert [path.name for path in snapshot_directory.iterdir()] == ["race-marker"]
 
 
 def test_prepare_rejects_the_dat_vision_aid_fixture_as_a_snapshot(
@@ -464,15 +460,10 @@ def test_prepare_rejects_the_dat_vision_aid_fixture_as_a_snapshot(
     )
 
     assert result.returncode == 2
-    assert (
-        "DAT Vision Aid fixture is not a Pristine benchmark input"
-        in result.stderr
-    )
+    assert "DAT Vision Aid fixture is not a Pristine benchmark input" in result.stderr
 
 
-@pytest.mark.parametrize(
-    "api_key_name", ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
-)
+@pytest.mark.parametrize("api_key_name", ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"])
 def test_audit_defaults_to_a_network_free_dry_run_even_with_an_api_key(
     tmp_path: Path,
     synthetic_workbook: Path,
@@ -544,16 +535,11 @@ def test_interactive_live_approval_accepts_trimmed_case_insensitive_yes(
                 "duration_seconds": 0,
             }
 
-    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-key")
     monkeypatch.setattr(sys, "stdin", TerminalInput("  YeS  \n"))
     monkeypatch.setattr(evaluation_audit, "AuditRequestClient", SyntheticClient)
 
-    assert (
-        evaluation_main(
-            ["audit", "--live", "--run-dir", str(run_directory)]
-        )
-        == 0
-    )
+    assert evaluation_main(["audit", "--live", "--run-dir", str(run_directory)]) == 0
 
     output = capsys.readouterr().out
     manifest = json.loads(
@@ -590,7 +576,7 @@ def test_failed_live_approval_stops_before_client_or_artifacts(
         def __init__(self, **_kwargs: object) -> None:
             raise AssertionError("provider client was constructed")
 
-    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-key")
     monkeypatch.setattr(
         sys,
         "stdin",
@@ -599,9 +585,7 @@ def test_failed_live_approval_stops_before_client_or_artifacts(
     monkeypatch.setattr(evaluation_audit, "AuditRequestClient", ForbiddenClient)
 
     with pytest.raises(SystemExit) as raised:
-        evaluation_main(
-            ["audit", "--live", "--run-dir", str(run_directory)]
-        )
+        evaluation_main(["audit", "--live", "--run-dir", str(run_directory)])
 
     assert raised.value.code == 2
     captured = capsys.readouterr()
@@ -628,15 +612,13 @@ def test_live_option_combinations_keep_every_spending_gate_mandatory(
     with pytest.raises(SystemExit):
         evaluation_main(["audit", "--max-audit-cost-usd", "0"])
     assert "greater than zero" in capsys.readouterr().err
-    assert {
-        path.name for path in (workspace.root / "runs").iterdir()
-    } == existing_runs
+    assert {path.name for path in (workspace.root / "runs").iterdir()} == existing_runs
 
     with pytest.raises(SystemExit):
         evaluation_main(["audit", "--auto-approve"])
     assert "only with --live" in capsys.readouterr().err
 
-    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-key")
     with pytest.raises(SystemExit):
         evaluation_main(
             [
@@ -651,7 +633,8 @@ def test_live_option_combinations_keep_every_spending_gate_mandatory(
         )
     assert "reuses the saved cost guardrail" in capsys.readouterr().err
 
-    monkeypatch.delenv("OPENAI_API_KEY")
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    monkeypatch.setenv("OPENAI_API_KEY", "wrong-provider-key")
     with pytest.raises(SystemExit):
         evaluation_main(
             [
@@ -662,7 +645,7 @@ def test_live_option_combinations_keep_every_spending_gate_mandatory(
                 "--auto-approve",
             ]
         )
-    assert "requires OPENAI_API_KEY" in capsys.readouterr().err
+    assert "requires ANTHROPIC_API_KEY" in capsys.readouterr().err
     assert not (run_directory / "live-manifest.json").exists()
 
 
@@ -787,7 +770,7 @@ def test_cli_completes_the_synthetic_private_workflow(
             }
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-key")
     monkeypatch.setattr(evaluation_audit, "AuditRequestClient", SyntheticClient)
     assert (
         evaluation_main(
@@ -803,9 +786,9 @@ def test_cli_completes_the_synthetic_private_workflow(
     )
     live_output = capsys.readouterr().out
     for expected in (
-        "Model: gpt-5.6-luna",
-        "Endpoint: chat.completions",
-        "Reasoning effort: medium",
+        "Model: claude-haiku-4-5-20251001",
+        "Endpoint: messages",
+        "Thinking: enabled; budget tokens: 16000",
         "Benchmark snapshot SHA-256:",
         "Reference set:",
         "Prompts (",
@@ -846,9 +829,7 @@ def test_cli_completes_the_synthetic_private_workflow(
     for name, original_bytes in live_artifacts.items():
         assert (run_directory / name).read_bytes() == original_bytes
 
-    snapshot_path = (
-        workspace / "snapshots" / "pristine-homepage" / "source.html"
-    )
+    snapshot_path = workspace / "snapshots" / "pristine-homepage" / "source.html"
     snapshot_path.unlink()
 
     finding_path = run_directory / "canonical-audit-findings.json"
@@ -902,9 +883,7 @@ def test_cli_completes_the_synthetic_private_workflow(
     programmatic_workbook = review_directory / "programmatic-matches.xlsx"
     programmatic_review = openpyxl.load_workbook(programmatic_workbook)
     programmatic_matches = programmatic_review["Matches"]
-    programmatic_columns = {
-        cell.value: cell.column for cell in programmatic_matches[1]
-    }
+    programmatic_columns = {cell.value: cell.column for cell in programmatic_matches[1]}
     for row in range(2, programmatic_matches.max_row + 1):
         for name, value in {
             "decision": "rejected",
@@ -926,18 +905,14 @@ def test_cli_completes_the_synthetic_private_workflow(
     )
     assert programmatic_imported.returncode == 0, programmatic_imported.stderr
     assert (review_directory / "audit-match-decisions.json").is_file()
-    assert (
-        review_directory / "programmatic-match-decisions.json"
-    ).is_file()
+    assert (review_directory / "programmatic-match-decisions.json").is_file()
     live_manifest["format_failures"] = ["synthetic-format"]
     (run_directory / "live-manifest.json").write_text(
         json.dumps(live_manifest),
         encoding="utf-8",
     )
 
-    reported = run_cli(
-        "report", "--run-dir", str(run_directory), cwd=tmp_path
-    )
+    reported = run_cli("report", "--run-dir", str(run_directory), cwd=tmp_path)
 
     assert reported.returncode == 0, reported.stderr
     json_report = workspace / "reports" / f"{run_manifest['run_id']}.json"
@@ -945,14 +920,10 @@ def test_cli_completes_the_synthetic_private_workflow(
     report_data = json.loads(json_report.read_text(encoding="utf-8"))
     assert report_data["parse_failures"] == ["synthetic-format"]
 
-    programmatic_decisions = (
-        review_directory / "programmatic-match-decisions.json"
-    )
+    programmatic_decisions = review_directory / "programmatic-match-decisions.json"
     decision_bytes = programmatic_decisions.read_bytes()
     programmatic_decisions.unlink()
-    unresolved = run_cli(
-        "report", "--run-dir", str(run_directory), cwd=tmp_path
-    )
+    unresolved = run_cli("report", "--run-dir", str(run_directory), cwd=tmp_path)
     assert unresolved.returncode == 2
     assert "--kind programmatic" in unresolved.stderr
     assert "--import-matches" in unresolved.stderr
@@ -961,9 +932,7 @@ def test_cli_completes_the_synthetic_private_workflow(
     findings = json.loads(finding_path.read_text(encoding="utf-8"))
     findings[0]["run_id"] = "different-run"
     finding_path.write_text(json.dumps(findings), encoding="utf-8")
-    rejected_finding = run_cli(
-        "report", "--run-dir", str(run_directory), cwd=tmp_path
-    )
+    rejected_finding = run_cli("report", "--run-dir", str(run_directory), cwd=tmp_path)
     assert rejected_finding.returncode == 2
     assert "do not belong to the verified run" in rejected_finding.stderr
 
@@ -976,3 +945,64 @@ def test_cli_completes_the_synthetic_private_workflow(
     )
     assert rejected_eligibility.returncode == 2
     assert "reference-set" in rejected_eligibility.stderr
+
+
+def test_haiku_plan_freezes_thinking_and_pricing(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(evaluation_cli, "_PROJECT_ENV_LOADED", True)
+    run = create_planned_run(tmp_path, monkeypatch, capsys)
+    plan = evaluation_audit.load_audit_plan(run)
+    assert plan["configuration"] == {
+        "model": "claude-haiku-4-5-20251001",
+        "provider": "anthropic",
+        "endpoint": "messages",
+        "thinking": {"type": "enabled", "budget_tokens": 16000},
+        "temperature": None,
+        "max_output_tokens": 24192,
+        "include_summaries": False,
+        "execution": "sequential",
+    }
+    summary = evaluation_cli._render_execution_summary(plan, run, "dry-run")
+    for value in (
+        "anthropic",
+        "claude-haiku-4-5-20251001",
+        "messages",
+        "16000",
+        "24192",
+        "omitted",
+        plan["pricing_identity"],
+        "$0.01",
+    ):
+        assert value in summary
+    assert not (run / "live-manifest.json").exists()
+
+
+def test_historical_luna_plan_is_readable_but_cannot_execute(
+    tmp_path, monkeypatch, capsys
+):
+    from vision_aid.evaluation.serialization import json_digest
+
+    run = create_planned_run(tmp_path, monkeypatch, capsys)
+    path = run / "evaluation-manifest.json"
+    plan = json.loads(path.read_text())
+    plan["configuration"] = {
+        "model": "gpt-5.6-luna",
+        "reasoning_effort": "medium",
+        "endpoint": "chat.completions",
+        "temperature": None,
+        "max_output_tokens": 8192,
+        "include_summaries": False,
+        "execution": "sequential",
+    }
+    plan.pop("plan_digest")
+    plan["plan_digest"] = json_digest(plan)
+    path.write_text(json.dumps(plan))
+    assert (
+        evaluation_audit.load_audit_plan(run)["configuration"]["model"]
+        == "gpt-5.6-luna"
+    )
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "unused")
+    with pytest.raises(SystemExit):
+        evaluation_main(["audit", "--live", "--auto-approve", "--run-dir", str(run)])
+    assert "not the frozen Haiku POC" in capsys.readouterr().err
+    assert not (run / "live-manifest.json").exists()

@@ -175,3 +175,10 @@ Private inputs and generated artifacts will stay outside version control. The co
 - The workbook is the mandatory provenance source, but approved normalization may mark rows unavailable or ambiguous and may represent distinct required sub-defects. These transformations must remain traceable and reviewable.
 - The first implementation milestone ends at the eligibility-review gate and incurs no API cost. The cost limit for the first live Luna run will be selected while planning the evaluation run, whose summary exposes the request set and estimated usage.
 - Future benchmark expansion should sample distinct pages and template families rather than random rows because repeated job-page patterns dominate the workbook.
+
+
+## Haiku retarget clarification (2026-09-22)
+
+The Luna-specific target and credential details above are historical. They are
+superseded by `.scratch/anthropic-evaluation-retarget/spec.md`; benchmark,
+review, scoring, and safety requirements remain authoritative.

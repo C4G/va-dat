@@ -295,7 +295,7 @@ Only the four classifications `llm_eligible`, `programmatic`,
 `unavailable_evidence`, and `ambiguous` are accepted. Global rows remain one
 workbook-row scoring unit supported by homepage evidence.
 
-`audit` is network-free by default even if `OPENAI_API_KEY` exists. With an
+`audit` is network-free by default even if `ANTHROPIC_API_KEY` exists. With an
 approved reference set and benchmark snapshot it runs the production
 extractors, filters, programmatic checks, slicers, and unchanged prompts to
 create a uniquely identified evaluation run. Planning requires a positive
@@ -311,7 +311,7 @@ Keep the printed `.model-evaluation/runs/<RUN_ID>` path. The summary shows the
 model, endpoint, reasoning effort, benchmark and reference identities, prompt
 request set, estimated input usage, retry policy, saved cost guardrail, and
 destination. A billable run requires `--live`, that run directory, and
-`OPENAI_API_KEY`. The command revalidates the frozen evidence, prints the same
+`ANTHROPIC_API_KEY`. The command revalidates the frozen evidence, prints the same
 summary, and asks a terminal operator to type `yes`:
 
 ```bash
@@ -324,9 +324,17 @@ Deliberate automation may add `--auto-approve`. It skips terminal input but
 does not skip the summary, API credential, integrity checks, saved cost limit,
 or overwrite protection. Any rerun requires planning a fresh evaluation run.
 
-The runner uses `gpt-5.6-luna` through Chat Completions with medium reasoning,
-omits temperature, keeps summaries disabled, and preserves every attempt and
-raw response. It retries only transient timeout, rate-limit, and server
+The runner uses pinned `claude-haiku-4-5-20251001` through Anthropic Messages
+with manual extended thinking capped at 16,000 tokens and a total output cap
+of 24,192 tokens (up to 8,192 for final text after the full thinking budget).
+It omits temperature, keeps summaries disabled, and streams internally. Only
+final audit text is retained; thinking, signatures, and redacted thinking are
+discarded. Aggregate output usage includes billed thinking; a separate reasoning
+token count is unavailable. `pricing.v2.json` records the official direct API
+rates ($1/M input, $5/M output), source, and verification date. The plan and
+approval summary display the configuration, pricing identity, and cost guardrail.
+Historical Luna runs remain readable, but cannot be executed under this target.
+It preserves every attempt and final response. It retries only transient timeout, rate-limit, and server
 failures (at most twice). Exhausted failures make a run incomplete and
 unrankable; successful malformed JSON is retained as a format failure and is
 not retried.

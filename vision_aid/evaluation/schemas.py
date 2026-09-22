@@ -103,7 +103,7 @@ class Usage:
     input_tokens: int = 0
     cached_input_tokens: int = 0
     output_tokens: int = 0
-    reasoning_tokens: int = 0
+    reasoning_tokens: int | None = 0
     cache_creation_input_tokens: int = 0
 
 

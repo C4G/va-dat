@@ -5,6 +5,8 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest import TestCase
 
+import pytest
+
 from entry_points.run_pipeline import (
     AuditRequestConfig,
     PipelineClient,
@@ -110,9 +112,7 @@ class AuditRequestTests(TestCase):
                     "model": "gpt-5.6-luna",
                     "max_completion_tokens": 8192,
                     "reasoning_effort": "medium",
-                    "messages": [
-                        {"role": "user", "content": "audit this payload"}
-                    ],
+                    "messages": [{"role": "user", "content": "audit this payload"}],
                 }
             ],
         )
@@ -186,9 +186,7 @@ class AuditRequestTests(TestCase):
         )
         self.assertEqual(anthropic_result["provider"]["name"], "anthropic")
         self.assertEqual(anthropic_result["usage"]["cached_input_tokens"], 7)
-        self.assertEqual(
-            anthropic_result["usage"]["cache_creation_input_tokens"], 3
-        )
+        self.assertEqual(anthropic_result["usage"]["cache_creation_input_tokens"], 3)
         self.assertEqual(
             anthropic_result["request"]["sampling"],
             {
@@ -216,9 +214,7 @@ class AuditRequestTests(TestCase):
         )
         openai_fake = OpenAIFake(openai_response)
 
-        PipelineClient("unused", "gpt-4o", provider_client=openai_fake).call(
-            "audit"
-        )
+        PipelineClient("unused", "gpt-4o", provider_client=openai_fake).call("audit")
 
         self.assertEqual(
             openai_fake.chat.completions.requests,
@@ -243,11 +239,7 @@ class AuditRequestTests(TestCase):
                 cached_content_token_count=2,
                 thoughts_token_count=2,
             ),
-            candidates=[
-                SimpleNamespace(
-                    finish_reason=SimpleNamespace(name="STOP")
-                )
-            ],
+            candidates=[SimpleNamespace(finish_reason=SimpleNamespace(name="STOP"))],
         )
         gemini_fake = GeminiFake(gemini_response)
 
@@ -275,6 +267,7 @@ class AuditRequestTests(TestCase):
 
     def test_failure_exposes_request_and_provider_information(self):
         """Failures retain the metadata needed for later classification."""
+
         class ProviderFailure(Exception):
             status_code = 429
             code = "rate_limit_exceeded"
@@ -348,3 +341,75 @@ class AuditRequestTests(TestCase):
         self.assertEqual(manifest["request_config"], config.as_metadata())
         self.assertEqual(manifest["total_input_tokens"], 0)
         self.assertEqual(manifest["total_output_tokens"], 0)
+
+
+@pytest.mark.parametrize(
+    "parts,stop", [(["[", "]"], "end_turn"), ([], "end_turn"), (["["], "max_tokens")]
+)
+def test_haiku_thinking_stream_exposes_only_final_text(parts, stop):
+    from contextlib import nullcontext
+    from processing_scripts.llm_client.audit import AuditRequestClient
+
+    def event(kind, **values):
+        return SimpleNamespace(type=kind, **values)
+
+    events = [
+        event(
+            "message_start",
+            message=SimpleNamespace(
+                id="msg-thinking",
+                model="claude-haiku-4-5-20251001",
+                type="message",
+                usage=SimpleNamespace(input_tokens=100, output_tokens=1),
+            ),
+        ),
+        event(
+            "content_block_start", content_block=event("thinking", thinking="SECRET")
+        ),
+        event("content_block_delta", delta=event("thinking_delta", thinking="SECRET")),
+        event(
+            "content_block_delta", delta=event("signature_delta", signature="SECRET")
+        ),
+        event(
+            "content_block_start",
+            content_block=event("redacted_thinking", data="SECRET"),
+        ),
+        *[
+            event("content_block_start", content_block=event("text", text=part))
+            for part in parts
+        ],
+        event("content_block_delta", delta=event("text_delta", text="")),
+        event(
+            "message_delta",
+            delta=SimpleNamespace(stop_reason=stop),
+            usage=SimpleNamespace(output_tokens=16002),
+        ),
+        event("message_stop"),
+    ]
+    fake = AnthropicFake(nullcontext(iter(events)))
+    result = AuditRequestClient(
+        "unused",
+        provider_client=fake,
+        request_config=AuditRequestConfig(
+            model="claude-haiku-4-5-20251001",
+            temperature=None,
+            thinking_budget_tokens=16000,
+            max_output_tokens=24192,
+        ),
+    ).call("audit")
+    assert fake.messages.requests == [
+        {
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 24192,
+            "messages": [{"role": "user", "content": "audit"}],
+            "thinking": {"type": "enabled", "budget_tokens": 16000},
+            "stream": True,
+        }
+    ]
+    assert result["success"]
+    assert result["response"] == "".join(parts)
+    assert result["stop_reason"] == stop
+    assert result["usage"]["output_tokens"] == 16002
+    assert result["usage"]["input_tokens"] == 100
+    assert result["usage"]["reasoning_tokens"] is None
+    assert "SECRET" not in str(result)

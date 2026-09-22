@@ -439,3 +439,12 @@ utilities. Each stage produces evidence that the next stage verifies and uses.
 - Import the approved audit match decisions.
 
 - Generate the final JSON, CSV, and Markdown evaluation reports.
+
+
+## Haiku retarget (2026-09-22)
+
+The Luna replacement plan is superseded by a fresh, unexecuted Haiku plan.
+Current configuration: Anthropic Messages, `claude-haiku-4-5-20251001`,
+16,000 thinking tokens, 24,192 total output tokens, no temperature. See the
+private operator log for the new run identity. No paid run is authorized or
+performed by this retarget; operational ticket 12 remains open.

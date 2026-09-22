@@ -51,16 +51,14 @@ def _fake_pipeline(
     assert api_key is None
     assert dry_run is True
     assert include_summaries is False
-    assert model == "gpt-5.6-luna"
-    assert request_config.reasoning_effort == "medium"
+    assert model == "claude-haiku-4-5-20251001"
+    assert request_config.thinking_budget_tokens == 16000
     assert request_config.temperature is None
-    assert request_config.max_output_tokens == 8192
+    assert request_config.max_output_tokens == 24192
     prompts = output_dir / "prompts"
     prompts.mkdir(parents=True)
     entries = []
-    for index, name in enumerate(
-        ("heading_structure", "link_clarity"), start=1
-    ):
+    for index, name in enumerate(("heading_structure", "link_clarity"), start=1):
         prompt_text = f"prompt {index}"
         (prompts / f"{name}.json").write_text(
             json.dumps(
@@ -85,9 +83,7 @@ def _fake_pipeline(
                 "status": "dry_run",
             }
         )
-    (output_dir / "programmatic_findings.json").write_text(
-        "[]", encoding="utf-8"
-    )
+    (output_dir / "programmatic_findings.json").write_text("[]", encoding="utf-8")
     return {
         "html_file": html_path,
         "model": model,
@@ -105,9 +101,7 @@ def test_dry_plan_freezes_configuration_content_and_code_identities(
 ) -> None:
     """A dry plan records the complete frozen benchmark configuration."""
     snapshot = tmp_path / "source.html"
-    snapshot.write_text(
-        "<html><title>Synthetic</title></html>", encoding="utf-8"
-    )
+    snapshot.write_text("<html><title>Synthetic</title></html>", encoding="utf-8")
     snapshot_sha256 = hashlib.sha256(snapshot.read_bytes()).hexdigest()
     run_directory = tmp_path / "run"
 
@@ -125,11 +119,12 @@ def test_dry_plan_freezes_configuration_content_and_code_identities(
     )
 
     assert plan["configuration"] == {
-        "endpoint": "chat.completions",
+        "endpoint": "messages",
         "include_summaries": False,
-        "max_output_tokens": 8192,
-        "model": "gpt-5.6-luna",
-        "reasoning_effort": "medium",
+        "max_output_tokens": 24192,
+        "model": "claude-haiku-4-5-20251001",
+        "provider": "anthropic",
+        "thinking": {"type": "enabled", "budget_tokens": 16000},
         "temperature": None,
         "execution": "sequential",
     }
@@ -178,20 +173,18 @@ class FakeClient:
         return self.outcomes.pop(0)
 
 
-def _success(
-    response: str, input_tokens: int = 10, output_tokens: int = 5
-) -> dict:
+def _success(response: str, input_tokens: int = 10, output_tokens: int = 5) -> dict:
     """Return one successful synthetic provider result."""
     return {
         "success": True,
         "response": response,
-        "model": "gpt-5.6-luna",
-        "provider": {"name": "openai", "endpoint": "chat.completions"},
+        "model": "claude-haiku-4-5-20251001",
+        "provider": {"name": "anthropic", "endpoint": "messages"},
         "usage": {
             "input_tokens": input_tokens,
             "cached_input_tokens": 0,
             "output_tokens": output_tokens,
-            "reasoning_tokens": 2,
+            "reasoning_tokens": None,
             "cache_creation_input_tokens": 0,
             "total_tokens": input_tokens + output_tokens,
             "provider_usage": {},
@@ -207,8 +200,8 @@ def _transient() -> dict:
     return {
         "success": False,
         "response": None,
-        "model": "gpt-5.6-luna",
-        "provider": {"name": "openai", "endpoint": "chat.completions"},
+        "model": "claude-haiku-4-5-20251001",
+        "provider": {"name": "anthropic", "endpoint": "messages"},
         "usage": {
             "input_tokens": 2,
             "cached_input_tokens": 0,
@@ -301,7 +294,8 @@ def test_live_gates_retries_and_format_failures(
     assert len(manifest["requests"][0]["attempts"]) == 2
     assert manifest["format_failures"] == ["link_clarity"]
     assert manifest["usage"]["input_tokens"] == 22
-    assert manifest["estimated_audit_cost_usd"] == "0.0000164"
+    assert manifest["usage"]["reasoning_tokens"] is None
+    assert manifest["estimated_audit_cost_usd"] == "0.000072"
     assert manifest["configuration"]["temperature"] is None
     assert manifest["approval"] == {
         "mode": "interactive",
@@ -583,4 +577,18 @@ def test_versioned_price_schedule_uses_reported_token_categories() -> None:
             },
         )
         == "0.0000298"
+    )
+
+
+def test_haiku_prices_all_output_including_thinking():
+    assert (
+        PriceSchedule.default().estimate(
+            "claude-haiku-4-5-20251001",
+            {
+                "input_tokens": 100,
+                "output_tokens": 16002,
+                "reasoning_tokens": None,
+            },
+        )
+        == "0.08011"
     )

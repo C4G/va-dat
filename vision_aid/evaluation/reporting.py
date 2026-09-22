@@ -133,7 +133,11 @@ def write_reports(
         f"- Input tokens: {score.usage['input_tokens']}",
         f"- Cached input tokens: {score.usage['cached_input_tokens']}",
         f"- Output tokens: {score.usage['output_tokens']}",
-        f"- Reasoning tokens: {score.usage['reasoning_tokens']}",
+        "- Reasoning tokens: " + (
+            "unavailable (included in aggregate output)"
+            if score.usage['reasoning_tokens'] is None
+            else str(score.usage['reasoning_tokens'])
+        ),
         (
             "- Cache-creation input tokens: "
             f"{score.usage['cache_creation_input_tokens']}"

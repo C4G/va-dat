@@ -16,3 +16,10 @@
 - Implemented in `c371979` with review fixes in `c395efa`. Verified by four
   network-free audit-request tests and the production pipeline dry-run smoke
   test.
+
+
+## Haiku retarget clarification (2026-09-22)
+
+The Luna-specific target and credential details above are historical. They are
+superseded by `.scratch/anthropic-evaluation-retarget/spec.md`; benchmark,
+review, scoring, and safety requirements remain authoritative.

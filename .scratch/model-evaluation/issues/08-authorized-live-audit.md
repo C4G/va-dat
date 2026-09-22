@@ -24,3 +24,10 @@ and identity-verified in `2129616`. Point-of-use approval and write-once run
 execution were implemented in `2448042` and copy/rerun isolation was hardened
 in `6a1e6c0`. Fake-provider tests verify approval, retry, checkpoint, budget,
 malformed-response, and incomplete-run policies without spending.
+
+
+## Haiku retarget clarification (2026-09-22)
+
+The Luna-specific target and credential details above are historical. They are
+superseded by `.scratch/anthropic-evaluation-retarget/spec.md`; benchmark,
+review, scoring, and safety requirements remain authoritative.

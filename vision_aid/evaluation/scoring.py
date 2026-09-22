@@ -64,7 +64,7 @@ class EvaluationScore:
     audit_cost_usd: str
     evaluation_cost_usd: str
     total_experiment_cost_usd: str
-    usage: dict[str, int]
+    usage: dict[str, int | None]
     wall_time_seconds: float
     request_durations_seconds: tuple[float, ...]
     request_duration_sum_seconds: float

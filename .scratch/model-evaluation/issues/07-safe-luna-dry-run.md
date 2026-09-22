@@ -21,3 +21,10 @@ and identity-verified in `2129616`. The run-oriented planning workflow was
 implemented in `2448042` and review-hardened in `6a1e6c0`. Verified by unique
 run, frozen-evidence, positive-cost, identity-drift, and no-spend tests; no
 provider call is made by the test suite.
+
+
+## Haiku retarget clarification (2026-09-22)
+
+The Luna-specific target and credential details above are historical. They are
+superseded by `.scratch/anthropic-evaluation-retarget/spec.md`; benchmark,
+review, scoring, and safety requirements remain authoritative.
