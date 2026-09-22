@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -127,3 +127,26 @@ The evaluation CLI will resolve `ANTHROPIC_API_KEY`, display the exact pinned mo
 - The existing prepared Luna replacement plan cannot be converted in place because model, provider, endpoint, reasoning configuration, and pricing participate in immutable run identity and point-of-use verification.
 - Model lifecycle should be checked again before a future paid run. The pinned identifier is active at specification time, but a dated model can eventually be deprecated or retired.
 - This spec supersedes only the Luna-specific target and execution details of the broader model-evaluation proof of concept. Its domain model, benchmark methodology, review separation, scoring rules, and privacy boundaries remain authoritative.
+
+
+## Comments
+
+Implemented in `96c5a4fe` and review fix `ffec10d2`.
+
+- [x] Pinned Haiku Messages configuration, thinking stream, final-text-only
+  evidence, aggregate usage/cost, and unavailable reasoning detail verified.
+- [x] Credential, dry-default, approval, guardrail, historical loading and
+  stale-plan execution rejection covered by offline tests.
+- [x] Public provider regression tests, normalization, deterministic scoring,
+  and reporting pass; 84 tests total. Client/evaluation mypy passes.
+- [x] Standards and Spec reviews completed; all findings resolved.
+- [x] Fresh private plan `run-20260922T182506-e58810f9df6b` verified unexecuted
+  with $1 guardrail. Existing benchmark, prompt hashes/order, and eligibility
+  preserved. Prior run files verified byte-for-byte unchanged.
+- [x] All 447 programmatic candidate rows semantically verified before decision
+  carry-forward; import validated. Private operator log appended with rationale,
+  configuration, pricing source, superseded Luna plan, and fresh run identity.
+
+No paid request or live approval occurred. Operational ticket 12 remains open
+for the subsequent paid run and review; historical Luna records retain their
+original content with supersession notes.
