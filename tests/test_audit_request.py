@@ -413,3 +413,43 @@ def test_haiku_thinking_stream_exposes_only_final_text(parts, stop):
     assert result["usage"]["input_tokens"] == 100
     assert result["usage"]["reasoning_tokens"] is None
     assert "SECRET" not in str(result)
+
+
+def test_interrupted_thinking_stream_keeps_reported_billed_usage():
+    from contextlib import nullcontext
+    from processing_scripts.llm_client.audit import AuditRequestClient
+
+    def events():
+        yield SimpleNamespace(
+            type="message_start",
+            message=SimpleNamespace(
+                id="partial",
+                model="claude-haiku-4-5-20251001",
+                type="message",
+                usage=SimpleNamespace(input_tokens=100, output_tokens=1),
+            ),
+        )
+        yield SimpleNamespace(
+            type="message_delta",
+            delta=SimpleNamespace(stop_reason="max_tokens"),
+            usage=SimpleNamespace(output_tokens=16002),
+        )
+        raise TimeoutError("stream interrupted")
+
+    result = AuditRequestClient(
+        "unused",
+        provider_client=AnthropicFake(nullcontext(events())),
+        request_config=AuditRequestConfig(
+            model="claude-haiku-4-5-20251001",
+            temperature=None,
+            thinking_budget_tokens=16000,
+            max_output_tokens=24192,
+        ),
+    ).call("audit")
+    assert not result["success"]
+    assert result["response"] is None
+    assert result["usage"]["input_tokens"] == 100
+    assert result["usage"]["output_tokens"] == 16002
+    assert result["usage"]["reasoning_tokens"] is None
+    assert result["stop_reason"] == "max_tokens"
+    assert result["failure"]["type"] == "TimeoutError"

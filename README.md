@@ -308,7 +308,7 @@ uv run visionaid-evaluate audit \
 ```
 
 Keep the printed `.model-evaluation/runs/<RUN_ID>` path. The summary shows the
-model, endpoint, reasoning effort, benchmark and reference identities, prompt
+model, endpoint, thinking budget and total output cap, benchmark and reference identities, prompt
 request set, estimated input usage, retry policy, saved cost guardrail, and
 destination. A billable run requires `--live`, that run directory, and
 `ANTHROPIC_API_KEY`. The command revalidates the frozen evidence, prints the same

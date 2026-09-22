@@ -138,6 +138,18 @@ def _usage_result(
     }
 
 
+class _StreamFailure(Exception):
+    """Carry observed usage across a transport failure without response content."""
+
+    def __init__(
+        self, cause: Exception, usage: dict[str, Any], stop_reason: str | None
+    ):
+        super().__init__(str(cause))
+        self.cause = cause
+        self.usage = usage
+        self.stop_reason = stop_reason
+
+
 class AuditRequestClient:
     """Send an audit prompt through Anthropic, OpenAI, or Gemini.
 
@@ -206,6 +218,12 @@ class AuditRequestClient:
             result["request"] = resolved_request_metadata(self.request_config)
             return result
         except Exception as exc:
+            partial_usage = {}
+            stop_reason = None
+            if isinstance(exc, _StreamFailure):
+                partial_usage = exc.usage
+                stop_reason = exc.stop_reason
+                exc = exc.cause
             return {
                 "success": False,
                 "response": None,
@@ -213,11 +231,20 @@ class AuditRequestClient:
                 "provider": self._provider_identity(),
                 "request": resolved_request_metadata(self.request_config),
                 "usage": _usage_result(
-                    None,
-                    input_tokens=0,
-                    output_tokens=0,
+                    partial_usage or None,
+                    input_tokens=partial_usage.get("input_tokens", 0),
+                    output_tokens=partial_usage.get("output_tokens", 0),
+                    reasoning_tokens=(
+                        0 if self._is_openai or self._is_gemini else None
+                    ),
+                    cached_input_tokens=partial_usage.get("cache_read_input_tokens", 0)
+                    or 0,
+                    cache_creation_input_tokens=partial_usage.get(
+                        "cache_creation_input_tokens", 0
+                    )
+                    or 0,
                 ),
-                "stop_reason": None,
+                "stop_reason": stop_reason,
                 "error": str(exc),
                 "duration_seconds": round(time.monotonic() - start, 2),
                 "failure": {
@@ -295,36 +322,41 @@ class AuditRequestClient:
         usage: dict[str, Any] = {}
         message = None
         stopped = False
-        with self._client.messages.create(**request_kwargs, stream=True) as stream:
-            for event in stream:
-                if event.type == "message_start":
-                    source = event.message
-                    message = SimpleNamespace(
-                        id=source.id,
-                        model=source.model,
-                        type=source.type,
-                        stop_reason=None,
-                    )
-                    usage.update(_provider_data(source.usage))
-                elif event.type == "content_block_start":
-                    if event.content_block.type == "text":
-                        text_parts.append(event.content_block.text)
-                elif event.type == "content_block_delta":
-                    if event.delta.type == "text_delta":
-                        text_parts.append(event.delta.text)
-                elif event.type == "message_delta" and message is not None:
-                    message.stop_reason = event.delta.stop_reason
-                    usage.update(
-                        {
-                            key: value
-                            for key, value in _provider_data(event.usage).items()
-                            if value is not None
-                        }
-                    )
-                elif event.type == "message_stop":
-                    stopped = True
-        if message is None or not stopped:
-            raise ValueError("Anthropic stream ended before message_stop")
+        try:
+            with self._client.messages.create(**request_kwargs, stream=True) as stream:
+                for event in stream:
+                    if event.type == "message_start":
+                        source = event.message
+                        message = SimpleNamespace(
+                            id=source.id,
+                            model=source.model,
+                            type=source.type,
+                            stop_reason=None,
+                        )
+                        usage.update(_provider_data(source.usage))
+                    elif event.type == "content_block_start":
+                        if event.content_block.type == "text":
+                            text_parts.append(event.content_block.text)
+                    elif event.type == "content_block_delta":
+                        if event.delta.type == "text_delta":
+                            text_parts.append(event.delta.text)
+                    elif event.type == "message_delta" and message is not None:
+                        message.stop_reason = event.delta.stop_reason
+                        usage.update(
+                            {
+                                key: value
+                                for key, value in _provider_data(event.usage).items()
+                                if value is not None
+                            }
+                        )
+                    elif event.type == "message_stop":
+                        stopped = True
+            if message is None or not stopped:
+                raise ValueError("Anthropic stream ended before message_stop")
+        except Exception as exc:
+            raise _StreamFailure(
+                exc, usage, message.stop_reason if message is not None else None
+            ) from exc
         message.content = [SimpleNamespace(type="text", text="".join(text_parts))]
         message.usage = SimpleNamespace(**usage)
         return message
