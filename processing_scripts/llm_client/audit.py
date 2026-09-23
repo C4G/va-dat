@@ -6,8 +6,8 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Literal
 from types import SimpleNamespace
+from typing import Any, Literal
 
 from .client import is_gemini_model, is_openai_model, supports_temperature
 
@@ -139,15 +139,21 @@ def _usage_result(
 
 
 class _StreamFailure(Exception):
-    """Carry observed usage across a transport failure without response content."""
+    """Carry observed usage and final text across a transport failure."""
 
     def __init__(
-        self, cause: Exception, usage: dict[str, Any], stop_reason: str | None
+        self,
+        cause: Exception,
+        usage: dict[str, Any],
+        stop_reason: str | None,
+        response_text: str,
     ):
+        """Retain partial evidence without retaining thinking blocks."""
         super().__init__(str(cause))
         self.cause = cause
         self.usage = usage
         self.stop_reason = stop_reason
+        self.response_text = response_text
 
 
 class AuditRequestClient:
@@ -166,6 +172,7 @@ class AuditRequestClient:
         *,
         request_config: AuditRequestConfig | None = None,
         provider_client: Any | None = None,
+        max_retries: int | None = None,
     ):
         """Resolve legacy arguments and initialize the selected SDK client."""
         if request_config is None:
@@ -202,7 +209,10 @@ class AuditRequestClient:
         else:
             import anthropic
 
-            self._client = anthropic.Anthropic(api_key=api_key)
+            options: dict[str, Any] = {"api_key": api_key}
+            if max_retries is not None:
+                options["max_retries"] = max_retries
+            self._client = anthropic.Anthropic(**options)
 
     def call(self, prompt: str) -> dict[str, Any]:
         """Send one prompt and return a provider-neutral audit result."""
@@ -217,16 +227,18 @@ class AuditRequestClient:
                 result = self._call_anthropic(prompt, start)
             result["request"] = resolved_request_metadata(self.request_config)
             return result
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - report provider failures as evidence
             partial_usage = {}
             stop_reason = None
+            response_text = None
             if isinstance(exc, _StreamFailure):
                 partial_usage = exc.usage
                 stop_reason = exc.stop_reason
+                response_text = exc.response_text
                 exc = exc.cause
             return {
                 "success": False,
-                "response": None,
+                "response": response_text,
                 "model": self.model,
                 "provider": self._provider_identity(),
                 "request": resolved_request_metadata(self.request_config),
@@ -355,7 +367,10 @@ class AuditRequestClient:
                 raise ValueError("Anthropic stream ended before message_stop")
         except Exception as exc:
             raise _StreamFailure(
-                exc, usage, message.stop_reason if message is not None else None
+                exc,
+                usage,
+                message.stop_reason if message is not None else None,
+                "".join(text_parts),
             ) from exc
         message.content = [SimpleNamespace(type="text", text="".join(text_parts))]
         message.usage = SimpleNamespace(**usage)

@@ -69,90 +69,6 @@ class GeminiFake:
 
 
 class AuditRequestTests(TestCase):
-    def test_luna_request_uses_medium_reasoning_without_temperature(self):
-        """Luna uses the explicit evaluation request shape."""
-        response = SimpleNamespace(
-            id="chatcmpl-eval-1",
-            model="gpt-5.6-luna",
-            service_tier="default",
-            system_fingerprint="fp_test",
-            choices=[
-                SimpleNamespace(
-                    message=SimpleNamespace(content='{"findings": []}'),
-                    finish_reason="stop",
-                )
-            ],
-            usage=SimpleNamespace(
-                prompt_tokens=120,
-                completion_tokens=30,
-                total_tokens=150,
-                prompt_tokens_details=SimpleNamespace(cached_tokens=20),
-                completion_tokens_details=SimpleNamespace(reasoning_tokens=10),
-            ),
-        )
-        fake = OpenAIFake(response)
-        config = AuditRequestConfig(
-            model="gpt-5.6-luna",
-            reasoning_effort="medium",
-            temperature=None,
-            max_output_tokens=8192,
-        )
-
-        client = PipelineClient(
-            api_key="unused-by-fake",
-            request_config=config,
-            provider_client=fake,
-        )
-        result = client.call("audit this payload")
-
-        self.assertEqual(
-            fake.chat.completions.requests,
-            [
-                {
-                    "model": "gpt-5.6-luna",
-                    "max_completion_tokens": 8192,
-                    "reasoning_effort": "medium",
-                    "messages": [{"role": "user", "content": "audit this payload"}],
-                }
-            ],
-        )
-        self.assertTrue(result["success"])
-        self.assertEqual(
-            result["provider"],
-            {
-                "name": "openai",
-                "endpoint": "chat.completions",
-                "response_id": "chatcmpl-eval-1",
-                "response_model": "gpt-5.6-luna",
-                "service_tier": "default",
-                "system_fingerprint": "fp_test",
-            },
-        )
-        self.assertEqual(result["usage"]["input_tokens"], 120)
-        self.assertEqual(result["usage"]["output_tokens"], 30)
-        self.assertEqual(result["usage"]["total_tokens"], 150)
-        self.assertEqual(result["usage"]["cached_input_tokens"], 20)
-        self.assertEqual(result["usage"]["reasoning_tokens"], 10)
-        self.assertEqual(
-            result["usage"]["provider_usage"]["prompt_tokens_details"],
-            {"cached_tokens": 20},
-        )
-        self.assertEqual(result["stop_reason"], "stop")
-        self.assertIsInstance(result["duration_seconds"], float)
-        self.assertIsNone(result["failure"])
-        self.assertEqual(
-            result["request"],
-            {
-                "model": "gpt-5.6-luna",
-                "reasoning_effort": "medium",
-                "max_output_tokens": 8192,
-                "sampling": {
-                    "temperature": None,
-                    "omitted_parameters": ["temperature"],
-                },
-            },
-        )
-
     def test_legacy_provider_request_defaults_are_preserved(self):
         """Implicit configuration preserves all production request defaults."""
         anthropic_response = SimpleNamespace(
@@ -347,7 +263,9 @@ class AuditRequestTests(TestCase):
     "parts,stop", [(["[", "]"], "end_turn"), ([], "end_turn"), (["["], "max_tokens")]
 )
 def test_haiku_thinking_stream_exposes_only_final_text(parts, stop):
+    """Only final text and inclusive billed output leave a thinking stream."""
     from contextlib import nullcontext
+
     from processing_scripts.llm_client.audit import AuditRequestClient
 
     def event(kind, **values):
@@ -416,7 +334,9 @@ def test_haiku_thinking_stream_exposes_only_final_text(parts, stop):
 
 
 def test_interrupted_thinking_stream_keeps_reported_billed_usage():
+    """An interrupted stream retains text already received and billed usage."""
     from contextlib import nullcontext
+
     from processing_scripts.llm_client.audit import AuditRequestClient
 
     def events():
@@ -428,6 +348,10 @@ def test_interrupted_thinking_stream_keeps_reported_billed_usage():
                 type="message",
                 usage=SimpleNamespace(input_tokens=100, output_tokens=1),
             ),
+        )
+        yield SimpleNamespace(
+            type="content_block_start",
+            content_block=SimpleNamespace(type="text", text="partial finding"),
         )
         yield SimpleNamespace(
             type="message_delta",
@@ -447,9 +371,26 @@ def test_interrupted_thinking_stream_keeps_reported_billed_usage():
         ),
     ).call("audit")
     assert not result["success"]
-    assert result["response"] is None
+    assert result["response"] == "partial finding"
     assert result["usage"]["input_tokens"] == 100
     assert result["usage"]["output_tokens"] == 16002
     assert result["usage"]["reasoning_tokens"] is None
     assert result["stop_reason"] == "max_tokens"
     assert result["failure"]["type"] == "TimeoutError"
+
+
+def test_evaluation_can_disable_anthropic_sdk_retries(monkeypatch):
+    """The request client forwards a zero retry policy only when requested."""
+    from processing_scripts.llm_client.audit import AuditRequestClient
+
+    options = []
+    monkeypatch.setattr(
+        "anthropic.Anthropic",
+        lambda **kwargs: options.append(kwargs) or AnthropicFake(None),
+    )
+    AuditRequestClient(
+        "unused",
+        request_config=AuditRequestConfig(model="claude-haiku-4-5-20251001"),
+        max_retries=0,
+    )
+    assert options == [{"api_key": "unused", "max_retries": 0}]

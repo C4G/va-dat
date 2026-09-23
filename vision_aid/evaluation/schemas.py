@@ -26,6 +26,7 @@ class ReferenceSet:
     references: tuple[ReferenceDefect, ...]
 
     def to_dict(self) -> dict[str, Any]:
+        """Return JSON-compatible source evidence."""
         return asdict(self)
 
 

@@ -94,9 +94,7 @@ def _items(parsed: Any, spec: PromptSpec) -> list[dict[str, Any]] | None:
         return None
     for key in ("findings", "violations", "results"):
         nested = parsed.get(key)
-        if isinstance(nested, list) and all(
-            isinstance(item, dict) for item in nested
-        ):
+        if isinstance(nested, list) and all(isinstance(item, dict) for item in nested):
             return [item for item in nested if isinstance(item, dict)]
     return [parsed] if parsed else []
 
@@ -113,10 +111,7 @@ def _is_failure(prompt: str, item: dict[str, Any]) -> bool:
     if _has_values(item.get("issues")):
         return True
     if prompt == "page_title":
-        return (
-            item.get("is_descriptive") is False
-            or item.get("matches_h1") is False
-        )
+        return item.get("is_descriptive") is False or item.get("matches_h1") is False
     if prompt == "heading_structure":
         return item.get("structure_clear") is False or _has_values(
             item.get("vague_headings")
@@ -164,8 +159,7 @@ def _is_failure(prompt: str, item: dict[str, Any]) -> bool:
         return item.get("pattern") in {"unlabeled_control", "missing_label"}
     if prompt == "media_captions":
         return (
-            item.get("has_captions_track") is False
-            or item.get("has_controls") is False
+            item.get("has_captions_track") is False or item.get("has_controls") is False
         )
     return False
 
@@ -197,9 +191,7 @@ def normalize_prompt_response(
             parse_status="unknown_prompt",
             raw_response=raw_response,
             findings=(),
-            error=(
-                f"No fixed evaluation normalizer exists for {prompt_name!r}."
-            ),
+            error=(f"No fixed evaluation normalizer exists for {prompt_name!r}."),
         )
     try:
         parsed = json.loads(_strip_fence(raw_response))
@@ -230,13 +222,10 @@ def normalize_prompt_response(
             sort_keys=True,
             separators=(",", ":"),
         )
-        identity = (
-            f"{run_id}\0{prompt_name}\0{index}\0{canonical_item}".encode()
-        )
+        identity = f"{run_id}\0{prompt_name}\0{index}\0{canonical_item}".encode()
         findings.append(
             CanonicalFinding(
-                finding_id="finding-"
-                + hashlib.sha256(identity).hexdigest()[:20],
+                finding_id="finding-" + hashlib.sha256(identity).hexdigest()[:20],
                 source="audit",
                 run_id=run_id,
                 model=model,
@@ -275,14 +264,11 @@ def normalize_programmatic_findings(
             sort_keys=True,
             separators=(",", ":"),
         )
-        identity = (
-            f"{run_id}\0programmatic\0{index}\0{canonical_item}".encode()
-        )
+        identity = f"{run_id}\0programmatic\0{index}\0{canonical_item}".encode()
         rule = str(item.get("rule_id") or item.get("rule") or "programmatic")
         normalized.append(
             CanonicalFinding(
-                finding_id="programmatic-"
-                + hashlib.sha256(identity).hexdigest()[:20],
+                finding_id="programmatic-" + hashlib.sha256(identity).hexdigest()[:20],
                 source="programmatic",
                 run_id=run_id,
                 model=None,
@@ -290,8 +276,7 @@ def normalize_programmatic_findings(
                 checklist=str(item.get("checklist") or "programmatic"),
                 page_url=page_url,
                 problem_family=rule,
-                problem=_first_text(item, _PROBLEM_KEYS + ("message",))
-                or rule,
+                problem=_first_text(item, _PROBLEM_KEYS + ("message",)) or rule,
                 element=_first_text(item, _ELEMENT_KEYS),
                 location=_first_text(item, _LOCATION_KEYS),
                 wcag_evidence=_wcag(item, ()),

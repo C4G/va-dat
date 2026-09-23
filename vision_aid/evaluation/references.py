@@ -12,12 +12,24 @@ from vision_aid.evaluation.schemas import ReferenceDefect, ReferenceSet
 
 SHEET = "Defect report"
 HEADERS = (
-    "Sr. #", "element name", "Browser Combination", "Page name",
-    "Issue Title", "Steps to Reproduce", "actual result", "expected result",
-    "Recommendation for Fix", "WCAG Sc", "Type of Change", "comment",
+    "Sr. #",
+    "element name",
+    "Browser Combination",
+    "Page name",
+    "Issue Title",
+    "Steps to Reproduce",
+    "actual result",
+    "expected result",
+    "Recommendation for Fix",
+    "WCAG Sc",
+    "Type of Change",
+    "comment",
 )
 ELIGIBILITY_VALUES = (
-    "llm_eligible", "programmatic", "unavailable_evidence", "ambiguous",
+    "llm_eligible",
+    "programmatic",
+    "unavailable_evidence",
+    "ambiguous",
 )
 
 
@@ -29,13 +41,14 @@ def import_homepage_references(workbook_path: Path, homepage_url: str) -> Refere
         sheet = book[SHEET]
         rows = sheet.iter_rows(values_only=True)
         headers = tuple(str(value or "") for value in next(rows))
-        if headers[:len(HEADERS)] != HEADERS:
+        if headers[: len(HEADERS)] != HEADERS:
             raise ValueError("Reference workbook has unexpected Defect report columns")
         references = []
         for number, values in enumerate(rows, start=2):
             raw = {
                 header: "" if value is None else str(value)
-                for header, value in zip(headers, values, strict=False) if header
+                for header, value in zip(headers, values, strict=False)
+                if header
             }
             scope = raw["Page name"].strip().casefold()
             if scope not in {"home", "global"}:
@@ -43,15 +56,20 @@ def import_homepage_references(workbook_path: Path, homepage_url: str) -> Refere
             if not raw["Issue Title"].strip():
                 raise ValueError(f"Defect report row {number} has no Issue Title")
             identity = f"{checksum}:{SHEET}:{number}".encode()
-            references.append(ReferenceDefect(
-                reference_id="ref-" + hashlib.sha256(identity).hexdigest()[:16],
-                source_sheet=SHEET, source_row=number, page_scope=scope,
-                source_element=raw["element name"], problem=raw["Issue Title"],
-                raw_evidence=raw,
-                wcag_evidence=tuple(dict.fromkeys(
-                    re.findall(r"\b\d+\.\d+\.\d+\b", raw["WCAG Sc"])
-                )),
-            ))
+            references.append(
+                ReferenceDefect(
+                    reference_id="ref-" + hashlib.sha256(identity).hexdigest()[:16],
+                    source_sheet=SHEET,
+                    source_row=number,
+                    page_scope=scope,
+                    source_element=raw["element name"],
+                    problem=raw["Issue Title"],
+                    raw_evidence=raw,
+                    wcag_evidence=tuple(
+                        dict.fromkeys(re.findall(r"\b\d+\.\d+\.\d+\b", raw["WCAG Sc"]))
+                    ),
+                )
+            )
     finally:
         book.close()
     if not references:

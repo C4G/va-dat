@@ -26,9 +26,7 @@ class PriceSchedule:
         """Load and content-address one JSON price schedule."""
         raw = path.read_bytes()
         data = json.loads(raw)
-        if not isinstance(data, dict) or not isinstance(
-            data.get("models"), dict
-        ):
+        if not isinstance(data, dict) or not isinstance(data.get("models"), dict):
             raise TypeError("Price schedule must contain a models object.")
         return cls(data=data, identity=hashlib.sha256(raw).hexdigest())
 
@@ -57,13 +55,10 @@ class PriceSchedule:
         )
         output_tokens = Decimal(usage.get("output_tokens", 0) or 0)
         cost = (
-            input_tokens
-            * Decimal(rates["input_per_million_usd"])
-            + cached_tokens
-            * Decimal(rates["cached_input_per_million_usd"])
+            input_tokens * Decimal(rates["input_per_million_usd"])
+            + cached_tokens * Decimal(rates["cached_input_per_million_usd"])
             + cache_creation_tokens
             * Decimal(rates["cache_creation_input_per_million_usd"])
-            + output_tokens
-            * Decimal(rates["output_per_million_usd"])
+            + output_tokens * Decimal(rates["output_per_million_usd"])
         ) / MILLION
         return format(cost.normalize(), "f")
