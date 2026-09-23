@@ -35,5 +35,5 @@ include = ["vision_aid*", "processing_scripts*", "entry_points*"]
 namespaces = true
 
 [tool.setuptools.package-data]
-"vision_aid.evaluation" = ["pricing.v1.json", "pricing.v2.json"]
+"vision_aid.evaluation" = ["pricing.v2.json"]
 "processing_scripts.llm" = ["*.txt"]

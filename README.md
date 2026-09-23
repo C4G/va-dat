@@ -239,152 +239,59 @@ GEMINI_API_KEY=AIza...
 
 ## Private Model Evaluation
 
-The evaluation CLI keeps the employer-provided workbook and every derived
-artifact outside version control. Obtain
-`Pristine Accessibility Defect Report.xlsx` from an authorized project source,
-place it in the repository root, and initialize the private workspace:
+The private POC measures one fixed Haiku audit against the Home and Global
+rows of the authorized Reference workbook. Obtain the workbook from the project
+source; the default filename is `Pristine Accessibility Defect Report.xlsx`.
+All run evidence stays under ignored `.model-evaluation/runs/`.
+
+Preview the exact prompt set and estimated paid intent with a local HTML
+Benchmark snapshot and the URL it represents:
 
 ```bash
-uv run visionaid-evaluate prepare
+uv run visionaid-evaluate run --html /path/to/home.html \
+  --source-url https://pristineai.com/ --max-cost-usd 1.00
 ```
 
-To freeze the Pristine homepage for model comparisons, supply its authorized
-URL during preparation:
+The CLI copies the HTML, records its SHA-256 and workbook identity, imports
+all Home and Global defect rows, runs the existing programmatic checks, and
+saves the exact filtered prompts. Preview makes no provider calls even when
+credentials are available. It creates a fresh run directory and prints its
+path. Use `--workbook PATH` to select another authorized copy of the same
+workbook layout.
+
+For a paid run, repeat the command with `--live`. The CLI shows the fixed
+`claude-haiku-4-5-20251001` configuration (16,000 thinking tokens, 24,192
+total output tokens, no temperature), prompt count, pricing, and positive
+cost guardrail before asking you to type `yes`. `--approve-live` is an
+explicit approval flag for deliberate noninteractive execution. An API key
+alone never starts paid requests. The guardrail is checked before each
+request; a single request can exceed the remaining amount. Failed requests
+are not retried. Responses and reported usage are saved as they arrive, and
+incomplete runs cannot be scored. Thinking content is not retained.
+
+Edit the printed `review.csv` in Excel or a text editor. Classify **every**
+row as `llm_eligible`, `programmatic`, `unavailable_evidence`, or `ambiguous`,
+and give a short `classification_reason`. Enter full-row matches in
+`audit_finding_id` and/or `programmatic_finding_id`; separate multiple IDs
+with semicolons and provide a `match_reason`. Leave both ID cells blank for a
+miss. Use `review_notes` for partial coverage or location clarification.
+`source_element` is the workbook's original `element name`, not an inferred
+precise location. Finding IDs and raw evidence are in `audit-findings.json`
+and `programmatic-findings.json`. Codex can edit the same CSV on request.
+
+After human review, generate the Markdown report:
 
 ```bash
-uv run visionaid-evaluate prepare \
-  --snapshot-url "$PRISTINE_HOMEPAGE_URL"
+uv run visionaid-evaluate report --run-dir .model-evaluation/runs/<RUN_ID>
 ```
 
-The command saves the HTTP response body without HTML transformation as
-`.model-evaluation/snapshots/pristine-homepage/source.html`. The adjacent
-`metadata.json` records the source and final URLs, retrieval time, HTTP status,
-request user agent, response identity headers, byte length, and SHA-256. Both
-files are staged and published as one immutable bundle. Repeating preparation
-for the same URL verifies and reuses that bundle without another request.
-Checksum drift, changed provenance, or a partial snapshot fails closed; prepare
-never silently replaces an existing benchmark. Local HTML files, including the
-unrelated DAT Vision Aid fixture, cannot be used as the Pristine snapshot.
-
-Use `--workbook PATH` for another authorized local copy outside the repository.
-The fixed `.model-evaluation/` workspace contains separate `references/`,
-`reviews/`, `snapshots/`, `runs/`, and `reports/` partitions, all covered by one
-ignore rule.
-
-Run `uv run visionaid-evaluate --help` to discover the `prepare`, `audit`,
-`review`, and `report` workflows. To import the homepage rows, record the
-authorized workbook checksum and canonical homepage URL. This creates a
-lossless private reference set and an Eligibility workbook:
-
-```bash
-uv run visionaid-evaluate prepare \
-  --workbook-sha256 "$AUTHORIZED_WORKBOOK_SHA256" \
-  --homepage-url "$PRISTINE_HOMEPAGE_URL"
-```
-
-Complete every row in
-`.model-evaluation/reviews/eligibility.xlsx`, including classification,
-decision, rationale, reviewer, confidence, and timestamp, then validate it:
-
-```bash
-uv run visionaid-evaluate review \
-  --eligibility-workbook .model-evaluation/reviews/eligibility.xlsx
-```
-
-Only the four classifications `llm_eligible`, `programmatic`,
-`unavailable_evidence`, and `ambiguous` are accepted. Global rows remain one
-workbook-row scoring unit supported by homepage evidence.
-
-`audit` is network-free by default even if `ANTHROPIC_API_KEY` exists. With an
-approved reference set and benchmark snapshot it runs the production
-extractors, filters, programmatic checks, slicers, and unchanged prompts to
-create a uniquely identified evaluation run. Planning requires a positive
-maximum audit cost and freezes that guardrail and the approved reference set
-inside the run directory:
-
-```bash
-uv run visionaid-evaluate audit \
-  --max-audit-cost-usd "$PROPOSED_LIMIT"
-```
-
-Keep the printed `.model-evaluation/runs/<RUN_ID>` path. The summary shows the
-model, endpoint, thinking budget and total output cap, benchmark and reference identities, prompt
-request set, estimated input usage, retry policy, saved cost guardrail, and
-destination. A billable run requires `--live`, that run directory, and
-`ANTHROPIC_API_KEY`. The command revalidates the frozen evidence, prints the same
-summary, and asks a terminal operator to type `yes`:
-
-```bash
-uv run visionaid-evaluate audit \
-  --live \
-  --run-dir .model-evaluation/runs/<RUN_ID>
-```
-
-Deliberate automation may add `--auto-approve`. It skips terminal input but
-does not skip the summary, API credential, integrity checks, saved cost limit,
-or overwrite protection. Any rerun requires planning a fresh evaluation run.
-
-The runner uses pinned `claude-haiku-4-5-20251001` through Anthropic Messages
-with manual extended thinking capped at 16,000 tokens and a total output cap
-of 24,192 tokens (up to 8,192 for final text after the full thinking budget).
-It omits temperature, keeps summaries disabled, and streams internally. Only
-final audit text is retained; thinking, signatures, and redacted thinking are
-discarded. Aggregate output usage includes billed thinking; a separate reasoning
-token count is unavailable. `pricing.v2.json` records the official direct API
-rates ($1/M input, $5/M output), source, and verification date. The plan and
-approval summary display the configuration, pricing identity, and cost guardrail.
-Historical Luna runs remain readable, but cannot be executed under this target.
-It preserves every attempt and final response. It retries only transient timeout, rate-limit, and server
-failures (at most twice). Exhausted failures make a run incomplete and
-unrankable; successful malformed JSON is retained as a format failure and is
-not retried.
-
-Canonical audit findings and programmatic findings use separate, run-scoped
-Matches workbooks. Generate, complete, and import both review kinds:
-
-```bash
-uv run visionaid-evaluate review \
-  --run-dir .model-evaluation/runs/<RUN_ID> \
-  --kind audit
-uv run visionaid-evaluate review \
-  --run-dir .model-evaluation/runs/<RUN_ID> \
-  --kind audit \
-  --import-matches
-uv run visionaid-evaluate review \
-  --run-dir .model-evaluation/runs/<RUN_ID> \
-  --kind programmatic
-uv run visionaid-evaluate review \
-  --run-dir .model-evaluation/runs/<RUN_ID> \
-  --kind programmatic \
-  --import-matches
-```
-
-The conventional workbooks and decision files live under
-`.model-evaluation/reviews/<RUN_ID>/`. Explicit `--reference-set`, `--findings`,
-`--matches-workbook`, and `--match-decisions` overrides remain available for
-investigation and recovery. Accepted matches require compatible page scope,
-underlying failure, and location or element-group evidence; WCAG labels and
-remediation wording are supporting evidence.
-
-After both reviews, reporting discovers the frozen references, both finding
-collections, both decision files, the live manifest, and format failures from
-the evaluation run:
-
-```bash
-uv run visionaid-evaluate report \
-  --run-dir .model-evaluation/runs/<RUN_ID>
-```
-
-The scorer is network-free, enforces one-to-one matching and all required
-sub-defects, and emits JSON, CSV, and Markdown from one score object. Missing
-review artifacts produce the exact next review command instead of requiring a
-hand-written report bundle.
-
-Workbook-row recall over approved LLM-eligible rows is the primary ranking
-metric. Unrounded estimated audit cost is the only tie-breaker. Programmatic
-and combined coverage, tokens, latency, evaluation cost, unmatched findings,
-and format failures remain informational. The homepage result is illustrative
-and cannot establish broad small-versus-large model equivalence.
+The report gives Workbook-row recall for LLM-eligible rows, programmatic
+coverage for programmatic rows, Combined workbook coverage over all imported
+rows, Estimated run cost from API-reported usage and saved pricing, and
+source-row explanations. Blank IDs count as misses. A zero eligible
+denominator is shown as N/A. This one-homepage result is illustrative and
+does not establish broad model equivalence. Historical private runs remain
+untouched; the reduced CLI requires fresh runs.
 
 ## Running the Web App
 

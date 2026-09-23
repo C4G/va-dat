@@ -1,1008 +1,233 @@
+"""Run, review, and report through the CLI and its saved artifacts."""
+
+import csv
 import hashlib
-import io
 import json
-import os
-import subprocess
-import sys
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
-from datetime import datetime
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from threading import Thread
 
 import openpyxl
 import pytest
 
-from vision_aid.evaluation import audit as evaluation_audit
-from vision_aid.evaluation import cli as evaluation_cli
-from vision_aid.evaluation.cli import main as evaluation_main
-from vision_aid.evaluation.schemas import ReferenceSet
-from vision_aid.evaluation.serialization import save_reference_set
-from vision_aid.evaluation.workspace import PrivateWorkspace
-
-PROJECT_ROOT = Path(__file__).parents[1]
-SNAPSHOT_BODY = (
-    b'<!doctype html>\r\n<html lang="en"><head><title>Pristine</title></head>'
-    b"<body>caf\xc3\xa9</body></html>\r\n"
-)
-SNAPSHOT_SHA256 = "aadf66066b05d9c8d8268ba7e28ebcef8a2ed81f672fc2e2285d9236be00e89d"
+from vision_aid.evaluation import audit
+from vision_aid.evaluation.cli import main
 
 
-class SnapshotHTTPServer(ThreadingHTTPServer):
-    """Serve one synthetic HTML response and record benchmark fetches."""
-
-    request_count = 0
-    request_user_agents: list[str | None]
-    on_request: Callable[[], None] | None
-
-
-class SnapshotHandler(BaseHTTPRequestHandler):
-    """Return a byte-sensitive local response without external network access."""
-
-    def do_GET(self) -> None:
-        """Serve the synthetic homepage and record acquisition metadata."""
-        server = self.server
-        assert isinstance(server, SnapshotHTTPServer)
-        server.request_count += 1
-        server.request_user_agents.append(self.headers.get("User-Agent"))
-        if server.on_request is not None:
-            server.on_request()
-        body = SNAPSHOT_BODY
-        content_type = "text/html; charset=utf-8"
-        if self.path == "/non-utf8":
-            body = b"<html><body>caf\xe9</body></html>"
-            content_type = "text/html; charset=iso-8859-1"
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("ETag", '"synthetic-v1"')
-        self.send_header("Last-Modified", "Wed, 16 Sep 2026 14:00:00 GMT")
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, format: str, *args: object) -> None:
-        """Keep the test output free of local server access logs."""
+def inputs(tmp_path: Path) -> tuple[Path, Path]:
+    book = openpyxl.Workbook()
+    sheet = book.active
+    sheet.title = "Defect report"
+    sheet.append(["Sr. #", "element name", "Browser Combination", "Page name",
+                  "Issue Title", "Steps to Reproduce", "actual result",
+                  "expected result", "Recommendation for Fix", "WCAG Sc",
+                  "Type of Change", "comment"])
+    sheet.append([1, "First link", "Chrome", "Home", "Unclear link", "Open page",
+                  "Vague link\nfor everyone", "Descriptive text", "Rename", "2.4.4", "Code", ""])
+    sheet.append([2, "Second link", "Chrome", "Global", "Missing destination",
+                  "Open page", "No href", "Working link", "Add href", "2.4.4", "Code", ""])
+    sheet.append([3, "Photo", "Chrome", "Home", "No alt text", "Open page",
+                  "Image lacks alt", "Alt text", "Add alt", "1.1.1", "Code", ""])
+    sheet.append([4, "Other", "Chrome", "Careers", "Outside scope"])
+    workbook = tmp_path / "reference.xlsx"
+    book.save(workbook)
+    html = tmp_path / "home.html"
+    html.write_text('<html lang="en"><head><title>Home</title></head><body>'
+                    '<h1>Home</h1><a href="/">Click here</a><img src="x.png"></body></html>')
+    return workbook, html
 
 
-@contextmanager
-def local_snapshot_server(
-    on_request: Callable[[], None] | None = None,
-) -> Iterator[tuple[str, SnapshotHTTPServer]]:
-    """Run the synthetic benchmark source on an ephemeral loopback port."""
-    server = SnapshotHTTPServer(("127.0.0.1", 0), SnapshotHandler)
-    server.request_user_agents = []
-    server.on_request = on_request
-    thread = Thread(target=server.serve_forever)
-    thread.start()
-    host, port = server.server_address
-    try:
-        yield f"http://{host}:{port}/pristine-homepage", server
-    finally:
-        server.shutdown()
-        thread.join()
-        server.server_close()
+def args(workbook: Path, html: Path, *extra: str) -> list[str]:
+    return ["run", "--workbook", str(workbook), "--html", str(html),
+            "--source-url", "https://example.test/", "--max-cost-usd", "0.01", *extra]
 
 
-def run_cli(
-    *arguments: str,
-    cwd: Path = PROJECT_ROOT,
-    env: dict[str, str] | None = None,
-) -> subprocess.CompletedProcess[str]:
-    """Run the installed evaluation module through its public CLI boundary."""
-    command_env = os.environ.copy()
-    if env:
-        command_env.update(env)
-    return subprocess.run(
-        [sys.executable, "-m", "vision_aid.evaluation.cli", *arguments],
-        cwd=cwd,
-        env=command_env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+def directory(tmp_path: Path) -> Path:
+    return next((tmp_path / ".model-evaluation" / "runs").iterdir())
 
 
-class TerminalInput(io.StringIO):
-    """Provide controlled input with an explicit terminal capability."""
-
-    def __init__(self, value: str, *, terminal: bool = True) -> None:
-        super().__init__(value)
-        self.terminal = terminal
-
-    def isatty(self) -> bool:
-        """Report whether interactive confirmation is available."""
-        return self.terminal
+def read_review(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="") as stream:
+        return list(csv.DictReader(stream))
 
 
-def test_audit_loads_the_project_env_explicitly(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def write_review(path: Path, rows: list[dict[str, str]]) -> None:
+    with path.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=rows[0])
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def test_preview_preserves_reference_rows_and_never_calls_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The evaluation audit keeps local .env support without import effects."""
-    loaded_paths: list[Path] = []
+    workbook, html = inputs(tmp_path)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(evaluation_cli, "_PROJECT_ENV_LOADED", False)
-    monkeypatch.setattr(
-        evaluation_cli,
-        "load_dotenv",
-        lambda path: loaded_paths.append(Path(path)),
-    )
-
-    with pytest.raises(SystemExit) as exit_info:
-        evaluation_main(["audit"])
-    with pytest.raises(SystemExit):
-        evaluation_main(["audit"])
-
-    assert exit_info.value.code == 2
-    assert loaded_paths == [PROJECT_ROOT / ".env"]
-
-
-def create_planned_run(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> Path:
-    """Plan a minimal evaluation run through the public CLI boundary."""
-    monkeypatch.chdir(tmp_path)
-    workspace = PrivateWorkspace.from_current_directory()
-    workspace.initialize()
-    references = ReferenceSet(
-        version="synthetic-v1",
-        workbook_filename="synthetic.xlsx",
-        workbook_sha256="a" * 64,
-        homepage_url="https://example.test/",
-        references=(),
-    )
-    save_reference_set(workspace.root / "references" / "approved.json", references)
-    snapshot_directory = workspace.root / "snapshots" / "pristine-homepage"
-    snapshot_directory.mkdir(parents=True)
-    snapshot = snapshot_directory / "source.html"
-    snapshot.write_text("<html><body>synthetic</body></html>", encoding="utf-8")
-    (snapshot_directory / "metadata.json").write_text(
-        json.dumps({"sha256": hashlib.sha256(snapshot.read_bytes()).hexdigest()}),
-        encoding="utf-8",
-    )
-    assert evaluation_main(["audit", "--max-audit-cost-usd", "0.01"]) == 0
-    capsys.readouterr()
-    return next((workspace.root / "runs").iterdir())
-
-
-@pytest.fixture
-def synthetic_workbook(tmp_path: Path) -> Path:
-    """Create the minimal authorized workbook placeholder used by CLI tests."""
-    workbook = tmp_path / "synthetic-reference.xlsx"
-    workbook.write_bytes(b"synthetic workbook placeholder")
-    return workbook
-
-
-def test_help_exposes_the_evaluation_workflows() -> None:
-    """The CLI makes every evaluation lifecycle workflow discoverable."""
-    result = run_cli("--help")
-
-    assert result.returncode == 0
-    for workflow in ("prepare", "audit", "review", "report"):
-        assert workflow in result.stdout
-
-
-def test_prepare_initializes_one_partitioned_private_workspace(
-    tmp_path: Path,
-    synthetic_workbook: Path,
-) -> None:
-    """Prepare creates all private artifact partitions around a local workbook."""
-    workspace = tmp_path / ".model-evaluation"
-
-    result = run_cli(
-        "prepare",
-        "--workbook",
-        str(synthetic_workbook),
-        cwd=tmp_path,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "Private evaluation workspace initialized" in result.stdout
-    assert str(synthetic_workbook.resolve()) in result.stdout
-    assert sorted(path.name for path in workspace.iterdir()) == [
-        "references",
-        "reports",
-        "reviews",
-        "runs",
-        "snapshots",
-    ]
-
-
-def test_prepare_anchors_default_private_paths_to_the_worktree_root(
-    tmp_path: Path,
-) -> None:
-    """Invocation from a subdirectory still uses the root-level ignore rules."""
-    worktree = tmp_path / "worktree"
-    (worktree / ".git").mkdir(parents=True)
-    (worktree / ".gitignore").write_text(
-        "/Pristine Accessibility Defect Report.xlsx\n/.model-evaluation/\n",
-        encoding="utf-8",
-    )
-    workbook = worktree / "Pristine Accessibility Defect Report.xlsx"
-    workbook.write_bytes(b"synthetic workbook placeholder")
-    nested_directory = worktree / "nested"
-    nested_directory.mkdir()
-
-    result = run_cli("prepare", cwd=nested_directory)
-
-    assert result.returncode == 0, result.stderr
-    assert (worktree / ".model-evaluation").is_dir()
-    assert not (nested_directory / ".model-evaluation").exists()
-
-
-def test_prepare_explains_how_to_supply_a_missing_private_workbook(
-    tmp_path: Path,
-) -> None:
-    """A missing workbook fails with authorized, local recovery instructions."""
-    missing_workbook = tmp_path / "missing.xlsx"
-    workspace = tmp_path / ".model-evaluation"
-
-    result = run_cli(
-        "prepare",
-        "--workbook",
-        str(missing_workbook),
-        cwd=tmp_path,
-    )
-
-    assert result.returncode == 2
-    assert "Private source workbook not found" in result.stderr
-    assert "authorized project source" in result.stderr
-    assert "--workbook PATH" in result.stderr
-    assert not workspace.exists()
-
-
-def test_prepare_rejects_an_unignored_workbook_inside_the_worktree(
-    tmp_path: Path,
-) -> None:
-    """A workbook override cannot make private data visible to version control."""
-    with TemporaryDirectory(dir=PROJECT_ROOT) as temporary_directory:
-        workbook = Path(temporary_directory) / "private-input.xlsx"
-        workbook.write_bytes(b"synthetic workbook placeholder")
-
-        result = run_cli(
-            "prepare",
-            "--workbook",
-            str(workbook),
-            cwd=tmp_path,
-        )
-
-    assert result.returncode == 2
-    assert "would be visible to version control" in result.stderr
-    assert "outside the repository" in result.stderr
-
-
-def test_prepare_captures_exact_html_with_snapshot_provenance(
-    tmp_path: Path,
-    synthetic_workbook: Path,
-) -> None:
-    """Prepare freezes the HTTP body consumed by the audit pipeline."""
-    with local_snapshot_server() as (source_url, server):
-        result = run_cli(
-            "prepare",
-            "--workbook",
-            str(synthetic_workbook),
-            "--snapshot-url",
-            source_url,
-            cwd=tmp_path,
-        )
-
-    assert result.returncode == 0, result.stderr
-    assert "Benchmark snapshot captured" in result.stdout
-    assert server.request_count == 1
-    assert server.request_user_agents == ["Mozilla/5.0"]
-
-    snapshot_directory = (
-        tmp_path / ".model-evaluation" / "snapshots" / "pristine-homepage"
-    )
-    html_path = snapshot_directory / "source.html"
-    metadata_path = snapshot_directory / "metadata.json"
-    assert html_path.read_bytes() == SNAPSHOT_BODY
-
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    assert metadata["source_url"] == source_url
-    assert metadata["sha256"] == SNAPSHOT_SHA256
-    assert metadata["byte_length"] == len(SNAPSHOT_BODY)
-    assert metadata["html_file"] == html_path.name
-    assert metadata["http"] == {
-        "content_length": str(len(SNAPSHOT_BODY)),
-        "content_type": "text/html; charset=utf-8",
-        "etag": '"synthetic-v1"',
-        "final_url": source_url,
-        "last_modified": "Wed, 16 Sep 2026 14:00:00 GMT",
-        "request_user_agent": "Mozilla/5.0",
-        "status_code": 200,
-    }
-    retrieved_at = datetime.fromisoformat(metadata["retrieved_at"])
-    assert retrieved_at.tzinfo is not None
-
-
-def test_prepare_reuses_a_verified_snapshot_without_refetching(
-    tmp_path: Path,
-    synthetic_workbook: Path,
-) -> None:
-    """An existing benchmark is verified in place and never fetched again."""
-    with local_snapshot_server() as (source_url, server):
-        first = run_cli(
-            "prepare",
-            "--workbook",
-            str(synthetic_workbook),
-            "--snapshot-url",
-            source_url,
-            cwd=tmp_path,
-        )
-        second = run_cli(
-            "prepare",
-            "--workbook",
-            str(synthetic_workbook),
-            "--snapshot-url",
-            source_url,
-            cwd=tmp_path,
-        )
-
-    assert first.returncode == 0, first.stderr
-    assert second.returncode == 0, second.stderr
-    assert "Benchmark snapshot reused" in second.stdout
-    assert server.request_count == 1
-
-
-def test_prepare_rejects_html_the_audit_pipeline_cannot_decode(
-    tmp_path: Path,
-    synthetic_workbook: Path,
-) -> None:
-    """A snapshot must satisfy the pipeline's UTF-8 file contract."""
-    with local_snapshot_server() as (source_url, _server):
-        result = run_cli(
-            "prepare",
-            "--workbook",
-            str(synthetic_workbook),
-            "--snapshot-url",
-            source_url.replace("/pristine-homepage", "/non-utf8"),
-            cwd=tmp_path,
-        )
-
-    assert result.returncode == 2
-    assert "not valid UTF-8" in result.stderr
-    snapshot_directory = tmp_path / ".model-evaluation" / "snapshots"
-    assert list(snapshot_directory.iterdir()) == []
-
-
-def test_prepare_refuses_to_overwrite_a_changed_snapshot(
-    tmp_path: Path,
-    synthetic_workbook: Path,
-) -> None:
-    """Checksum drift fails closed without a network request or overwrite."""
-    with local_snapshot_server() as (source_url, server):
-        first = run_cli(
-            "prepare",
-            "--workbook",
-            str(synthetic_workbook),
-            "--snapshot-url",
-            source_url,
-            cwd=tmp_path,
-        )
-        assert first.returncode == 0, first.stderr
-        html_path = (
-            tmp_path
-            / ".model-evaluation"
-            / "snapshots"
-            / "pristine-homepage"
-            / "source.html"
-        )
-        html_path.write_bytes(b"changed benchmark")
-
-        second = run_cli(
-            "prepare",
-            "--workbook",
-            str(synthetic_workbook),
-            "--snapshot-url",
-            source_url,
-            cwd=tmp_path,
-        )
-
-    assert second.returncode == 2
-    assert "checksum does not match" in second.stderr
-    assert "will not be refetched or overwritten" in second.stderr
-    assert html_path.read_bytes() == b"changed benchmark"
-    assert server.request_count == 1
-
-
-def test_prepare_publishes_the_snapshot_as_one_immutable_bundle(
-    tmp_path: Path,
-    synthetic_workbook: Path,
-) -> None:
-    """A competing snapshot cannot be mixed with a capture in progress."""
-    snapshot_directory = (
-        tmp_path / ".model-evaluation" / "snapshots" / "pristine-homepage"
-    )
-
-    def publish_competing_snapshot() -> None:
-        """Simulate another prepare process winning the publication race."""
-        snapshot_directory.mkdir()
-        (snapshot_directory / "race-marker").write_text(
-            "winner",
-            encoding="utf-8",
-        )
-
-    with local_snapshot_server(publish_competing_snapshot) as (
-        source_url,
-        _server,
-    ):
-        result = run_cli(
-            "prepare",
-            "--workbook",
-            str(synthetic_workbook),
-            "--snapshot-url",
-            source_url,
-            cwd=tmp_path,
-        )
-
-    assert result.returncode == 2
-    assert "appeared during capture" in result.stderr
-    assert [path.name for path in snapshot_directory.iterdir()] == ["race-marker"]
-
-
-def test_prepare_rejects_the_dat_vision_aid_fixture_as_a_snapshot(
-    tmp_path: Path,
-    synthetic_workbook: Path,
-) -> None:
-    """The unrelated committed fixture cannot stand in for Pristine."""
-    result = run_cli(
-        "prepare",
-        "--workbook",
-        str(synthetic_workbook),
-        "--snapshot-url",
-        str(PROJECT_ROOT / "test_files" / "dat_visionaid_home.html"),
-        cwd=tmp_path,
-    )
-
-    assert result.returncode == 2
-    assert "DAT Vision Aid fixture is not a Pristine benchmark input" in result.stderr
-
-
-@pytest.mark.parametrize("api_key_name", ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"])
-def test_audit_defaults_to_a_network_free_dry_run_even_with_an_api_key(
-    tmp_path: Path,
-    synthetic_workbook: Path,
-    api_key_name: str,
-) -> None:
-    """Environment credentials alone can never make evaluation billable."""
-    prepared = run_cli(
-        "prepare",
-        "--workbook",
-        str(synthetic_workbook),
-        cwd=tmp_path,
-    )
-    assert prepared.returncode == 0, prepared.stderr
-
-    network_guard = tmp_path / "network_guard"
-    network_guard.mkdir()
-    (network_guard / "sitecustomize.py").write_text(
-        "import socket\n"
-        "def blocked_socket(*args, **kwargs):\n"
-        "    raise AssertionError('evaluation CLI attempted network access')\n"
-        "socket.socket = blocked_socket\n",
-        encoding="utf-8",
-    )
-
-    result = run_cli(
-        "audit",
-        cwd=tmp_path,
-        env={
-            api_key_name: "must-not-be-used",
-            "PYTHONPATH": str(network_guard),
-        },
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "DRY RUN" in result.stdout
-    assert "No network requests were made" in result.stdout
-
-
-@pytest.mark.parametrize("option", ("--plan", "--authorize", "--bundle"))
-def test_obsolete_workflow_options_are_rejected(option: str) -> None:
-    """Removed plan, authorization, and report-bundle flags stay removed."""
-    workflow = "report" if option == "--bundle" else "audit"
-    prefix = ("--run-dir", "obsolete-run") if workflow == "report" else ()
-    result = run_cli(workflow, *prefix, option, "obsolete.json")
-
-    assert result.returncode == 2
-    assert "unrecognized arguments" in result.stderr
-
-
-def test_interactive_live_approval_accepts_trimmed_case_insensitive_yes(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """A terminal operator can approve the displayed run by typing yes."""
-    run_directory = create_planned_run(tmp_path, monkeypatch, capsys)
-
-    class SyntheticClient:
-        """Return empty successful findings without provider access."""
-
-        def __init__(self, **_kwargs: object) -> None:
-            pass
-
-        def call(self, _prompt: str) -> dict[str, object]:
-            return {
-                "success": True,
-                "response": "[]",
-                "usage": {},
-                "duration_seconds": 0,
-            }
-
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-key")
-    monkeypatch.setattr(sys, "stdin", TerminalInput("  YeS  \n"))
-    monkeypatch.setattr(evaluation_audit, "AuditRequestClient", SyntheticClient)
-
-    assert evaluation_main(["audit", "--live", "--run-dir", str(run_directory)]) == 0
-
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "available")
+    monkeypatch.setattr(audit, "AuditRequestClient", lambda **_: pytest.fail("paid call"))
+    assert main(args(workbook, html)) == 0
     output = capsys.readouterr().out
-    manifest = json.loads(
-        (run_directory / "live-manifest.json").read_text(encoding="utf-8")
-    )
-    assert "Evaluation execution summary" in output
-    assert "Approval mode: interactive" in output
-    assert manifest["approval"]["mode"] == "interactive"
+    run = directory(tmp_path)
+    assert "claude-haiku-4-5-20251001" in output
+    assert "16000" in output and "24192" in output and "$0.01" in output
+    assert (run / "snapshot.html").read_bytes() == html.read_bytes()
+    manifest = json.loads((run / "run.json").read_text())
+    assert manifest["snapshot_sha256"] == hashlib.sha256(html.read_bytes()).hexdigest()
+    rows = read_review(run / "review.csv")
+    assert [row["source_row"] for row in rows] == ["2", "3", "4"]
+    assert rows[0]["source_element"] == "First link"
+    assert rows[0]["actual result"] == "Vague link\nfor everyone"
+    assert all(not row["classification"] for row in rows)
+    with pytest.raises(SystemExit):
+        main(["report", "--run-dir", str(run)])
 
 
-@pytest.mark.parametrize(
-    ("response", "terminal", "message"),
-    (
-        ("no\n", True, "was not 'yes'"),
-        ("\n", True, "was not 'yes'"),
-        ("", True, "ended before confirmation"),
-        ("yes\n", False, "requires a terminal"),
-    ),
-)
-def test_failed_live_approval_stops_before_client_or_artifacts(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    response: str,
-    terminal: bool,
-    message: str,
+def test_live_csv_review_and_report_full_row_metrics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Ambiguous, missing, or non-terminal input cannot begin a live run."""
-    run_directory = create_planned_run(tmp_path, monkeypatch, capsys)
-
-    class ForbiddenClient:
-        """Fail if approval rejection constructs a provider client."""
-
-        def __init__(self, **_kwargs: object) -> None:
-            raise AssertionError("provider client was constructed")
-
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-key")
-    monkeypatch.setattr(
-        sys,
-        "stdin",
-        TerminalInput(response, terminal=terminal),
-    )
-    monkeypatch.setattr(evaluation_audit, "AuditRequestClient", ForbiddenClient)
-
-    with pytest.raises(SystemExit) as raised:
-        evaluation_main(["audit", "--live", "--run-dir", str(run_directory)])
-
-    assert raised.value.code == 2
-    captured = capsys.readouterr()
-    assert "Evaluation execution summary" in captured.out
-    assert message in captured.err
-    for name in (
-        "raw-attempts.json",
-        "canonical-audit-findings.json",
-        "live-manifest.json",
-    ):
-        assert not (run_directory / name).exists()
-
-
-def test_live_option_combinations_keep_every_spending_gate_mandatory(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Automation cannot blur planning, live intent, credentials, or cost."""
-    run_directory = create_planned_run(tmp_path, monkeypatch, capsys)
-    workspace = PrivateWorkspace.from_evaluation_run(run_directory)
-    existing_runs = {path.name for path in (workspace.root / "runs").iterdir()}
-
-    with pytest.raises(SystemExit):
-        evaluation_main(["audit", "--max-audit-cost-usd", "0"])
-    assert "greater than zero" in capsys.readouterr().err
-    assert {path.name for path in (workspace.root / "runs").iterdir()} == existing_runs
-
-    with pytest.raises(SystemExit):
-        evaluation_main(["audit", "--auto-approve"])
-    assert "only with --live" in capsys.readouterr().err
-
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-key")
-    with pytest.raises(SystemExit):
-        evaluation_main(
-            [
-                "audit",
-                "--live",
-                "--run-dir",
-                str(run_directory),
-                "--auto-approve",
-                "--max-audit-cost-usd",
-                "1",
-            ]
-        )
-    assert "reuses the saved cost guardrail" in capsys.readouterr().err
-
-    monkeypatch.delenv("ANTHROPIC_API_KEY")
-    monkeypatch.setenv("OPENAI_API_KEY", "wrong-provider-key")
-    with pytest.raises(SystemExit):
-        evaluation_main(
-            [
-                "audit",
-                "--live",
-                "--run-dir",
-                str(run_directory),
-                "--auto-approve",
-            ]
-        )
-    assert "requires ANTHROPIC_API_KEY" in capsys.readouterr().err
-    assert not (run_directory / "live-manifest.json").exists()
-
-
-def test_cli_completes_the_synthetic_private_workflow(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Prepare, review, audit, and report compose without provider access."""
-    workbook_path = tmp_path / "synthetic.xlsx"
-    workbook = openpyxl.Workbook()
-    source = workbook.active
-    source.title = "Defects"
-    source.append(["Page", "URL", "Problem", "Location", "WCAG"])
-    source.append(
-        [
-            "Home",
-            "https://example.test/",
-            "Hero alternative text is misleading",
-            "Hero image",
-            "1.1.1",
-        ]
-    )
-    workbook.save(workbook_path)
-    workbook_sha256 = hashlib.sha256(workbook_path.read_bytes()).hexdigest()
-
-    with local_snapshot_server() as (source_url, _server):
-        prepared = run_cli(
-            "prepare",
-            "--workbook",
-            str(workbook_path),
-            "--workbook-sha256",
-            workbook_sha256,
-            "--homepage-url",
-            "https://example.test/",
-            "--snapshot-url",
-            source_url,
-            cwd=tmp_path,
-        )
-    assert prepared.returncode == 0, prepared.stderr
-
-    workspace = tmp_path / ".model-evaluation"
-    eligibility_path = workspace / "reviews" / "eligibility.xlsx"
-    review = openpyxl.load_workbook(eligibility_path)
-    eligibility = review["Eligibility"]
-    columns = {cell.value: cell.column for cell in eligibility[1]}
-    for name, value in {
-        "classification": "llm_eligible",
-        "decision": "accepted",
-        "rationale": "The model receives the image context.",
-        "reviewer": "reviewer@example.test",
-        "confidence": 0.9,
-        "timestamp": "2026-09-19T12:00:00Z",
-    }.items():
-        eligibility.cell(2, columns[name], value)
-    review.save(eligibility_path)
-
-    reviewed = run_cli(
-        "review",
-        "--eligibility-workbook",
-        str(eligibility_path),
-        cwd=tmp_path,
-    )
-    assert reviewed.returncode == 0, reviewed.stderr
-
-    planned = run_cli(
-        "audit",
-        "--max-audit-cost-usd",
-        "0.01",
-        cwd=tmp_path,
-    )
-    assert planned.returncode == 0, planned.stderr
-    assert "DRY RUN" in planned.stdout
-    assert "Evaluation execution summary" in planned.stdout
-    assert "Maximum audit cost: $0.01" in planned.stdout
-    assert "Evaluation run:" in planned.stdout
-
-    approved_path = workspace / "references" / "approved.json"
-    approved = json.loads(approved_path.read_text(encoding="utf-8"))
-    run_directories = list((workspace / "runs").iterdir())
-    assert len(run_directories) == 1
-    run_directory = run_directories[0]
-    plan_path = run_directory / "evaluation-manifest.json"
-    run_manifest = json.loads(plan_path.read_text(encoding="utf-8"))
-    assert run_directory.name == run_manifest["run_id"]
-    assert run_manifest["maximum_audit_cost_usd"] == "0.01"
-    frozen_reference = run_directory / "reference-set.json"
-    assert frozen_reference.read_bytes() == approved_path.read_bytes()
-    first_plan_bytes = plan_path.read_bytes()
-    repeated_plan = run_cli(
-        "audit",
-        "--max-audit-cost-usd",
-        "0.01",
-        cwd=tmp_path,
-    )
-    assert repeated_plan.returncode == 0, repeated_plan.stderr
-    repeated_directories = list((workspace / "runs").iterdir())
-    assert len(repeated_directories) == 2
-    assert len({path.name for path in repeated_directories}) == 2
-    assert plan_path.read_bytes() == first_plan_bytes
-
-    class SyntheticClient:
-        """Return deterministic successful responses without network access."""
-
-        def __init__(self, **_kwargs: object) -> None:
-            pass
-
-        def call(self, _prompt: str) -> dict[str, object]:
-            return {
-                "success": True,
-                "response": json.dumps(
-                    {
-                        "problem": "Hero alternative text is misleading",
-                        "element": "img",
-                        "location": "Hero image",
-                        "wcag": "1.1.1",
-                    }
-                ),
-                "usage": {"input_tokens": 10, "output_tokens": 5},
-                "duration_seconds": 0.01,
-                "stop_reason": "stop",
-            }
-
+    workbook, html = inputs(tmp_path)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-key")
-    monkeypatch.setattr(evaluation_audit, "AuditRequestClient", SyntheticClient)
-    assert (
-        evaluation_main(
-            [
-                "audit",
-                "--live",
-                "--run-dir",
-                str(run_directory),
-                "--auto-approve",
-            ]
-        )
-        == 0
-    )
-    live_output = capsys.readouterr().out
-    for expected in (
-        "Model: claude-haiku-4-5-20251001",
-        "Endpoint: messages",
-        "Thinking: enabled; budget tokens: 16000",
-        "Benchmark snapshot SHA-256:",
-        "Reference set:",
-        "Prompts (",
-        "Estimated input tokens:",
-        "Retry policy:",
-        "Maximum audit cost: $0.01",
-        f"Destination: {run_directory}",
-        "Approval mode: auto",
-    ):
-        assert expected in live_output
-    live_manifest = json.loads(
-        (run_directory / "live-manifest.json").read_text(encoding="utf-8")
-    )
-    assert live_manifest["approval"]["mode"] == "auto"
-    assert "approved_at" in live_manifest["approval"]
-    assert "authorization_digest" not in live_manifest
-    assert "authorized_plan_digest" not in live_manifest
-    live_artifacts = {
-        name: (run_directory / name).read_bytes()
-        for name in (
-            "raw-attempts.json",
-            "canonical-audit-findings.json",
-            "live-manifest.json",
-        )
-    }
-    with pytest.raises(SystemExit) as occupied:
-        evaluation_main(
-            [
-                "audit",
-                "--live",
-                "--run-dir",
-                str(run_directory),
-                "--auto-approve",
-            ]
-        )
-    assert occupied.value.code == 2
-    assert "fresh evaluation run" in capsys.readouterr().err
-    for name, original_bytes in live_artifacts.items():
-        assert (run_directory / name).read_bytes() == original_bytes
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic")
 
-    snapshot_path = workspace / "snapshots" / "pristine-homepage" / "source.html"
-    snapshot_path.unlink()
+    class FakeClient:
+        calls = 0
 
-    finding_path = run_directory / "canonical-audit-findings.json"
-    review_directory = workspace / "reviews" / run_manifest["run_id"]
-    matches_workbook = review_directory / "audit-matches.xlsx"
-    generated = run_cli(
-        "review",
-        "--run-dir",
-        str(run_directory),
-        "--kind",
-        "audit",
-        cwd=tmp_path,
-    )
-    assert generated.returncode == 0, generated.stderr
-    match_review = openpyxl.load_workbook(matches_workbook)
-    matches = match_review["Matches"]
-    match_columns = {cell.value: cell.column for cell in matches[1]}
-    for row in range(2, matches.max_row + 1):
-        values = {
-            "decision": "accepted" if row == 2 else "rejected",
-            "page_compatible": True,
-            "failure_compatible": True,
-            "location_compatible": True,
-            "rationale": "Same reviewed homepage evidence.",
-            "reviewer": "reviewer@example.test",
-            "confidence": 0.9,
-            "timestamp": "2026-09-19T12:30:00Z",
-        }
-        for name, value in values.items():
-            matches.cell(row, match_columns[name], value)
-    match_review.save(matches_workbook)
-    imported = run_cli(
-        "review",
-        "--run-dir",
-        str(run_directory),
-        "--kind",
-        "audit",
-        "--import-matches",
-        cwd=tmp_path,
-    )
-    assert imported.returncode == 0, imported.stderr
-    programmatic_generated = run_cli(
-        "review",
-        "--run-dir",
-        str(run_directory),
-        "--kind",
-        "programmatic",
-        cwd=tmp_path,
-    )
-    assert programmatic_generated.returncode == 0, programmatic_generated.stderr
-    programmatic_workbook = review_directory / "programmatic-matches.xlsx"
-    programmatic_review = openpyxl.load_workbook(programmatic_workbook)
-    programmatic_matches = programmatic_review["Matches"]
-    programmatic_columns = {cell.value: cell.column for cell in programmatic_matches[1]}
-    for row in range(2, programmatic_matches.max_row + 1):
-        for name, value in {
-            "decision": "rejected",
-            "rationale": "The deterministic finding is not the same defect.",
-            "reviewer": "reviewer@example.test",
-            "confidence": 0.9,
-            "timestamp": "2026-09-19T12:35:00Z",
-        }.items():
-            programmatic_matches.cell(row, programmatic_columns[name], value)
-    programmatic_review.save(programmatic_workbook)
-    programmatic_imported = run_cli(
-        "review",
-        "--run-dir",
-        str(run_directory),
-        "--kind",
-        "programmatic",
-        "--import-matches",
-        cwd=tmp_path,
-    )
-    assert programmatic_imported.returncode == 0, programmatic_imported.stderr
-    assert (review_directory / "audit-match-decisions.json").is_file()
-    assert (review_directory / "programmatic-match-decisions.json").is_file()
-    live_manifest["format_failures"] = ["synthetic-format"]
-    (run_directory / "live-manifest.json").write_text(
-        json.dumps(live_manifest),
-        encoding="utf-8",
-    )
+        def call(self, prompt: str) -> dict:
+            self.calls += 1
+            return {"success": True, "response": json.dumps([{"problem": "Unclear link",
+                    "location": "First link"}]), "usage": {"input_tokens": 100,
+                    "output_tokens": 20, "cached_input_tokens": 50,
+                    "cache_creation_input_tokens": 10, "reasoning_tokens": None}}
 
-    reported = run_cli("report", "--run-dir", str(run_directory), cwd=tmp_path)
-
-    assert reported.returncode == 0, reported.stderr
-    json_report = workspace / "reports" / f"{run_manifest['run_id']}.json"
-    assert json_report.is_file()
-    report_data = json.loads(json_report.read_text(encoding="utf-8"))
-    assert report_data["parse_failures"] == ["synthetic-format"]
-
-    programmatic_decisions = review_directory / "programmatic-match-decisions.json"
-    decision_bytes = programmatic_decisions.read_bytes()
-    programmatic_decisions.unlink()
-    unresolved = run_cli("report", "--run-dir", str(run_directory), cwd=tmp_path)
-    assert unresolved.returncode == 2
-    assert "--kind programmatic" in unresolved.stderr
-    assert "--import-matches" in unresolved.stderr
-    programmatic_decisions.write_bytes(decision_bytes)
-
-    findings = json.loads(finding_path.read_text(encoding="utf-8"))
-    findings[0]["run_id"] = "different-run"
-    finding_path.write_text(json.dumps(findings), encoding="utf-8")
-    rejected_finding = run_cli("report", "--run-dir", str(run_directory), cwd=tmp_path)
-    assert rejected_finding.returncode == 2
-    assert "do not belong to the verified run" in rejected_finding.stderr
-
-    findings[0]["run_id"] = run_manifest["run_id"]
-    finding_path.write_text(json.dumps(findings), encoding="utf-8")
-    approved["references"][0]["eligibility_review"]["rationale"] = "Changed"
-    frozen_reference.write_text(json.dumps(approved), encoding="utf-8")
-    rejected_eligibility = run_cli(
-        "report", "--run-dir", str(run_directory), cwd=tmp_path
-    )
-    assert rejected_eligibility.returncode == 2
-    assert "reference-set" in rejected_eligibility.stderr
+    fake = FakeClient()
+    monkeypatch.setattr(audit, "AuditRequestClient", lambda **_: fake)
+    assert main(args(workbook, html, "--live", "--approve-live")) == 0
+    run = directory(tmp_path)
+    assert fake.calls == 3
+    assert json.loads((run / "run.json").read_text())["estimated_cost_usd"] == "0.0006525"
+    findings = json.loads((run / "audit-findings.json").read_text())
+    programmatic = json.loads((run / "programmatic-findings.json").read_text())
+    assert findings and programmatic
+    review = run / "review.csv"
+    rows = read_review(review)
+    rows[0].update(classification="llm_eligible", classification_reason="Model can see link",
+                   audit_finding_id=findings[0]["finding_id"], match_reason="Full issue")
+    rows[1].update(classification="programmatic", classification_reason="HTML check",
+                   programmatic_finding_id=programmatic[0]["finding_id"], match_reason="Full issue")
+    rows[2].update(classification="unavailable_evidence", classification_reason="Visual context")
+    write_review(review, rows)
+    assert main(["report", "--run-dir", str(run)]) == 0
+    report = (run / "report.md").read_text()
+    assert "Workbook-row recall: 1/1" in report
+    assert "Programmatic coverage: 1/1" in report
+    assert "Combined workbook coverage: 2/3" in report
+    assert "Vague link" in report and "First link" in report
 
 
-def test_haiku_plan_freezes_thinking_and_pricing(tmp_path, monkeypatch, capsys):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setattr(evaluation_cli, "_PROJECT_ENV_LOADED", True)
-    run = create_planned_run(tmp_path, monkeypatch, capsys)
-    plan = evaluation_audit.load_audit_plan(run)
-    assert plan["configuration"] == {
-        "model": "claude-haiku-4-5-20251001",
-        "provider": "anthropic",
-        "endpoint": "messages",
-        "thinking": {"type": "enabled", "budget_tokens": 16000},
-        "temperature": None,
-        "max_output_tokens": 24192,
-        "include_summaries": False,
-        "execution": "sequential",
-    }
-    summary = evaluation_cli._render_execution_summary(plan, run, "dry-run")
-    for value in (
-        "anthropic",
-        "claude-haiku-4-5-20251001",
-        "messages",
-        "16000",
-        "24192",
-        "omitted",
-        plan["pricing_identity"],
-        "$0.01",
-    ):
-        assert value in summary
-    assert not (run / "live-manifest.json").exists()
+def test_review_requires_classification_and_rejects_invalid_finding_ids(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workbook, html = inputs(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic")
 
+    class FakeClient:
+        def call(self, prompt: str) -> dict:
+            return {"success": True, "response": json.dumps([{"problem": "Vague link"}]),
+                    "usage": {"input_tokens": 1, "output_tokens": 1}}
 
-def test_historical_luna_plan_is_readable_but_cannot_execute(
-    tmp_path, monkeypatch, capsys
-):
-    from vision_aid.evaluation.serialization import json_digest
-
-    run = create_planned_run(tmp_path, monkeypatch, capsys)
-    path = run / "evaluation-manifest.json"
-    plan = json.loads(path.read_text())
-    plan["configuration"] = {
-        "model": "gpt-5.6-luna",
-        "reasoning_effort": "medium",
-        "endpoint": "chat.completions",
-        "temperature": None,
-        "max_output_tokens": 8192,
-        "include_summaries": False,
-        "execution": "sequential",
-    }
-    plan.pop("plan_digest")
-    plan["plan_digest"] = json_digest(plan)
-    path.write_text(json.dumps(plan))
-    assert (
-        evaluation_audit.load_audit_plan(run)["configuration"]["model"]
-        == "gpt-5.6-luna"
-    )
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "unused")
+    monkeypatch.setattr(audit, "AuditRequestClient", lambda **_: FakeClient())
+    assert main(args(workbook, html, "--live", "--approve-live")) == 0
+    run = directory(tmp_path)
+    review = run / "review.csv"
+    audit_ids = [item["finding_id"] for item in json.loads(
+        (run / "audit-findings.json").read_text())]
+    programmatic_id = json.loads(
+        (run / "programmatic-findings.json").read_text())[0]["finding_id"]
+    rows = read_review(review)
     with pytest.raises(SystemExit):
-        evaluation_main(["audit", "--live", "--auto-approve", "--run-dir", str(run)])
-    assert "not the frozen Haiku POC" in capsys.readouterr().err
-    assert not (run / "live-manifest.json").exists()
+        main(["report", "--run-dir", str(run)])
+    rows[0].update(classification="llm_eligible", classification_reason="Visible",
+                   audit_finding_id="; ".join(audit_ids[:2]),
+                   programmatic_finding_id=programmatic_id,
+                   match_reason="Together cover the row", review_notes="Partial alone")
+    rows[1].update(classification="programmatic", classification_reason="Markup")
+    rows[2].update(classification="ambiguous", classification_reason="Unclear claim")
+    write_review(review, rows)
+    assert main(["report", "--run-dir", str(run)]) == 0
+    assert "Combined workbook coverage: 1/3" in (run / "report.md").read_text()
+    rows[1]["audit_finding_id"] = audit_ids[0]
+    rows[1]["match_reason"] = "Conflicts"
+    write_review(review, rows)
+    with pytest.raises(SystemExit):
+        main(["report", "--run-dir", str(run)])
+    assert "Conflicting audit finding ID" in capsys.readouterr().err
+    rows[1]["audit_finding_id"] = "finding-unknown"
+    write_review(review, rows)
+    with pytest.raises(SystemExit):
+        main(["report", "--run-dir", str(run)])
+    assert "Unknown audit finding ID" in capsys.readouterr().err
+    rows[1]["audit_finding_id"] = programmatic_id
+    write_review(review, rows)
+    with pytest.raises(SystemExit):
+        main(["report", "--run-dir", str(run)])
+    assert "Unknown audit finding ID" in capsys.readouterr().err
+    rows[0]["audit_finding_id"] = ""
+    rows[0]["programmatic_finding_id"] = ""
+    rows[0]["match_reason"] = ""
+    rows[0]["classification"] = "ambiguous"
+    rows[1]["audit_finding_id"] = ""
+    rows[1]["match_reason"] = ""
+    rows[2]["classification"] = "unavailable_evidence"
+    write_review(review, rows)
+    assert main(["report", "--run-dir", str(run)]) == 0
+    assert "Workbook-row recall: N/A (0 eligible rows)" in (run / "report.md").read_text()
+    assert "Combined workbook coverage: 0/3" in (run / "report.md").read_text()
+
+
+def test_live_execution_needs_explicit_approval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workbook, html = inputs(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "available")
+    monkeypatch.setattr(audit, "AuditRequestClient", lambda **_: pytest.fail("paid call"))
+
+    class DeclinedInput:
+        def isatty(self) -> bool:
+            return False
+
+    monkeypatch.setattr("sys.stdin", DeclinedInput())
+    assert main(args(workbook, html, "--live")) == 0
+    assert json.loads((directory(tmp_path) / "run.json").read_text())["complete"] is False
+
+
+@pytest.mark.parametrize("failure", [True, False])
+def test_failed_or_over_budget_runs_keep_usage_and_cannot_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: bool
+) -> None:
+    workbook, html = inputs(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic")
+
+    class FakeClient:
+        calls = 0
+
+        def call(self, prompt: str) -> dict:
+            self.calls += 1
+            return {"success": not failure,
+                    "response": "[]" if not failure else None,
+                    "error": "synthetic failure" if failure else None,
+                    "usage": {"input_tokens": 100000, "output_tokens": 20}}
+
+    fake = FakeClient()
+    monkeypatch.setattr(audit, "AuditRequestClient", lambda **_: fake)
+    assert main(args(workbook, html, "--live", "--approve-live")) == 1
+    run = directory(tmp_path)
+    manifest = json.loads((run / "run.json").read_text())
+    assert fake.calls == 1
+    assert manifest["complete"] is False
+    assert manifest["usage"]["input_tokens"] == 100000
+    assert float(manifest["estimated_cost_usd"]) > 0
+    assert len(json.loads((run / "raw-responses.json").read_text())) == 1
+    with pytest.raises(SystemExit):
+        main(["report", "--run-dir", str(run)])

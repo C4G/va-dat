@@ -56,27 +56,14 @@ class PriceSchedule:
             usage.get("cache_creation_input_tokens", 0) or 0
         )
         output_tokens = Decimal(usage.get("output_tokens", 0) or 0)
-        uncached_tokens = max(Decimal(0), input_tokens - cached_tokens)
-        input_multiplier = Decimal(1)
-        output_multiplier = Decimal(1)
-        threshold = Decimal(rates.get("long_context_threshold_tokens", 0))
-        if threshold and input_tokens > threshold:
-            input_multiplier = Decimal(rates["long_context_input_multiplier"])
-            output_multiplier = Decimal(
-                rates["long_context_output_multiplier"]
-            )
         cost = (
-            uncached_tokens
+            input_tokens
             * Decimal(rates["input_per_million_usd"])
-            * input_multiplier
             + cached_tokens
             * Decimal(rates["cached_input_per_million_usd"])
-            * input_multiplier
             + cache_creation_tokens
             * Decimal(rates["cache_creation_input_per_million_usd"])
-            * input_multiplier
             + output_tokens
             * Decimal(rates["output_per_million_usd"])
-            * output_multiplier
         ) / MILLION
         return format(cost.normalize(), "f")

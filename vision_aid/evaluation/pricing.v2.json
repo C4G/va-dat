@@ -1,16 +1,5 @@
 {
   "models": {
-    "gpt-5.6-luna": {
-      "cache_creation_input_per_million_usd": "0.25",
-      "cached_input_per_million_usd": "0.02",
-      "input_per_million_usd": "0.20",
-      "long_context_input_multiplier": "2",
-      "long_context_output_multiplier": "1.5",
-      "long_context_threshold_tokens": 272000,
-      "output_per_million_usd": "1.20",
-      "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
-      "published_at": "2026-07-09"
-    },
     "claude-haiku-4-5-20251001": {
       "input_per_million_usd": "1",
       "output_per_million_usd": "5",
