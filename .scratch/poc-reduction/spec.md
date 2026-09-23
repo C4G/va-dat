@@ -1,6 +1,6 @@
 # Reduce the accessibility evaluation proof of concept
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -115,4 +115,8 @@ This specification supersedes earlier evaluation requirements only where they co
 
 Inspection found 16 imported Reference defects in the current private artifacts. Their generated eligibility-workbook locations and approved-reference locations matched the imported values, which came from the source `element name` field. This motivates preserving the source label rather than generating a new location.
 
-The agreed size target is fewer than 3,000 added lines for the whole branch change, not merely the evaluation implementation. The existing synthetic CLI workflow and fake-provider seam are the proposed highest practical test seam. Publication marks the work ready for implementation; this task changes the specification only and does not claim the reduction is implemented or verified.
+The agreed size target is fewer than 3,000 added lines for the whole branch change, not merely the evaluation implementation. The synthetic CLI workflow and fake-provider seam are the primary test surfaces.
+
+## Comments
+
+- Implemented in `7b99d1659e29e9b0b50b6b2abff459625bd25781` and `b32eea12d0dbff2db9f7d9ff003abb955547354b`. Verified with 36 passing tests, evaluator typechecking, lint and format checks, and a 2,940-added-line branch diff against `main`. No paid requests or private artifact staging occurred.
