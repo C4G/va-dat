@@ -143,6 +143,11 @@ def test_preview_preserves_reference_rows_and_never_calls_provider(
     assert "claude-haiku-4-5-20251001" in output
     assert "16000" in output and "24192" in output and "$0.01" in output
     assert (run / "snapshot.html").read_bytes() == html.read_bytes()
+    raw = json.loads((run / "raw-programmatic-findings.json").read_text())
+    normalized = json.loads((run / "normalized-programmatic-findings.json").read_text())
+    assert raw and [finding["raw_source"] for finding in normalized] == raw
+    assert not (run / "programmatic_findings.json").exists()
+    assert not (run / "programmatic-findings.json").exists()
     manifest = json.loads((run / "run.json").read_text())
     assert manifest["snapshot_sha256"] == hashlib.sha256(html.read_bytes()).hexdigest()
     rows = read_review(run / "review.csv")
@@ -213,7 +218,8 @@ def test_live_csv_review_and_report_full_row_metrics(
         json.loads((run / "run.json").read_text())["estimated_cost_usd"] == "0.0006525"
     )
     findings = json.loads((run / "audit-findings.json").read_text())
-    programmatic = json.loads((run / "programmatic-findings.json").read_text())
+    programmatic_file = run / "normalized-programmatic-findings.json"
+    programmatic = json.loads(programmatic_file.read_text())
     assert findings and programmatic
     review = run / "review.csv"
     rows = read_review(review)
@@ -268,7 +274,7 @@ def test_review_requires_classification_and_rejects_invalid_finding_ids(
         item["finding_id"]
         for item in json.loads((run / "audit-findings.json").read_text())
     ]
-    programmatic_id = json.loads((run / "programmatic-findings.json").read_text())[0][
+    programmatic_id = json.loads((run / "normalized-programmatic-findings.json").read_text())[0][
         "finding_id"
     ]
     rows = read_review(review)

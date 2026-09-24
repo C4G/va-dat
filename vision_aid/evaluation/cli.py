@@ -102,13 +102,18 @@ def _run(args: argparse.Namespace) -> int:
         request_config=REQUEST_CONFIG,
     )
     (run / "manifest.json").unlink()
-    raw_programmatic = json.loads((run / "programmatic_findings.json").read_text())
+    raw_path = run / "programmatic_findings.json"
+    raw_programmatic = json.loads(raw_path.read_text())
+    raw_path.rename(run / "raw-programmatic-findings.json")
     findings = normalize_programmatic_findings(
         raw_programmatic,
         run_id=run.name,
         page_url=args.source_url,
     )
-    write_json(run / "programmatic-findings.json", [asdict(item) for item in findings])
+    write_json(
+        run / "normalized-programmatic-findings.json",
+        [asdict(item) for item in findings],
+    )
     create_review(run / "review.csv", list(references.to_dict()["references"]))
     schedule = PriceSchedule.load(run / "pricing.json")
     manifest = {
@@ -189,7 +194,8 @@ def _report(args: argparse.Namespace) -> int:
     if reference_set["workbook_sha256"] != manifest["workbook_sha256"]:
         raise ValueError("Reference workbook identity differs from the run")
     audit = json.loads((run / "audit-findings.json").read_text())
-    programmatic = json.loads((run / "programmatic-findings.json").read_text())
+    programmatic_file = run / "normalized-programmatic-findings.json"
+    programmatic = json.loads(programmatic_file.read_text())
     for kind, collection in (("audit", audit), ("programmatic", programmatic)):
         if any(
             item["run_id"] != run.name

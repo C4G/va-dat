@@ -241,13 +241,11 @@ GEMINI_API_KEY=AIza...
 
 ### Get a final report with the supplied Reference workbook
 
-From the repository root, use the supplied `Pristine Accessibility Defect
-Report.xlsx`. It is the default Reference workbook and contains 16 Home and
-Global defects. These steps work after you delete `.model-evaluation/`.
+From the repository root, use the supplied `Pristine Accessibility Defect Report.xlsx`
+(16 Home and Global defects). These steps work after deleting `.model-evaluation/`.
 
-1. **Save a Benchmark snapshot.** The evaluator needs a local HTML file. It
-   does not download the page. Create the ignored directory and save the
-   homepage HTML there:
+1. **Save a Benchmark snapshot.** The evaluator does not download the page.
+   Create the ignored directory and save the homepage HTML there:
 
    ```bash
    mkdir -p .model-evaluation
@@ -256,16 +254,14 @@ Global defects. These steps work after you delete `.model-evaluation/`.
    test -s .model-evaluation/pristine-home.html
    ```
 
-   Open the file and check that it contains the homepage you intend to audit.
-   `curl` saves the server HTML. If the page builds its content in a browser,
-   save the rendered HTML to that path instead. Use `https://pristineai.com/`
-   as the source URL for this file.
+   Check that the file contains the intended homepage. `curl` saves server HTML;
+   if the browser builds the content, save rendered HTML there instead. Use
+   `https://pristineai.com/` as its source URL.
 
 2. **Set up live access and choose a limit.** Set `ANTHROPIC_API_KEY` in your
-   environment or in the repository-root `.env` file (which Git ignores).
-   Choose a positive USD amount that you approve for this experiment and set
-   it as `MAX_COST_USD`. The limit is checked before each paid request. A
-   request already in progress can put the final cost above the limit.
+   environment or the ignored repository-root `.env`. Set `MAX_COST_USD` to a
+   positive amount you approve. The limit is checked before each paid request;
+   a request in progress can put the final cost above it.
 
 3. **Start a live Evaluation run.** Run this command in a terminal:
 
@@ -278,60 +274,51 @@ Global defects. These steps work after you delete `.model-evaluation/`.
      --live
    ```
 
-   The CLI shows Haiku's 16,000 thinking tokens, 24,192 total output tokens,
+   The CLI shows Haiku's 16,000 thinking tokens, 24,192 output token cap,
    prompt count, pricing, snapshot checksum, and limit. Type `yes` to approve
-   paid requests. A key alone does not approve them. The CLI copies the
-   Benchmark snapshot, imports Reference defects, runs programmatic checks,
-   and saves responses and usage in a new `.model-evaluation/runs/` directory.
-   Keep its printed path. `--approve-live` skips the terminal prompt.
+   paid requests; `--approve-live` skips the prompt. It copies the snapshot,
+   imports Reference defects, runs checks, and saves responses and usage.
+   Keep the printed run directory path.
 
-4. **Check completion and review the findings.** Set `RUN_DIR` to the path
-   printed by the live command. For example, replace the value below with
-   your actual path:
+4. **Check completion and review the findings.** Use the printed run directory:
 
    ```bash
    RUN_DIR='.model-evaluation/runs/<RUN_ID>'
    ```
 
-   Open `$RUN_DIR/run.json` and confirm `"complete": true`. If it is `false`,
-   the report command will reject the run. Failed requests are not retried;
-   start a new live run after you address the failure or cost limit. Do not
-   reuse the incomplete run. Inspect `$RUN_DIR/audit-findings.json` and
-   `$RUN_DIR/programmatic-findings.json` for finding IDs, problems, locations,
-   and raw evidence. `$RUN_DIR/raw-responses.json` has the model responses.
+   Confirm `"complete": true` in `$RUN_DIR/run.json`; otherwise, address the
+   failure or cost limit and start a new live run. Failed requests are not
+   retried. Use `$RUN_DIR/audit-findings.json` and
+   `$RUN_DIR/normalized-programmatic-findings.json` for finding IDs and evidence.
+   `$RUN_DIR/raw-programmatic-findings.json` has the original checker output;
+   `$RUN_DIR/raw-responses.json` has model responses.
 
 5. **Make the human decisions in one CSV.** Open `$RUN_DIR/review.csv` in
-   Excel or a text editor. Keep its header, source fields, and one row per
-   Reference defect. For **all 16 rows**, enter one `classification` value:
+   Excel or a text editor. Keep its header, source fields, and all 16 rows.
+   Enter one `classification` value per Reference defect:
    `llm_eligible`, `programmatic`, `unavailable_evidence`, or `ambiguous`.
-   Enter a short `classification_reason` for every row. `source_element`
-   repeats the workbook's original `element name`; it is not a precise
-   inferred location.
+   Enter a short `classification_reason` for every row. `source_element` is
+   the workbook's original `element name`, not an inferred location.
 
    When findings jointly cover a **whole** Reference defect, enter their IDs
-   in `audit_finding_id` and/or `programmatic_finding_id`. Separate multiple
-   IDs in one cell with semicolons (`;`). Enter a short `match_reason` when
-   you enter any ID. Leave both ID cells blank for a miss. Use `review_notes`
-   to explain partial coverage or location details; notes do not award
-   partial credit. Do not assign findings to `unavailable_evidence` or
-   `ambiguous` rows. Save the file as CSV.
+   in `audit_finding_id` and/or `programmatic_finding_id`, separating multiple
+   IDs with semicolons (`;`). Enter a `match_reason` for any ID. Leave both ID
+   cells blank for a miss. Use `review_notes` for partial coverage or location
+   details; notes do not award partial credit. Do not assign findings to
+   `unavailable_evidence` or `ambiguous` rows. Save as CSV.
 
-6. **Generate the final report.** Running `report` confirms that human review
-   is complete:
+6. **Generate the final report.** Run `report` after human review:
 
    ```bash
    uv run visionaid-evaluate report --run-dir "$RUN_DIR"
    ```
 
-   Open `$RUN_DIR/report.md`. It contains Workbook-row recall, programmatic
-   coverage, Combined workbook coverage, Estimated run cost, limitations,
-   and a source-row explanation for each Reference defect. Reporting rejects
-   an incomplete run, missing classifications or reasons, and unknown,
-   wrong-kind, or reused finding IDs.
+   Open `$RUN_DIR/report.md` for Workbook-row recall, programmatic coverage,
+   Combined workbook coverage, Estimated run cost, limitations, and source-row
+   explanations. Reporting rejects incomplete runs, missing decisions, and
+   invalid or reused finding IDs.
 
-The run directory and supplied workbook are excluded from version control.
-This one-homepage result is illustrative; it does not establish broad model
-equivalence. Historical private runs remain untouched.
+The run directory and workbook are excluded from version control.
 
 ### Start a run without `--live`
 
@@ -342,11 +329,12 @@ uv run visionaid-evaluate run --html .model-evaluation/pristine-home.html \
   --source-url https://pristineai.com/ --max-cost-usd 1.00
 ```
 
-This command needs no API key or approval. It makes a fresh, incomplete
-Evaluation run with programmatic findings, audit prompts, and `review.csv`.
-It makes no Haiku requests and cannot produce a final report. The CLI still
-requires a positive `--max-cost-usd` value; it spends nothing without `--live`.
-To finish the evaluation, start a new live run at step 3.
+This needs no API key or approval. It creates an incomplete run with
+`raw-programmatic-findings.json`, `normalized-programmatic-findings.json`,
+audit prompts, and `review.csv`. Use the normalized file's `finding_id` values
+for programmatic matches. It makes no Haiku requests and cannot produce a
+final report. `--max-cost-usd` must be positive but is not spent without
+`--live`. Start a new live run at step 3 to finish the evaluation.
 
 ## Running the Web App
 
