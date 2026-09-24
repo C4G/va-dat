@@ -241,11 +241,9 @@ GEMINI_API_KEY=AIza...
 
 ### Get a final report with the supplied Reference workbook
 
-Run these commands from the repository root. The supplied
-`Pristine Accessibility Defect Report.xlsx` is the default Reference workbook;
-you do not need to pass `--workbook`. The importer selects its 16 Home and
-Global Reference defects. These steps also work after you delete
-`.model-evaluation/`.
+From the repository root, use the supplied `Pristine Accessibility Defect
+Report.xlsx`. It is the default Reference workbook and contains 16 Home and
+Global defects. These steps work after you delete `.model-evaluation/`.
 
 1. **Save a Benchmark snapshot.** The evaluator needs a local HTML file. It
    does not download the page. Create the ignored directory and save the
@@ -280,14 +278,12 @@ Global Reference defects. These steps also work after you delete
      --live
    ```
 
-   The command shows the fixed Haiku model, 16,000 thinking tokens, 24,192
-   total output tokens, prompt count, pricing, Benchmark snapshot checksum,
-   and cost limit. Type `yes` when asked for Live-run approval. The key alone
-   does not approve spending. The command copies the Benchmark snapshot,
-   imports the Reference defects, runs programmatic checks, sends the audit
-   requests, and saves the responses and reported usage. It creates a **new**
-   directory under `.model-evaluation/runs/`; write down the printed path.
-   `--approve-live` is available for deliberate noninteractive approval.
+   The CLI shows Haiku's 16,000 thinking tokens, 24,192 total output tokens,
+   prompt count, pricing, snapshot checksum, and limit. Type `yes` to approve
+   paid requests. A key alone does not approve them. The CLI copies the
+   Benchmark snapshot, imports Reference defects, runs programmatic checks,
+   and saves responses and usage in a new `.model-evaluation/runs/` directory.
+   Keep its printed path. `--approve-live` skips the terminal prompt.
 
 4. **Check completion and review the findings.** Set `RUN_DIR` to the path
    printed by the live command. For example, replace the value below with
@@ -337,15 +333,20 @@ The run directory and supplied workbook are excluded from version control.
 This one-homepage result is illustrative; it does not establish broad model
 equivalence. Historical private runs remain untouched.
 
-### Check the inputs without a paid request
+### Start a run without `--live`
 
-Omit `--live` from step 3 for an input check. This creates a separate,
-incomplete Evaluation run with programmatic findings and audit prompts,
-but no Haiku requests or Audit findings. It cannot produce a report.
-Use a new live run to complete the experiment.
+Save the Benchmark snapshot in step 1, then run this from the repository root:
 
-For another page, pass its saved HTML to `--html` and its URL to
-`--source-url`. Keep that HTML file for any input check and live run.
+```bash
+uv run visionaid-evaluate run --html .model-evaluation/pristine-home.html \
+  --source-url https://pristineai.com/ --max-cost-usd 1.00
+```
+
+This command needs no API key or approval. It makes a fresh, incomplete
+Evaluation run with programmatic findings, audit prompts, and `review.csv`.
+It makes no Haiku requests and cannot produce a final report. The CLI still
+requires a positive `--max-cost-usd` value; it spends nothing without `--live`.
+To finish the evaluation, start a new live run at step 3.
 
 ## Running the Web App
 
