@@ -243,23 +243,38 @@ GEMINI_API_KEY=AIza...
 
 Run these commands from the repository root. The supplied
 `Pristine Accessibility Defect Report.xlsx` is the default Reference workbook;
-you do not need to pass `--workbook`. The existing Benchmark snapshot is
-`.model-evaluation/snapshots/pristine-homepage/source.html`, and its recorded
-source URL is `https://pristineai.com/`. The importer selects its 16 Home and
-Global Reference defects.
+you do not need to pass `--workbook`. The importer selects its 16 Home and
+Global Reference defects. These steps also work after you delete
+`.model-evaluation/`.
 
-1. **Set up live access and choose a limit.** Set `ANTHROPIC_API_KEY` in your
+1. **Save a Benchmark snapshot.** The evaluator needs a local HTML file. It
+   does not download the page. Create the ignored directory and save the
+   homepage HTML there:
+
+   ```bash
+   mkdir -p .model-evaluation
+   curl --fail --location --silent --show-error \
+     --output .model-evaluation/pristine-home.html https://pristineai.com/
+   test -s .model-evaluation/pristine-home.html
+   ```
+
+   Open the file and check that it contains the homepage you intend to audit.
+   `curl` saves the server HTML. If the page builds its content in a browser,
+   save the rendered HTML to that path instead. Use `https://pristineai.com/`
+   as the source URL for this file.
+
+2. **Set up live access and choose a limit.** Set `ANTHROPIC_API_KEY` in your
    environment or in the repository-root `.env` file (which Git ignores).
    Choose a positive USD amount that you approve for this experiment and set
    it as `MAX_COST_USD`. The limit is checked before each paid request. A
    request already in progress can put the final cost above the limit.
 
-2. **Start a live Evaluation run.** Run this command in a terminal:
+3. **Start a live Evaluation run.** Run this command in a terminal:
 
    ```bash
    MAX_COST_USD=1.00  # Example; replace with the amount you approve.
    uv run visionaid-evaluate run \
-     --html .model-evaluation/snapshots/pristine-homepage/source.html \
+     --html .model-evaluation/pristine-home.html \
      --source-url https://pristineai.com/ \
      --max-cost-usd "$MAX_COST_USD" \
      --live
@@ -274,7 +289,7 @@ Global Reference defects.
    directory under `.model-evaluation/runs/`; write down the printed path.
    `--approve-live` is available for deliberate noninteractive approval.
 
-3. **Check completion and review the findings.** Set `RUN_DIR` to the path
+4. **Check completion and review the findings.** Set `RUN_DIR` to the path
    printed by the live command. For example, replace the value below with
    your actual path:
 
@@ -289,7 +304,7 @@ Global Reference defects.
    `$RUN_DIR/programmatic-findings.json` for finding IDs, problems, locations,
    and raw evidence. `$RUN_DIR/raw-responses.json` has the model responses.
 
-4. **Make the human decisions in one CSV.** Open `$RUN_DIR/review.csv` in
+5. **Make the human decisions in one CSV.** Open `$RUN_DIR/review.csv` in
    Excel or a text editor. Keep its header, source fields, and one row per
    Reference defect. For **all 16 rows**, enter one `classification` value:
    `llm_eligible`, `programmatic`, `unavailable_evidence`, or `ambiguous`.
@@ -305,7 +320,7 @@ Global Reference defects.
    partial credit. Do not assign findings to `unavailable_evidence` or
    `ambiguous` rows. Save the file as CSV.
 
-5. **Generate the final report.** Running `report` confirms that human review
+6. **Generate the final report.** Running `report` confirms that human review
    is complete:
 
    ```bash
@@ -324,17 +339,13 @@ equivalence. Historical private runs remain untouched.
 
 ### Check the inputs without a paid request
 
-Omit `--live` from step 2 to prepare a separate, incomplete Evaluation run.
-It copies the Benchmark snapshot, imports the Reference defects, runs
-programmatic checks, and saves the exact audit prompts. It does not contact
-Haiku or produce Audit findings. It cannot produce a final report. To get a
-report, follow steps 1–5 with a **new** live Evaluation run.
+Omit `--live` from step 3 for an input check. This creates a separate,
+incomplete Evaluation run with programmatic findings and audit prompts,
+but no Haiku requests or Audit findings. It cannot produce a report.
+Use a new live run to complete the experiment.
 
-To use a new Benchmark snapshot, save its HTML as a new local file and pass
-that file to `--html`. Set `--source-url` to the URL that the HTML represents.
-Use the same saved HTML file for input checks and the live run so their input
-is identical. The evaluator copies the file and records its checksum; it does
-not capture a webpage.
+For another page, pass its saved HTML to `--html` and its URL to
+`--source-url`. Keep that HTML file for any input check and live run.
 
 ## Running the Web App
 
