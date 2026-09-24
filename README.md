@@ -293,18 +293,8 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    `$RUN_DIR/raw-responses.json` has model responses.
 
 5. **Make the human decisions in one CSV.** Open `$RUN_DIR/review.csv` in
-   Excel or a text editor. Keep its header, source fields, and all 16 rows.
-   Enter one `classification` value per Reference defect:
-   `llm_eligible`, `programmatic`, `unavailable_evidence`, or `ambiguous`.
-   Enter a short `classification_reason` for every row. `source_element` is
-   the workbook's original `element name`, not an inferred location.
-
-   When findings jointly cover a **whole** Reference defect, enter their IDs
-   in `audit_finding_id` and/or `programmatic_finding_id`, separating multiple
-   IDs with semicolons (`;`). Enter a `match_reason` for any ID. Leave both ID
-   cells blank for a miss. Use `review_notes` for partial coverage or location
-   details; notes do not award partial credit. Do not assign findings to
-   `unavailable_evidence` or `ambiguous` rows. Save as CSV.
+   Excel or a CSV-aware text editor. Review every Reference defect and fill in
+   the decision columns using the guide below. Save the file as CSV.
 
 6. **Generate the final report.** Run `report` after human review:
 
@@ -316,6 +306,47 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    Combined workbook coverage, Estimated run cost, limitations, and source-row
    explanations. Reporting rejects incomplete runs, missing decisions, and
    invalid or reused finding IDs.
+
+### Fill in `review.csv`
+
+The CSV has one row for each of the 16 Home or Global Reference defects. Keep
+the header, all rows, and their `reference_id` values. The columns from
+`reference_id` through `comment` identify the workbook row and preserve its
+original evidence. Use them to understand the defect, but do not edit them.
+In particular, `source_sheet` and `source_row` point back to the workbook,
+`page_scope` says Home or Global, and `source_element` copies the workbook's
+`element name`. It is not an inferred location on the page.
+
+For **every row**, fill in `classification` and `classification_reason`:
+
+| `classification` value | Use it when |
+| --- | --- |
+| `llm_eligible` | The Benchmark snapshot contains enough evidence to judge the defect, and the issue calls for the AI audit's judgment. |
+| `programmatic` | A deterministic check can establish the defect from the available evidence. Classification alone does not mean the checker found it. |
+| `unavailable_evidence` | The snapshot lacks evidence needed to verify the defect, such as behavior that requires interaction or a browser or assistive technology observation. |
+| `ambiguous` | The Reference defect is too unclear to decide fairly whether a finding covers it. |
+
+Base the classification on the Reference defect and available evidence, not on
+whether this run happened to produce a matching finding. In
+`classification_reason`, write a short explanation of that choice, including
+what evidence is missing or unclear when applicable. These two cells cannot be
+blank when you generate the report.
+
+Then complete the remaining decision columns for that row:
+
+| Column | What to enter |
+| --- | --- |
+| `audit_finding_id` | Copy `finding_id` values from `$RUN_DIR/audit-findings.json` only when the selected AI Audit findings **jointly cover the whole Reference defect**. Separate multiple IDs with semicolons (`;`). Otherwise leave blank. |
+| `programmatic_finding_id` | Copy `finding_id` values from `$RUN_DIR/normalized-programmatic-findings.json` only when the selected Programmatic findings **jointly cover the whole Reference defect**. Use semicolons for multiple IDs. Otherwise leave blank. |
+| `match_reason` | If either finding-ID cell has an ID, briefly explain how those findings cover the full defect, including the relevant element or behavior. If both ID cells are blank, this can be blank. |
+| `review_notes` | Optional context, such as a more precise location or a finding that covers only part of the defect. Notes do not award coverage. |
+
+You may use findings from both files for one row. Each finding ID must exist in
+the named file and can be assigned to only one Reference defect. Leave both ID
+cells blank when no findings fully cover the row; that records a miss, even if
+you describe partial evidence in `review_notes`. For `unavailable_evidence` and
+`ambiguous` rows, leave both ID cells blank. The report command checks these
+rules and requires a `match_reason` whenever you enter an ID.
 
 The run directory and workbook are excluded from version control.
 This one-homepage result does not establish broad model equivalence.
