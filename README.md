@@ -278,7 +278,6 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    prompt count, pricing, snapshot checksum, and limit. Type `yes` to approve
    paid requests; `--approve-live` skips the prompt. It copies the snapshot,
    imports Reference defects, runs checks, and saves responses and usage.
-   Keep the printed run directory path.
 
 4. **Check completion and review the findings.** Use the printed run directory:
 
@@ -319,6 +318,7 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    invalid or reused finding IDs.
 
 The run directory and workbook are excluded from version control.
+This one-homepage result does not establish broad model equivalence.
 
 ### Start a run without `--live`
 

@@ -274,9 +274,9 @@ def test_review_requires_classification_and_rejects_invalid_finding_ids(
         item["finding_id"]
         for item in json.loads((run / "audit-findings.json").read_text())
     ]
-    programmatic_id = json.loads((run / "normalized-programmatic-findings.json").read_text())[0][
-        "finding_id"
-    ]
+    programmatic_id = json.loads(
+        (run / "normalized-programmatic-findings.json").read_text()
+    )[0]["finding_id"]
     rows = read_review(review)
     with pytest.raises(SystemExit):
         main(["report", "--run-dir", str(run)])
