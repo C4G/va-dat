@@ -239,59 +239,102 @@ GEMINI_API_KEY=AIza...
 
 ## Private Model Evaluation
 
-The private POC measures one fixed Haiku audit against the Home and Global
-rows of the authorized Reference workbook. Obtain the workbook from the project
-source; the default filename is `Pristine Accessibility Defect Report.xlsx`.
-All run evidence stays under ignored `.model-evaluation/runs/`.
+### Get a final report with the supplied Reference workbook
 
-Preview the exact prompt set and estimated paid intent with a local HTML
-Benchmark snapshot and the URL it represents:
+Run these commands from the repository root. The supplied
+`Pristine Accessibility Defect Report.xlsx` is the default Reference workbook;
+you do not need to pass `--workbook`. The existing Benchmark snapshot is
+`.model-evaluation/snapshots/pristine-homepage/source.html`, and its recorded
+source URL is `https://pristineai.com/`. The importer selects its 16 Home and
+Global Reference defects.
 
-```bash
-uv run visionaid-evaluate run --html /path/to/home.html \
-  --source-url https://pristineai.com/ --max-cost-usd 1.00
-```
+1. **Set up live access and choose a limit.** Set `ANTHROPIC_API_KEY` in your
+   environment or in the repository-root `.env` file (which Git ignores).
+   Choose a positive USD amount that you approve for this experiment and set
+   it as `MAX_COST_USD`. The limit is checked before each paid request. A
+   request already in progress can put the final cost above the limit.
 
-The CLI copies the HTML, records its SHA-256 and workbook identity, imports
-all Home and Global defect rows, runs the existing programmatic checks, and
-saves the exact filtered prompts. Preview makes no provider calls even when
-credentials are available. It creates a fresh run directory and prints its
-path. Use `--workbook PATH` to select another authorized copy of the same
-workbook layout.
+2. **Start a live Evaluation run.** Run this command in a terminal:
 
-For a paid run, repeat the command with `--live`. The CLI shows the fixed
-`claude-haiku-4-5-20251001` configuration (16,000 thinking tokens, 24,192
-total output tokens, no temperature), prompt count, pricing, and positive
-cost guardrail before asking you to type `yes`. `--approve-live` is an
-explicit approval flag for deliberate noninteractive execution. An API key
-alone never starts paid requests. The guardrail is checked before each
-request; a single request can exceed the remaining amount. Failed requests
-are not retried. Responses and reported usage are saved as they arrive, and
-incomplete runs cannot be scored. Thinking content is not retained.
+   ```bash
+   MAX_COST_USD=1.00  # Example; replace with the amount you approve.
+   uv run visionaid-evaluate run \
+     --html .model-evaluation/snapshots/pristine-homepage/source.html \
+     --source-url https://pristineai.com/ \
+     --max-cost-usd "$MAX_COST_USD" \
+     --live
+   ```
 
-Edit the printed `review.csv` in Excel or a text editor. Classify **every**
-row as `llm_eligible`, `programmatic`, `unavailable_evidence`, or `ambiguous`,
-and give a short `classification_reason`. Enter full-row matches in
-`audit_finding_id` and/or `programmatic_finding_id`; separate multiple IDs
-with semicolons and provide a `match_reason`. Leave both ID cells blank for a
-miss. Use `review_notes` for partial coverage or location clarification.
-`source_element` is the workbook's original `element name`, not an inferred
-precise location. Finding IDs and raw evidence are in `audit-findings.json`
-and `programmatic-findings.json`. Codex can edit the same CSV on request.
+   The command shows the fixed Haiku model, 16,000 thinking tokens, 24,192
+   total output tokens, prompt count, pricing, Benchmark snapshot checksum,
+   and cost limit. Type `yes` when asked for Live-run approval. The key alone
+   does not approve spending. The command copies the Benchmark snapshot,
+   imports the Reference defects, runs programmatic checks, sends the audit
+   requests, and saves the responses and reported usage. It creates a **new**
+   directory under `.model-evaluation/runs/`; write down the printed path.
+   `--approve-live` is available for deliberate noninteractive approval.
 
-After human review, generate the Markdown report:
+3. **Check completion and review the findings.** Set `RUN_DIR` to the path
+   printed by the live command. For example, replace the value below with
+   your actual path:
 
-```bash
-uv run visionaid-evaluate report --run-dir .model-evaluation/runs/<RUN_ID>
-```
+   ```bash
+   RUN_DIR='.model-evaluation/runs/<RUN_ID>'
+   ```
 
-The report gives Workbook-row recall for LLM-eligible rows, programmatic
-coverage for programmatic rows, Combined workbook coverage over all imported
-rows, Estimated run cost from API-reported usage and saved pricing, and
-source-row explanations. Blank IDs count as misses. A zero eligible
-denominator is shown as N/A. This one-homepage result is illustrative and
-does not establish broad model equivalence. Historical private runs remain
-untouched; the reduced CLI requires fresh runs.
+   Open `$RUN_DIR/run.json` and confirm `"complete": true`. If it is `false`,
+   the report command will reject the run. Failed requests are not retried;
+   start a new live run after you address the failure or cost limit. Do not
+   reuse the incomplete run. Inspect `$RUN_DIR/audit-findings.json` and
+   `$RUN_DIR/programmatic-findings.json` for finding IDs, problems, locations,
+   and raw evidence. `$RUN_DIR/raw-responses.json` has the model responses.
+
+4. **Make the human decisions in one CSV.** Open `$RUN_DIR/review.csv` in
+   Excel or a text editor. Keep its header, source fields, and one row per
+   Reference defect. For **all 16 rows**, enter one `classification` value:
+   `llm_eligible`, `programmatic`, `unavailable_evidence`, or `ambiguous`.
+   Enter a short `classification_reason` for every row. `source_element`
+   repeats the workbook's original `element name`; it is not a precise
+   inferred location.
+
+   When findings jointly cover a **whole** Reference defect, enter their IDs
+   in `audit_finding_id` and/or `programmatic_finding_id`. Separate multiple
+   IDs in one cell with semicolons (`;`). Enter a short `match_reason` when
+   you enter any ID. Leave both ID cells blank for a miss. Use `review_notes`
+   to explain partial coverage or location details; notes do not award
+   partial credit. Do not assign findings to `unavailable_evidence` or
+   `ambiguous` rows. Save the file as CSV.
+
+5. **Generate the final report.** Running `report` confirms that human review
+   is complete:
+
+   ```bash
+   uv run visionaid-evaluate report --run-dir "$RUN_DIR"
+   ```
+
+   Open `$RUN_DIR/report.md`. It contains Workbook-row recall, programmatic
+   coverage, Combined workbook coverage, Estimated run cost, limitations,
+   and a source-row explanation for each Reference defect. Reporting rejects
+   an incomplete run, missing classifications or reasons, and unknown,
+   wrong-kind, or reused finding IDs.
+
+The run directory and supplied workbook are excluded from version control.
+This one-homepage result is illustrative; it does not establish broad model
+equivalence. Historical private runs remain untouched.
+
+### Check the inputs without a paid request
+
+Omit `--live` from step 2 to prepare a separate, incomplete Evaluation run.
+It copies the Benchmark snapshot, imports the Reference defects, runs
+programmatic checks, and saves the exact audit prompts. It does not contact
+Haiku or produce Audit findings. It cannot produce a final report. To get a
+report, follow steps 1–5 with a **new** live Evaluation run.
+
+To use a new Benchmark snapshot, save its HTML as a new local file and pass
+that file to `--html`. Set `--source-url` to the URL that the HTML represents.
+Use the same saved HTML file for input checks and the live run so their input
+is identical. The evaluator copies the file and records its checksum; it does
+not capture a webpage.
 
 ## Running the Web App
 
