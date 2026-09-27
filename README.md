@@ -307,6 +307,41 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    explanations. Reporting rejects incomplete runs, missing decisions, and
    invalid or reused finding IDs.
 
+### Evaluation run files
+
+The `run` command saves these files under `$RUN_DIR`. Without `--live`, it
+prepares the prompts but makes no model requests.
+
+| File | Role |
+| --- | --- |
+| `references.json` | The imported Home and Global Reference defects, their original workbook evidence, and stable IDs. |
+| `payloads/cl01_payload.json` | Extracted headings, links, landmarks, tables, and other semantic page structure. |
+| `payloads/cl02_payload.json` | Extracted forms, fields, and labels. |
+| `payloads/cl03_payload.json` | Extracted images, SVGs, icons, and media. |
+| `prompts/*.json` | The exact `prompt_text` and filtered `payload_slice` prepared for each model request. These files do not hold model replies in an Evaluation run. |
+| `raw-programmatic-findings.json` | Original output from the deterministic accessibility checks. |
+| `normalized-programmatic-findings.json` | Those checker results converted to findings with `finding_id` values for `review.csv`. |
+| `raw-responses.json` | Live model replies, request outcomes, and reported token usage, including responses that could not be parsed into findings. |
+| `audit-findings.json` | Parsed AI Audit findings with `finding_id` values for `review.csv`. A malformed reply can appear in `raw-responses.json` without producing a finding here. |
+| `run.json` | The run's configuration, snapshot checksum, prompt list, completion status, format failures, token usage, and estimated cost. `complete: true` does not imply that every response parsed successfully; check `format_failures`. |
+| `pricing.json` | A copy of the versioned model rates used to estimate this run's cost from reported usage. |
+
+The payload files show extracted page data before filtering. The prompt files
+show what the model actually received after filtering and slicing. To review a
+Reference defect, compare `references.json` with the two normalized findings
+files and inspect `snapshot.html` for the full Benchmark evidence. Check
+`raw-responses.json` when an AI finding is missing or malformed, and check the
+prompt file to see whether the model received the relevant evidence. Record
+decisions in `review.csv`; the `report` command reads that CSV and the run
+evidence to write `report.md`. The pipeline briefly writes `manifest.json`, but
+the Evaluation command removes it and keeps the relevant metadata in `run.json`.
+
+Earlier private experiments may also contain `preflight.json` with advance
+token counts and a spending plan, `format-diagnostics.json` with an offline
+inspection of malformed replies, and `review-validation.json` with checks on
+the completed review. The standard `visionaid-evaluate run` command does not
+create those files or perform those extra checks.
+
 ### Fill in `review.csv`
 
 The CSV has one row for each of the 16 Home or Global Reference defects. Keep
