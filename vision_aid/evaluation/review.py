@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -129,8 +130,26 @@ def _metric(caught: int, total: int) -> str:
 
 
 def _md(value: object) -> str:
-    """Escape source evidence for Markdown without losing line breaks."""
-    return str(value).replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
+    """Escape inline text for Markdown, including raw HTML, keeping line breaks."""
+    text = str(value).replace("\\", "\\\\").replace("|", "\\|")
+    text = text.replace("<", "\\<").replace(">", "\\>")
+    return text.replace("\n", "<br>")
+
+
+def _evidence_block(evidence: dict[str, str]) -> list[str]:
+    """Render source evidence verbatim in a collapsible fenced JSON block."""
+    body = json.dumps(evidence, ensure_ascii=False, indent=2)
+    longest = max((len(run) for run in re.findall(r"`+", body)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return [
+        "<details><summary>Original defect evidence</summary>",
+        "",
+        f"{fence}json",
+        body,
+        fence,
+        "",
+        "</details>",
+    ]
 
 
 def write_report(
@@ -186,7 +205,6 @@ def write_report(
         reference = row["reference"]
         decision = row["decision"]
         matches = row["matches"]
-        evidence = _md(json.dumps(reference["raw_evidence"], ensure_ascii=False))
         lines.extend(
             [
                 f"### {reference['reference_id']} — {_md(reference['problem'])}",
@@ -196,7 +214,6 @@ def write_report(
                     f"row {reference['source_row']} ({reference['page_scope']})"
                 ),
                 f"- source_element: {_md(reference['source_element'])}",
-                f"- Original defect evidence: {evidence}",
                 (
                     f"- Classification: {decision['classification']} — "
                     f"{_md(decision['classification_reason'])}"
@@ -216,5 +233,5 @@ def write_report(
                 f"- {finding_id}: {_md(finding['problem'])} "
                 f"@ {_md(finding['location'])}"
             )
-        lines.append("")
+        lines.extend(["", *_evidence_block(reference["raw_evidence"]), ""])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

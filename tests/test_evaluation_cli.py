@@ -250,6 +250,63 @@ def test_live_csv_review_and_report_full_row_metrics(
     assert "Vague link" in report and "First link" in report
 
 
+def test_report_shows_evidence_verbatim_and_escapes_inline_html(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fenced evidence stays verbatim and inline fields escape raw HTML."""
+    workbook, html = inputs(tmp_path)
+    book = openpyxl.load_workbook(workbook)
+    actual = 'Use <main> tag.\nSay "Main" ```here```'
+    book.active["G2"] = actual
+    book.save(workbook)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic")
+
+    class FakeClient:
+        def call(self, prompt: str) -> dict:
+            """Return one normalized finding for applicable prompts."""
+            return {
+                "success": True,
+                "response": json.dumps([{"problem": "Vague link"}]),
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            }
+
+    monkeypatch.setattr(audit, "AuditRequestClient", lambda **_: FakeClient())
+    assert main(args(workbook, html, "--live", "--approve-live")) == 0
+    run = directory(tmp_path)
+    review = run / "review.csv"
+    rows = read_review(review)
+    for row in rows:
+        row.update(classification="ambiguous", classification_reason="Unclear")
+    rows[0]["classification_reason"] = 'An <img alt=""> needs judgment'
+    write_review(review, rows)
+    assert main(["report", "--run-dir", str(run)]) == 0
+    report = (run / "report.md").read_text()
+    evidence = (
+        "<details><summary>Original defect evidence</summary>\n\n"
+        "````json\n"
+        "{\n"
+        '  "Browser Combination": "Chrome",\n'
+        '  "Issue Title": "Unclear link",\n'
+        '  "Page name": "Home",\n'
+        '  "Recommendation for Fix": "Rename",\n'
+        '  "Sr. #": "1",\n'
+        '  "Steps to Reproduce": "Open page",\n'
+        '  "Type of Change": "Code",\n'
+        '  "WCAG Sc": "2.4.4",\n'
+        '  "actual result": "Use <main> tag.\\nSay \\"Main\\" ```here```",\n'
+        '  "comment": "",\n'
+        '  "element name": "First link",\n'
+        '  "expected result": "Descriptive text"\n'
+        "}\n"
+        "````\n\n"
+        "</details>\n"
+    )
+    assert evidence in report
+    assert "Original defect evidence:" not in report
+    assert 'An \\<img alt=""\\> needs judgment' in report
+
+
 def test_review_requires_classification_and_rejects_invalid_finding_ids(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
