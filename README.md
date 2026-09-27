@@ -287,10 +287,10 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
 
    Confirm `"complete": true` in `$RUN_DIR/run.json`; otherwise, address the
    failure or cost limit and start a new live run. Failed requests are not
-   retried. Use `$RUN_DIR/audit-findings.json` and
+   retried. Use `$RUN_DIR/normalized-audit-findings.json` and
    `$RUN_DIR/normalized-programmatic-findings.json` for finding IDs and evidence.
-   `$RUN_DIR/raw-programmatic-findings.json` has the original checker output;
-   `$RUN_DIR/raw-responses.json` has model responses.
+   `$RUN_DIR/raw-audit-responses.json` has model responses;
+   `$RUN_DIR/raw-programmatic-findings.json` has the original checker output.
 
 5. **Make the human decisions in one CSV.** Open `$RUN_DIR/review.csv` in
    Excel or a CSV-aware text editor. Review every Reference defect and fill in
@@ -321,8 +321,8 @@ prepares the prompts but makes no model requests.
 | `prompts/*.json` | The exact `prompt_text` and filtered `payload_slice` prepared for each model request. These files do not hold model replies in an Evaluation run. |
 | `raw-programmatic-findings.json` | Original output from the deterministic accessibility checks. |
 | `normalized-programmatic-findings.json` | Those checker results converted to findings with `finding_id` values for `review.csv`. |
-| `raw-responses.json` | Live model replies, request outcomes, and reported token usage, including responses that could not be parsed into findings. |
-| `audit-findings.json` | Parsed AI Audit findings with `finding_id` values for `review.csv`. A malformed reply can appear in `raw-responses.json` without producing a finding here. |
+| `raw-audit-responses.json` | Live model replies, request outcomes, and reported token usage, including responses that could not be parsed into findings. |
+| `normalized-audit-findings.json` | Parsed AI Audit findings with `finding_id` values for `review.csv`. A malformed reply can appear in `raw-audit-responses.json` without producing a finding here. |
 | `run.json` | The run's configuration, snapshot checksum, prompt list, completion status, format failures, token usage, and estimated cost. `complete: true` does not imply that every response parsed successfully; check `format_failures`. |
 | `pricing.json` | A copy of the versioned model rates used to estimate this run's cost from reported usage. |
 
@@ -330,11 +330,12 @@ The payload files show extracted page data before filtering. The prompt files
 show what the model actually received after filtering and slicing. To review a
 Reference defect, compare `references.json` with the two normalized findings
 files and inspect `snapshot.html` for the full Benchmark evidence. Check
-`raw-responses.json` when an AI finding is missing or malformed, and check the
-prompt file to see whether the model received the relevant evidence. Record
-decisions in `review.csv`; the `report` command reads that CSV and the run
-evidence to write `report.md`. The pipeline briefly writes `manifest.json`, but
-the Evaluation command removes it and keeps the relevant metadata in `run.json`.
+`raw-audit-responses.json` when an AI finding is missing or malformed, and
+check the prompt file to see whether the model received the relevant evidence.
+Record decisions in `review.csv`; the `report` command reads that CSV and the
+run evidence to write `report.md`. The pipeline briefly writes `manifest.json`,
+but the Evaluation command removes it and keeps the relevant metadata in
+`run.json`.
 
 Earlier private experiments may also contain `preflight.json` with advance
 token counts and a spending plan, `format-diagnostics.json` with an offline
@@ -371,7 +372,7 @@ Then complete the remaining decision columns for that row:
 
 | Column | What to enter |
 | --- | --- |
-| `audit_finding_id` | Copy `finding_id` values from `$RUN_DIR/audit-findings.json` only when the selected AI Audit findings **jointly cover the whole Reference defect**. Separate multiple IDs with semicolons (`;`). Otherwise leave blank. |
+| `audit_finding_id` | Copy `finding_id` values from `$RUN_DIR/normalized-audit-findings.json` only when the selected AI Audit findings **jointly cover the whole Reference defect**. Separate multiple IDs with semicolons (`;`). Otherwise leave blank. |
 | `programmatic_finding_id` | Copy `finding_id` values from `$RUN_DIR/normalized-programmatic-findings.json` only when the selected Programmatic findings **jointly cover the whole Reference defect**. Use semicolons for multiple IDs. Otherwise leave blank. |
 | `match_reason` | If either finding-ID cell has an ID, briefly explain how those findings cover the full defect, including the relevant element or behavior. If both ID cells are blank, this can be blank. |
 | `review_notes` | Optional context, such as a more precise location or a finding that covers only part of the defect. Notes do not award coverage. |

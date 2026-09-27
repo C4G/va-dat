@@ -193,7 +193,7 @@ def _report(args: argparse.Namespace) -> int:
     reference_set = json.loads((run / "references.json").read_text())
     if reference_set["workbook_sha256"] != manifest["workbook_sha256"]:
         raise ValueError("Reference workbook identity differs from the run")
-    audit = json.loads((run / "audit-findings.json").read_text())
+    audit = json.loads((run / "normalized-audit-findings.json").read_text())
     programmatic_file = run / "normalized-programmatic-findings.json"
     programmatic = json.loads(programmatic_file.read_text())
     for kind, collection in (("audit", audit), ("programmatic", programmatic)):

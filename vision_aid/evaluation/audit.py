@@ -114,8 +114,8 @@ def execute(run: Path, manifest: dict[str, Any], api_key: str) -> bool:
             incomplete_reason=reason,
             format_failures=format_failures,
         )
-        write_json(run / "raw-responses.json", responses)
-        write_json(run / "audit-findings.json", findings)
+        write_json(run / "raw-audit-responses.json", responses)
+        write_json(run / "normalized-audit-findings.json", findings)
         write_json(run / "run.json", manifest)
         if not complete:
             break

@@ -217,7 +217,10 @@ def test_live_csv_review_and_report_full_row_metrics(
     assert (
         json.loads((run / "run.json").read_text())["estimated_cost_usd"] == "0.0006525"
     )
-    findings = json.loads((run / "audit-findings.json").read_text())
+    assert (run / "raw-audit-responses.json").exists()
+    assert not (run / "raw-responses.json").exists()
+    assert not (run / "audit-findings.json").exists()
+    findings = json.loads((run / "normalized-audit-findings.json").read_text())
     programmatic_file = run / "normalized-programmatic-findings.json"
     programmatic = json.loads(programmatic_file.read_text())
     assert findings and programmatic
@@ -272,7 +275,7 @@ def test_review_requires_classification_and_rejects_invalid_finding_ids(
     review = run / "review.csv"
     audit_ids = [
         item["finding_id"]
-        for item in json.loads((run / "audit-findings.json").read_text())
+        for item in json.loads((run / "normalized-audit-findings.json").read_text())
     ]
     programmatic_id = json.loads(
         (run / "normalized-programmatic-findings.json").read_text()
@@ -378,6 +381,6 @@ def test_failed_or_over_budget_runs_keep_usage_and_cannot_report(
     assert manifest["complete"] is False
     assert manifest["usage"]["input_tokens"] == 100000
     assert float(manifest["estimated_cost_usd"]) > 0
-    assert len(json.loads((run / "raw-responses.json").read_text())) == 1
+    assert len(json.loads((run / "raw-audit-responses.json").read_text())) == 1
     with pytest.raises(SystemExit):
         main(["report", "--run-dir", str(run)])
