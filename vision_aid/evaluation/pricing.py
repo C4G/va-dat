@@ -10,7 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-DEFAULT_SCHEDULE = Path(__file__).with_name("pricing.v2.json")
+DEFAULT_SCHEDULE = Path(__file__).with_name("pricing.json")
 MILLION = Decimal(1_000_000)
 
 
