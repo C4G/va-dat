@@ -1,6 +1,6 @@
 # Name raw and normalized audit artifacts explicitly
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -67,3 +67,7 @@ This is a clean break, matching the earlier programmatic rename: new Evaluation 
 
 - Considered and rejected: `raw-llm-responses.json` / `normalized-llm-responses.json`. The `llm` prefix would give one concept a third name alongside "Audit finding" and "AI Audit". The normalized file holds findings, not responses.
 - Considered and rejected: `raw-audit-findings.json`. Failed and malformed replies recorded in the raw file contain no findings.
+
+## Comments
+
+Implemented in d4a87cf5. Verified with the evaluation CLI tests at the `main` seam: a live run writes `raw-audit-responses.json` and `normalized-audit-findings.json` but not the old names, `report` scores from the normalized file, and a stopped run records one response. Full suite: 36 passed. The two-axis review found no spec gaps. Existing local run directories were deleted.
