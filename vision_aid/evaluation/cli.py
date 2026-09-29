@@ -59,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
         "report", help="score completed run and edited review.csv"
     )
     report.add_argument("--run-dir", type=Path, required=True)
+    report.add_argument("--reviewer", required=True, help="who made the review decisions")
     return parser
 
 
@@ -186,6 +187,8 @@ def _run(args: argparse.Namespace) -> int:
 
 def _report(args: argparse.Namespace) -> int:
     """Validate human decisions and report a completed run."""
+    if not args.reviewer.strip():
+        raise ValueError("A reviewer description is required")
     run = args.run_dir.resolve()
     manifest = json.loads((run / "run.json").read_text())
     if manifest["run_id"] != run.name:
@@ -209,7 +212,11 @@ def _report(args: argparse.Namespace) -> int:
     rows = reviewed_rows(
         run / "review.csv", human_audit["human_findings"], llm, programmatic
     )
-    write_report(run / "report.md", manifest, rows, llm, programmatic)
+    schedule = PriceSchedule.load(run / "pricing.json")
+    write_report(
+        run / "report.md", manifest, rows, llm, programmatic,
+        args.reviewer, str(schedule.data["published_at"]),
+    )
     print(f"Markdown report: {run / 'report.md'}")
     return 0
 

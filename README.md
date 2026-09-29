@@ -297,16 +297,24 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    Excel or a CSV-aware text editor. Review every Human finding and fill in
    the decision columns using the guide below. Save the file as CSV.
 
-6. **Generate the final report.** Run `report` after human review:
+6. **Generate the final report.** Run `report` after completing the review,
+   naming whoever made the decisions:
 
    ```bash
-   uv run visionaid-evaluate report --run-dir "$RUN_DIR"
+   uv run visionaid-evaluate report --run-dir "$RUN_DIR" --reviewer "Your name or agent description"
    ```
 
-   Open `$RUN_DIR/report.md` for LLM detection rate, Programmatic detection rate,
-   Overall detection rate, Estimated run cost, limitations, and source-row
-   explanations. Existing Evaluation run directories are unsupported. Reporting
-   rejects incomplete runs, missing decisions, and invalid or reused finding IDs.
+   Open `$RUN_DIR/report.md`. It explains how to read the homepage evaluation,
+   then shows the model, run ID, reviewer, three detection rates, and estimated
+   cost with token counts and the pricing date. A table follows the Human audit's
+   original order and marks catches by each part, including cross-catches. The
+   remaining sections show what each part caught and why each match counts,
+   every missed finding with any recorded explanations, and findings not
+   testable from the page file with their reasons. IDs, locations, and raw JSON
+   stay in the run artifacts. Not-testable findings are left out of the LLM and
+   Programmatic rates but remain in the Overall denominator. Existing Evaluation
+   run directories are unsupported. Reporting rejects incomplete runs, missing
+   classifications, and invalid or reused finding IDs.
 
 ### Evaluation run files
 
@@ -354,7 +362,7 @@ In particular, `source_sheet` and `source_row` point back to the Human audit,
 `page_scope` says Home or Global, and `source_element` copies the Human audit's
 `element name`. It is not an inferred location on the page.
 
-For **every row**, fill in `classification` and `classification_reason`:
+For **every row**, fill in `classification`:
 
 | `classification` value | Use it when |
 | --- | --- |
@@ -366,8 +374,8 @@ For **every row**, fill in `classification` and `classification_reason`:
 Base the classification on the Human finding and available evidence, not on
 whether this run happened to produce a matching finding. In
 `classification_reason`, write a short explanation of that choice, including
-what evidence is missing or unclear when applicable. These two cells cannot be
-blank when you generate the report.
+what evidence is missing or unclear when applicable. This explanation is
+optional, but `classification` cannot be blank when you generate the report.
 
 Then complete the remaining decision columns for that row:
 

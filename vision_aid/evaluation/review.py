@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import csv
-import json
-import re
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -75,14 +74,12 @@ def reviewed_rows(
         "llm": {item["finding_id"]: item for item in llm},
         "programmatic": {item["finding_id"]: item for item in programmatic},
     }
-    seen_rows: set[str] = set()
     used: dict[str, set[str]] = {"llm": set(), "programmatic": set()}
-    result = []
+    result: dict[str, dict[str, Any]] = {}
     for row in entered:
         human_finding_id = row["human_finding_id"]
-        if human_finding_id not in expected or human_finding_id in seen_rows:
+        if human_finding_id not in expected or human_finding_id in result:
             raise ValueError(f"Unknown or repeated Human finding: {human_finding_id}")
-        seen_rows.add(human_finding_id)
         human_finding = expected[human_finding_id]
         for field in ("source_sheet", "source_row", "source_element"):
             if str(row[field]) != str(human_finding[field]):
@@ -92,8 +89,6 @@ def reviewed_rows(
         classification = row["classification"].strip()
         if classification not in ELIGIBILITY_VALUES:
             raise ValueError(f"Human finding {human_finding_id}: invalid classification")
-        if not row["classification_reason"].strip():
-            raise ValueError(f"Human finding {human_finding_id}: missing classification reason")
         matched: dict[str, tuple[str, ...]] = {}
         for kind, column, label in (
             ("llm", "llm_finding_id", "LLM"),
@@ -118,38 +113,29 @@ def reviewed_rows(
             matched.values()
         ):
             raise ValueError(f"Human finding {human_finding_id} is not testable; cannot claim coverage")
-        result.append({"human_finding": human_finding, "decision": row, "matches": matched})
-    return result
+        result[human_finding_id] = {
+            "human_finding": human_finding, "decision": row, "matches": matched,
+        }
+    return [result[identity] for identity in expected]
 
 
-def _metric(caught: int, total: int) -> str:
-    """Format a binary row-coverage count without inventing an empty rate."""
+def _rate(part: str, caught: int, total: int) -> str:
+    """Explain each denominator, including when there is nothing to score."""
+    if part == "Overall":
+        return f"Overall detection rate: Of all {total} Human findings, either part of the tool caught {caught} ({caught / total:.1%})."
+    label = part.removesuffix(" checks")
     if total == 0:
-        return "N/A (0 eligible rows)"
-    return f"{caught}/{total} ({caught / total:.1%})"
+        return f"{label} detection rate: No Human findings were expected to be detected by the {part} from the page's HTML."
+    subject = "it" if part == "LLM" else "they"
+    return f"{label} detection rate: Of the {total} Human findings the {part} could be expected to detect from the page's HTML, {subject} caught {caught} ({caught / total:.1%})."
 
 
 def _md(value: object) -> str:
     """Escape inline text for Markdown, including raw HTML, keeping line breaks."""
-    text = str(value).replace("\\", "\\\\").replace("|", "\\|")
-    text = text.replace("<", "\\<").replace(">", "\\>")
+    text = str(value)
+    for character in "\\`*_[]|<>":
+        text = text.replace(character, "\\" + character)
     return text.replace("\n", "<br>")
-
-
-def _evidence_block(evidence: dict[str, str]) -> list[str]:
-    """Render source evidence verbatim in a collapsible fenced JSON block."""
-    body = json.dumps(evidence, ensure_ascii=False, indent=2)
-    longest = max((len(run) for run in re.findall(r"`+", body)), default=0)
-    fence = "`" * max(3, longest + 1)
-    return [
-        "<details><summary>Original defect evidence</summary>",
-        "",
-        f"{fence}json",
-        body,
-        fence,
-        "",
-        "</details>",
-    ]
 
 
 def write_report(
@@ -158,80 +144,105 @@ def write_report(
     rows: list[dict[str, Any]],
     llm: list[dict[str, Any]],
     programmatic: list[dict[str, Any]],
+    reviewer: str,
+    pricing_date: str,
 ) -> None:
-    """Write the single human-readable score and row evidence projection."""
+    """Explain the review's catches, misses, and scoring in source order."""
     if not manifest["complete"]:
         raise ValueError("Incomplete Evaluation runs cannot produce a final report")
     findings = {item["finding_id"]: item for item in llm + programmatic}
-    llm_rows = [row for row in rows if row["decision"]["classification"] == "llm_eligible"]
-    checks = [
-        row for row in rows if row["decision"]["classification"] == "programmatic"
-    ]
+    expected = {
+        "llm_eligible": "LLM",
+        "programmatic": "Programmatic checks",
+        "unavailable_evidence": "Not testable",
+        "ambiguous": "Not testable",
+    }
     covered = [row for row in rows if any(row["matches"].values())]
-    llm_caught = sum(bool(row["matches"]["llm"]) for row in llm_rows)
-    programmatic_caught = sum(bool(row["matches"]["programmatic"]) for row in checks)
-    unavailable = sum(
-        row["decision"]["classification"] == "unavailable_evidence" for row in rows
-    )
-    ambiguous = sum(row["decision"]["classification"] == "ambiguous" for row in rows)
+    usage = manifest["usage"]
+    tokens = [f"{usage['input_tokens']} input tokens", f"{usage['output_tokens']} output tokens"]
+    for key, label in (("cached_input_tokens", "cached input"), ("cache_creation_input_tokens", "cache-creation input")):
+        if usage[key]:
+            tokens.append(f"{usage[key]} {label} tokens")
     lines = [
-        f"# Evaluation run {manifest['run_id']}",
+        f"# LLM accessibility evaluation: {_md(manifest['source_url'])}",
         "",
-        f"- Model: {manifest['configuration']['model']}",
-        f"- LLM detection rate: {_metric(llm_caught, len(llm_rows))}",
-        f"- Programmatic detection rate: {_metric(programmatic_caught, len(checks))}",
-        f"- Overall detection rate: {_metric(len(covered), len(rows))}",
-        f"- Estimated run cost: ${manifest['estimated_cost_usd']}",
-        f"- Unavailable evidence: {unavailable}; ambiguous: {ambiguous}",
-        f"- Reported usage: {_md(json.dumps(manifest['usage'], sort_keys=True))}",
+        "## How to read this report",
         "",
-        (
-            "This is full-row coverage of this homepage Human audit only. "
-            "A blank finding cell means missed."
-        ),
-        (
-            "The cost guardrail is checked between requests; "
-            "a request can exceed the remaining amount."
-        ),
-        (
-            "Malformed response prompts: "
-            f"{_md(', '.join(manifest['format_failures']) or 'none')}"
-        ),
+        "The benchmark is the Human audit, an accessibility audit performed by human testers. Each problem they reported is a Human finding.",
+        "The tool has two parts. The LLM asks a large language model to judge accessibility problems. Programmatic checks apply fixed rules without AI.",
+        "The tool saw only saved HTML, not a live browser or screen reader. This evaluation covers the homepage only, including Global findings that apply there.",
+        "A reviewer decided which part should be expected to detect each Human finding. A catch counts only when the matched findings fully cover the whole Human finding. Partial coverage earns no credit.",
         "",
-        "## Human findings",
+        "## Summary",
+        "",
+        f"Model: {_md(manifest['configuration']['model'])}. Run ID: {_md(manifest['run_id'])}.",
+        f"Review decisions by: {_md(reviewer)}",
         "",
     ]
+    for classification, kind, part in (
+        ("llm_eligible", "llm", "LLM"),
+        ("programmatic", "programmatic", "Programmatic checks"),
+    ):
+        eligible = [row for row in rows if row["decision"]["classification"].strip() == classification]
+        lines.extend([_rate(part, sum(bool(row["matches"][kind]) for row in eligible), len(eligible)), ""])
+    lines.extend([
+        _rate("Overall", len(covered), len(rows)),
+        "",
+        f"Estimated run cost: ${Decimal(manifest['estimated_cost_usd']):.2f}, calculated from {', '.join(tokens)} multiplied by the published prices dated {_md(pricing_date)}. The actual bill may differ slightly.",
+        "",
+    ])
+    if manifest["format_failures"]:
+        checks = ", ".join(_md(name.replace("_", " ") + " check") for name in manifest["format_failures"])
+        lines.extend([f"The LLM returned unreadable output for {len(manifest['format_failures'])} of {len(manifest['prompts'])} checks: {checks}.", ""])
+    lines.extend([
+        "## Human findings", "",
+        "| Issue Title | WCAG | Expected to be caught by | LLM | Programmatic checks |",
+        "| --- | --- | --- | --- | --- |",
+    ])
     for row in rows:
-        human_finding = row["human_finding"]
-        decision = row["decision"]
-        matches = row["matches"]
-        lines.extend(
-            [
-                f"### {human_finding['human_finding_id']} — {_md(human_finding['problem'])}",
-                "",
-                (
-                    f"- Source: {human_finding['source_sheet']} "
-                    f"row {human_finding['source_row']} ({human_finding['page_scope']})"
-                ),
-                f"- source_element: {_md(human_finding['source_element'])}",
-                (
-                    f"- Classification: {decision['classification']} — "
-                    f"{_md(decision['classification_reason'])}"
-                ),
-                f"- LLM findings: {_md('; '.join(matches['llm']) or 'none')}",
-                (
-                    "- Programmatic findings: "
-                    f"{_md('; '.join(matches['programmatic']) or 'none')}"
-                ),
-                f"- Match reason: {_md(decision['match_reason'] or 'none')}",
-                f"- Review notes: {_md(decision['review_notes'] or 'none')}",
-            ]
-        )
-        for finding_id in (*matches["llm"], *matches["programmatic"]):
-            finding = findings[finding_id]
-            lines.append(
-                f"- {finding_id}: {_md(finding['problem'])} "
-                f"@ {_md(finding['location'])}"
-            )
-        lines.extend(["", *_evidence_block(human_finding["raw_evidence"]), ""])
+        human = row["human_finding"]
+        marks = ["✓" if row["matches"][kind] else "✗" for kind in ("llm", "programmatic")]
+        lines.append(f"| {_md(human['problem'])} | {_md(human['raw_evidence']['WCAG Sc'])} | {expected[row['decision']['classification'].strip()]} | {' | '.join(marks)} |")
+    lines.extend([
+        "",
+        "The LLM and Programmatic detection rates count only catches by the expected part. A catch by the other part still gets a ✓ and counts toward the Overall detection rate, which counts each Human finding once out of all imported Human findings.",
+    ])
+    groups = {
+        "What each part of the tool caught": covered,
+        "Missed": [
+            row for row in rows
+            if expected[row["decision"]["classification"].strip()] != "Not testable"
+            and not any(row["matches"].values())
+        ],
+        "Not testable from the page file": [
+            row for row in rows
+            if expected[row["decision"]["classification"].strip()] == "Not testable"
+        ],
+    }
+    for heading, group in groups.items():
+        lines.extend(["", f"## {heading}", ""])
+        if heading == "Not testable from the page file":
+            lines.extend(["These Human findings cannot be judged from the saved HTML or are too unclear to judge. They are left out of the LLM and Programmatic detection rates but remain in the Overall denominator.", ""])
+        for row in group:
+            decision = row["decision"]
+            matches = row["matches"]
+            lines.extend([f"### {_md(row['human_finding']['problem'])}", ""])
+            for kind in ("llm", "programmatic"):
+                for identity in matches[kind]:
+                    finding = findings[identity]
+                    label = (
+                        f"LLM ({finding['prompt'].replace('_', ' ')} check)"
+                        if kind == "llm" else f"Programmatic check {finding['prompt']}"
+                    )
+                    lines.extend([f"- {_md(label)}: {_md(finding['problem'])}", f"  Why this counts: {_md(decision['match_reason'])}"])
+            if heading == "Not testable from the page file":
+                lines.append(_md(decision["classification_reason"]))
+            elif not any(matches.values()):
+                for field, label in (
+                    ("classification_reason", "Why it was expected to be caught"),
+                    ("review_notes", "Why it was missed"),
+                ):
+                    if decision[field].strip():
+                        lines.append(f"{label}: {_md(decision[field])}")
+            lines.append("")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
