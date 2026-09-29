@@ -4,13 +4,13 @@
 
 **Blocked by:** 02 (Plain-language report)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] One live run on the saved Pristine homepage snapshot (`https://pristineai.com/`) with `--max-cost-usd 1.10` completes, or its stop reason is reported without a retry
-- [ ] A sub-agent fills in every `review.csv` row. It classifies each Human finding against the snapshot before reading the LLM responses, then records Match decisions following the README's rules, with a reason for every classification and match
-- [ ] `report` succeeds with `--reviewer "Codex agent (operator-directed)"`
-- [ ] The generated report is read end to end, and any wording that still needs knowledge of the evaluator is reported to the operator
-- [ ] The run's estimated cost and detection rates are recorded under Comments
+- [x] One live run on the saved Pristine homepage snapshot (`https://pristineai.com/`) with `--max-cost-usd 1.10` completes, or its stop reason is reported without a retry
+- [x] A sub-agent fills in every `review.csv` row. It classifies each Human finding against the snapshot before reading the LLM responses, then records Match decisions following the README's rules, with a reason for every classification and match
+- [x] `report` succeeds with `--reviewer "Codex agent (operator-directed)"`
+- [x] The generated report is read end to end, and any wording that still needs knowledge of the evaluator is reported to the operator
+- [x] The run's estimated cost and detection rates are recorded under Comments
 
 ## Comments
 
@@ -26,3 +26,5 @@
 - LLM detection 1/8 (12.5%); Programmatic detection 4/4 (100%); Overall detection 5/16 (31.25%, displayed 31.2%). Matches: Human audit findings 1, 2, 3, 7, 12; eligible misses 4, 5, 6, 8, 9, 10, 16; not testable 11, 13, 14, 15.
 - `report --reviewer "Codex agent (operator-directed)"` succeeded. Reviewer, implementation agent and operator agent read it end to end; CSS selectors and internal review-phase wording were removed from live notes. Remaining reader limitations: "unreadable" means a parsing failure here; bundled findings include unrelated issues, repeat match reasons and make navigation credit unclear without knowing the no-reuse rule. Some frozen explanations retain accessibility/HTML terminology.
 - Verification: `uv run pytest -q` (37 passed), `uv lock --check`, entry-point imports, and independent CSV/source/identity/rate/report checks passed. No production code or tests added. Snapshot, baseline, spending ledger and full run artifacts remain private and ignored.
+
+Resolved after implementation commit `e77b2c06efa9b17577605e933d5048cf6e159061`. Independent Standards and Spec reviews passed with zero findings; all acceptance criteria demonstrated by the verification recorded above. This separate closure commit records the exact implementation ID.
