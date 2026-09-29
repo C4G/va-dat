@@ -1,4 +1,4 @@
-"""Import the known Reference workbook's Home and Global defect rows."""
+"""Import the known Human audit's Home and Global defect rows."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import openpyxl
 
-from vision_aid.evaluation.schemas import ReferenceDefect, ReferenceSet
+from vision_aid.evaluation.schemas import HumanAudit, HumanFinding
 
 SHEET = "Defect report"
 HEADERS = (
@@ -33,17 +33,17 @@ ELIGIBILITY_VALUES = (
 )
 
 
-def import_homepage_references(workbook_path: Path, homepage_url: str) -> ReferenceSet:
+def import_homepage_human_findings(path: Path, homepage_url: str) -> HumanAudit:
     """Preserve every applicable source row and its original cell text."""
-    checksum = hashlib.sha256(workbook_path.read_bytes()).hexdigest()
-    book = openpyxl.load_workbook(workbook_path, read_only=True, data_only=True)
+    checksum = hashlib.sha256(path.read_bytes()).hexdigest()
+    book = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
         sheet = book[SHEET]
         rows = sheet.iter_rows(values_only=True)
         headers = tuple(str(value or "") for value in next(rows))
         if headers[: len(HEADERS)] != HEADERS:
-            raise ValueError("Reference workbook has unexpected Defect report columns")
-        references = []
+            raise ValueError("Human audit has unexpected Defect report columns")
+        human_findings = []
         for number, values in enumerate(rows, start=2):
             raw = {
                 header: "" if value is None else str(value)
@@ -56,9 +56,9 @@ def import_homepage_references(workbook_path: Path, homepage_url: str) -> Refere
             if not raw["Issue Title"].strip():
                 raise ValueError(f"Defect report row {number} has no Issue Title")
             identity = f"{checksum}:{SHEET}:{number}".encode()
-            references.append(
-                ReferenceDefect(
-                    reference_id="ref-" + hashlib.sha256(identity).hexdigest()[:16],
+            human_findings.append(
+                HumanFinding(
+                    human_finding_id="human-" + hashlib.sha256(identity).hexdigest()[:16],
                     source_sheet=SHEET,
                     source_row=number,
                     page_scope=scope,
@@ -72,6 +72,6 @@ def import_homepage_references(workbook_path: Path, homepage_url: str) -> Refere
             )
     finally:
         book.close()
-    if not references:
-        raise ValueError("Reference workbook has no Home or Global defects")
-    return ReferenceSet(workbook_path.name, checksum, homepage_url, tuple(references))
+    if not human_findings:
+        raise ValueError("Human audit has no Home or Global defects")
+    return HumanAudit(path.name, checksum, homepage_url, tuple(human_findings))

@@ -8,12 +8,15 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from processing_scripts.llm_client.audit import AuditRequestClient, AuditRequestConfig
+from processing_scripts.llm_client.audit import (
+    AuditRequestClient as LLMRequestClient,
+    AuditRequestConfig as LLMRequestConfig,
+)
 from vision_aid.evaluation.normalization import normalize_prompt_response
 from vision_aid.evaluation.pricing import PriceSchedule
 
 MODEL = "claude-haiku-4-5-20251001"
-REQUEST_CONFIG = AuditRequestConfig(
+REQUEST_CONFIG = LLMRequestConfig(
     model=MODEL,
     thinking_budget_tokens=16000,
     max_output_tokens=24192,
@@ -58,7 +61,7 @@ def positive_cost(value: str) -> Decimal:
 def execute(run: Path, manifest: dict[str, Any], api_key: str) -> bool:
     """Make each paid request once, saving reported usage and responses as received."""
     schedule = PriceSchedule.load(run / "pricing.json")
-    client = AuditRequestClient(
+    client = LLMRequestClient(
         api_key=api_key,
         request_config=REQUEST_CONFIG,
         max_retries=0,
@@ -114,8 +117,8 @@ def execute(run: Path, manifest: dict[str, Any], api_key: str) -> bool:
             incomplete_reason=reason,
             format_failures=format_failures,
         )
-        write_json(run / "raw-audit-responses.json", responses)
-        write_json(run / "normalized-audit-findings.json", findings)
+        write_json(run / "raw-llm-responses.json", responses)
+        write_json(run / "normalized-llm-findings.json", findings)
         write_json(run / "run.json", manifest)
         if not complete:
             break

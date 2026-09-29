@@ -17,7 +17,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from entry_points.run_pipeline import run_pipeline
-from vision_aid.evaluation.audit import (
+from vision_aid.evaluation.human_audit import import_homepage_human_findings
+from vision_aid.evaluation.llm_audit import (
     CONFIGURATION,
     MODEL,
     REQUEST_CONFIG,
@@ -27,11 +28,10 @@ from vision_aid.evaluation.audit import (
 )
 from vision_aid.evaluation.normalization import normalize_programmatic_findings
 from vision_aid.evaluation.pricing import DEFAULT_SCHEDULE, PriceSchedule
-from vision_aid.evaluation.references import import_homepage_references
 from vision_aid.evaluation.review import create_review, reviewed_rows, write_report
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_WORKBOOK = PROJECT_ROOT / "Pristine Accessibility Defect Report.xlsx"
+DEFAULT_HUMAN_AUDIT = PROJECT_ROOT / "Pristine Accessibility Defect Report.xlsx"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -41,7 +41,9 @@ def build_parser() -> argparse.ArgumentParser:
     run = commands.add_parser(
         "run", help="preview or execute the fixed Haiku experiment"
     )
-    run.add_argument("--workbook", type=Path, default=DEFAULT_WORKBOOK)
+    run.add_argument(
+        "--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT, help="Human audit"
+    )
     run.add_argument("--html", type=Path, required=True, help="local Benchmark HTML")
     run.add_argument("--source-url", required=True, help="URL represented by the HTML")
     run.add_argument(
@@ -86,12 +88,12 @@ def _run(args: argparse.Namespace) -> int:
         raise ValueError("--approve-live requires --live")
     if not args.html.is_file():
         raise ValueError(f"Benchmark HTML not found: {args.html}")
-    references = import_homepage_references(args.workbook, args.source_url)
+    human_audit = import_homepage_human_findings(args.human_audit, args.source_url)
     run = _new_run_directory()
     shutil.copyfile(args.html, run / "snapshot.html")
     shutil.copyfile(DEFAULT_SCHEDULE, run / "pricing.json")
     snapshot_hash = hashlib.sha256((run / "snapshot.html").read_bytes()).hexdigest()
-    write_json(run / "references.json", references.to_dict())
+    write_json(run / "human-findings.json", human_audit.to_dict())
     production = run_pipeline(
         html_path=str(run / "snapshot.html"),
         output_dir=run,
@@ -114,13 +116,13 @@ def _run(args: argparse.Namespace) -> int:
         run / "normalized-programmatic-findings.json",
         [asdict(item) for item in findings],
     )
-    create_review(run / "review.csv", list(references.to_dict()["references"]))
+    create_review(run / "review.csv", list(human_audit.to_dict()["human_findings"]))
     schedule = PriceSchedule.load(run / "pricing.json")
     manifest = {
         "run_id": run.name,
         "source_url": args.source_url,
-        "workbook_filename": references.workbook_filename,
-        "workbook_sha256": references.workbook_sha256,
+        "human_audit_filename": human_audit.human_audit_filename,
+        "human_audit_sha256": human_audit.human_audit_sha256,
         "snapshot_sha256": snapshot_hash,
         "configuration": CONFIGURATION,
         "pricing_version": schedule.version,
@@ -159,7 +161,7 @@ def _run(args: argparse.Namespace) -> int:
     )
     print(
         f"Snapshot SHA-256: {snapshot_hash}; "
-        f"Reference rows: {len(references.references)}"
+        f"Human findings: {len(human_audit.human_findings)}"
     )
     print(f"Pricing: {schedule.version} ({schedule.identity})")
     print(f"Cost guardrail: ${limit}; checked before each request")
@@ -190,24 +192,24 @@ def _report(args: argparse.Namespace) -> int:
         raise ValueError("Run evidence does not belong to this directory")
     if not manifest["complete"]:
         raise ValueError("Incomplete Evaluation runs cannot produce a final report")
-    reference_set = json.loads((run / "references.json").read_text())
-    if reference_set["workbook_sha256"] != manifest["workbook_sha256"]:
-        raise ValueError("Reference workbook identity differs from the run")
-    audit = json.loads((run / "normalized-audit-findings.json").read_text())
+    human_audit = json.loads((run / "human-findings.json").read_text())
+    if human_audit["human_audit_sha256"] != manifest["human_audit_sha256"]:
+        raise ValueError("Human audit identity differs from the run")
+    llm = json.loads((run / "normalized-llm-findings.json").read_text())
     programmatic_file = run / "normalized-programmatic-findings.json"
     programmatic = json.loads(programmatic_file.read_text())
-    for kind, collection in (("audit", audit), ("programmatic", programmatic)):
+    for kind, collection in (("llm", llm), ("programmatic", programmatic)):
         if any(
             item["run_id"] != run.name
             or item["source"] != kind
             or item["page_url"] != manifest["source_url"]
             for item in collection
         ):
-            raise ValueError(f"{kind} findings do not belong to this run")
+            raise ValueError(f"{kind.upper() if kind == 'llm' else kind.title()} findings do not belong to this run")
     rows = reviewed_rows(
-        run / "review.csv", reference_set["references"], audit, programmatic
+        run / "review.csv", human_audit["human_findings"], llm, programmatic
     )
-    write_report(run / "report.md", manifest, rows, audit, programmatic)
+    write_report(run / "report.md", manifest, rows, llm, programmatic)
     print(f"Markdown report: {run / 'report.md'}")
     return 0
 

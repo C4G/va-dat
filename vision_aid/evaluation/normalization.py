@@ -1,4 +1,4 @@
-"""Lossless deterministic normalization of raw audit outcomes."""
+"""Lossless deterministic normalization of raw LLM outcomes."""
 
 from __future__ import annotations
 
@@ -225,8 +225,8 @@ def normalize_prompt_response(
         identity = f"{run_id}\0{prompt_name}\0{index}\0{canonical_item}".encode()
         findings.append(
             CanonicalFinding(
-                finding_id="finding-" + hashlib.sha256(identity).hexdigest()[:20],
-                source="audit",
+                finding_id="llm-" + hashlib.sha256(identity).hexdigest()[:20],
+                source="llm",
                 run_id=run_id,
                 model=model,
                 prompt=prompt_name,

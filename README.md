@@ -239,7 +239,7 @@ GEMINI_API_KEY=AIza...
 
 ## Private Model Evaluation
 
-### Get a final report with the supplied Reference workbook
+### Get a final report with the supplied Human audit
 
 From the repository root, use the supplied `Pristine Accessibility Defect Report.xlsx`
 (16 Home and Global defects). These steps work after deleting `.model-evaluation/`.
@@ -268,6 +268,7 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    ```bash
    MAX_COST_USD=1.00  # Example; replace with the amount you approve.
    uv run visionaid-evaluate run \
+     --human-audit "Pristine Accessibility Defect Report.xlsx" \
      --html .model-evaluation/pristine-home.html \
      --source-url https://pristineai.com/ \
      --max-cost-usd "$MAX_COST_USD" \
@@ -277,7 +278,7 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    The CLI shows Haiku's 16,000 thinking tokens, 24,192 output token cap,
    prompt count, pricing, snapshot checksum, and limit. Type `yes` to approve
    paid requests; `--approve-live` skips the prompt. It copies the snapshot,
-   imports Reference defects, runs checks, and saves responses and usage.
+   imports Human findings, runs checks, and saves responses and usage.
 
 4. **Check completion and review the findings.** Use the printed run directory:
 
@@ -287,13 +288,13 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
 
    Confirm `"complete": true` in `$RUN_DIR/run.json`; otherwise, address the
    failure or cost limit and start a new live run. Failed requests are not
-   retried. Use `$RUN_DIR/normalized-audit-findings.json` and
+   retried. Use `$RUN_DIR/normalized-llm-findings.json` and
    `$RUN_DIR/normalized-programmatic-findings.json` for finding IDs and evidence.
-   `$RUN_DIR/raw-audit-responses.json` has model responses;
+   `$RUN_DIR/raw-llm-responses.json` has model responses;
    `$RUN_DIR/raw-programmatic-findings.json` has the original checker output.
 
 5. **Make the human decisions in one CSV.** Open `$RUN_DIR/review.csv` in
-   Excel or a CSV-aware text editor. Review every Reference defect and fill in
+   Excel or a CSV-aware text editor. Review every Human finding and fill in
    the decision columns using the guide below. Save the file as CSV.
 
 6. **Generate the final report.** Run `report` after human review:
@@ -302,10 +303,10 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    uv run visionaid-evaluate report --run-dir "$RUN_DIR"
    ```
 
-   Open `$RUN_DIR/report.md` for Workbook-row recall, programmatic coverage,
-   Combined workbook coverage, Estimated run cost, limitations, and source-row
-   explanations. Reporting rejects incomplete runs, missing decisions, and
-   invalid or reused finding IDs.
+   Open `$RUN_DIR/report.md` for LLM detection rate, Programmatic detection rate,
+   Overall detection rate, Estimated run cost, limitations, and source-row
+   explanations. Existing Evaluation run directories are unsupported. Reporting
+   rejects incomplete runs, missing decisions, and invalid or reused finding IDs.
 
 ### Evaluation run files
 
@@ -314,23 +315,23 @@ prepares the prompts but makes no model requests.
 
 | File | Role |
 | --- | --- |
-| `references.json` | The imported Home and Global Reference defects, their original workbook evidence, and stable IDs. |
+| `human-findings.json` | The imported Home and Global Human findings, their original Human audit evidence, and stable IDs. |
 | `payloads/cl01_payload.json` | Extracted headings, links, landmarks, tables, and other semantic page structure. |
 | `payloads/cl02_payload.json` | Extracted forms, fields, and labels. |
 | `payloads/cl03_payload.json` | Extracted images, SVGs, icons, and media. |
 | `prompts/*.json` | The exact `prompt_text` and filtered `payload_slice` prepared for each model request. These files do not hold model replies in an Evaluation run. |
-| `raw-programmatic-findings.json` | Original output from the deterministic accessibility checks. |
+| `raw-programmatic-findings.json` | Original output from the Programmatic checks. |
 | `normalized-programmatic-findings.json` | Those checker results converted to findings with `finding_id` values for `review.csv`. |
-| `raw-audit-responses.json` | Live model replies, request outcomes, and reported token usage, including responses that could not be parsed into findings. |
-| `normalized-audit-findings.json` | Parsed AI Audit findings with `finding_id` values for `review.csv`. A malformed reply can appear in `raw-audit-responses.json` without producing a finding here. |
+| `raw-llm-responses.json` | Live model replies, request outcomes, and reported token usage, including responses that could not be parsed into findings. |
+| `normalized-llm-findings.json` | Parsed LLM findings with `finding_id` values for `review.csv`. A malformed reply can appear in `raw-llm-responses.json` without producing a finding here. |
 | `run.json` | The run's configuration, snapshot checksum, prompt list, completion status, format failures, token usage, and estimated cost. `complete: true` does not imply that every response parsed successfully; check `format_failures`. |
 | `pricing.json` | A copy of the versioned model rates used to estimate this run's cost from reported usage. |
 
 The payload files show extracted page data before filtering. The prompt files
 show what the model actually received after filtering and slicing. To review a
-Reference defect, compare `references.json` with the two normalized findings
+Human finding, compare `human-findings.json` with the two normalized findings
 files and inspect `snapshot.html` for the full Benchmark evidence. Check
-`raw-audit-responses.json` when an AI finding is missing or malformed, and
+`raw-llm-responses.json` when an LLM finding is missing or malformed, and
 check the prompt file to see whether the model received the relevant evidence.
 Record decisions in `review.csv`; the `report` command reads that CSV and the
 run evidence to write `report.md`. The pipeline briefly writes `manifest.json`,
@@ -345,24 +346,24 @@ create those files or perform those extra checks.
 
 ### Fill in `review.csv`
 
-The CSV has one row for each of the 16 Home or Global Reference defects. Keep
-the header, all rows, and their `reference_id` values. The columns from
-`reference_id` through `comment` identify the workbook row and preserve its
+The CSV has one row for each of the 16 Home or Global Human findings. Keep
+the header, all rows, and their `human_finding_id` values. The columns from
+`human_finding_id` through `comment` identify the Human finding and preserve its
 original evidence. Use them to understand the defect, but do not edit them.
-In particular, `source_sheet` and `source_row` point back to the workbook,
-`page_scope` says Home or Global, and `source_element` copies the workbook's
+In particular, `source_sheet` and `source_row` point back to the Human audit,
+`page_scope` says Home or Global, and `source_element` copies the Human audit's
 `element name`. It is not an inferred location on the page.
 
 For **every row**, fill in `classification` and `classification_reason`:
 
 | `classification` value | Use it when |
 | --- | --- |
-| `llm_eligible` | The Benchmark snapshot contains enough evidence to judge the defect, and the issue calls for the AI audit's judgment. |
-| `programmatic` | A deterministic check can establish the defect from the available evidence. Classification alone does not mean the checker found it. |
+| `llm_eligible` | The Benchmark snapshot contains enough evidence to judge the defect, and the issue calls for the LLM's judgment. |
+| `programmatic` | A Programmatic check can establish the defect from the available evidence. Classification alone does not mean the checker found it. |
 | `unavailable_evidence` | The snapshot lacks evidence needed to verify the defect, such as behavior that requires interaction or a browser or assistive technology observation. |
-| `ambiguous` | The Reference defect is too unclear to decide fairly whether a finding covers it. |
+| `ambiguous` | The Human finding is too unclear to decide fairly whether a finding covers it. |
 
-Base the classification on the Reference defect and available evidence, not on
+Base the classification on the Human finding and available evidence, not on
 whether this run happened to produce a matching finding. In
 `classification_reason`, write a short explanation of that choice, including
 what evidence is missing or unclear when applicable. These two cells cannot be
@@ -372,19 +373,19 @@ Then complete the remaining decision columns for that row:
 
 | Column | What to enter |
 | --- | --- |
-| `audit_finding_id` | Copy `finding_id` values from `$RUN_DIR/normalized-audit-findings.json` only when the selected AI Audit findings **jointly cover the whole Reference defect**. Separate multiple IDs with semicolons (`;`). Otherwise leave blank. |
-| `programmatic_finding_id` | Copy `finding_id` values from `$RUN_DIR/normalized-programmatic-findings.json` only when the selected Programmatic findings **jointly cover the whole Reference defect**. Use semicolons for multiple IDs. Otherwise leave blank. |
+| `llm_finding_id` | Copy `finding_id` values from `$RUN_DIR/normalized-llm-findings.json` only when the selected LLM findings **jointly cover the whole Human finding**. Separate multiple IDs with semicolons (`;`). Otherwise leave blank. |
+| `programmatic_finding_id` | Copy `finding_id` values from `$RUN_DIR/normalized-programmatic-findings.json` only when the selected Programmatic findings **jointly cover the whole Human finding**. Use semicolons for multiple IDs. Otherwise leave blank. |
 | `match_reason` | If either finding-ID cell has an ID, briefly explain how those findings cover the full defect, including the relevant element or behavior. If both ID cells are blank, this can be blank. |
 | `review_notes` | Optional context, such as a more precise location or a finding that covers only part of the defect. Notes do not award coverage. |
 
 You may use findings from both files for one row. Each finding ID must exist in
-the named file and can be assigned to only one Reference defect. Leave both ID
+the named file and can be assigned to only one Human finding. Leave both ID
 cells blank when no findings fully cover the row; that records a miss, even if
 you describe partial evidence in `review_notes`. For `unavailable_evidence` and
 `ambiguous` rows, leave both ID cells blank. The report command checks these
 rules and requires a `match_reason` whenever you enter an ID.
 
-The run directory and workbook are excluded from version control.
+The run directory and Human audit are excluded from version control.
 This one-homepage result does not establish broad model equivalence.
 
 ### Start a run without `--live`
@@ -398,7 +399,7 @@ uv run visionaid-evaluate run --html .model-evaluation/pristine-home.html \
 
 This needs no API key or approval. It creates an incomplete run with
 `raw-programmatic-findings.json`, `normalized-programmatic-findings.json`,
-audit prompts, and `review.csv`. Use the normalized file's `finding_id` values
+LLM prompts, and `review.csv`. Use the normalized file's `finding_id` values
 for programmatic matches. It makes no Haiku requests and cannot produce a
 final report. `--max-cost-usd` must be positive but is not spent without
 `--live`. Start a new live run at step 3 to finish the evaluation.

@@ -7,8 +7,8 @@ from typing import Any, Literal
 
 
 @dataclass(frozen=True)
-class ReferenceDefect:
-    reference_id: str
+class HumanFinding:
+    human_finding_id: str
     source_sheet: str
     source_row: int
     page_scope: Literal["home", "global"]
@@ -19,11 +19,11 @@ class ReferenceDefect:
 
 
 @dataclass(frozen=True)
-class ReferenceSet:
-    workbook_filename: str
-    workbook_sha256: str
+class HumanAudit:
+    human_audit_filename: str
+    human_audit_sha256: str
     homepage_url: str
-    references: tuple[ReferenceDefect, ...]
+    human_findings: tuple[HumanFinding, ...]
 
     def to_dict(self) -> dict[str, Any]:
         """Return JSON-compatible source evidence."""
@@ -33,7 +33,7 @@ class ReferenceSet:
 @dataclass(frozen=True)
 class CanonicalFinding:
     finding_id: str
-    source: Literal["audit", "programmatic"]
+    source: Literal["llm", "programmatic"]
     run_id: str
     model: str | None
     prompt: str

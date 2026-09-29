@@ -8,18 +8,18 @@ import re
 from pathlib import Path
 from typing import Any
 
-from vision_aid.evaluation.references import ELIGIBILITY_VALUES, HEADERS
+from vision_aid.evaluation.human_audit import ELIGIBILITY_VALUES, HEADERS
 
 DECISION_COLUMNS = (
     "classification",
     "classification_reason",
-    "audit_finding_id",
+    "llm_finding_id",
     "programmatic_finding_id",
     "match_reason",
     "review_notes",
 )
 REVIEW_COLUMNS = (
-    "reference_id",
+    "human_finding_id",
     "source_sheet",
     "source_row",
     "page_scope",
@@ -29,15 +29,15 @@ REVIEW_COLUMNS = (
 )
 
 
-def create_review(path: Path, references: list[dict[str, Any]]) -> None:
-    """Create one editable row per Reference defect with blank decisions."""
+def create_review(path: Path, human_findings: list[dict[str, Any]]) -> None:
+    """Create one editable row per Human finding with blank decisions."""
     with path.open("w", encoding="utf-8", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=REVIEW_COLUMNS)
         writer.writeheader()
-        for item in references:
+        for item in human_findings:
             writer.writerow(
                 {
-                    "reference_id": item["reference_id"],
+                    "human_finding_id": item["human_finding_id"],
                     "source_sheet": item["source_sheet"],
                     "source_row": item["source_row"],
                     "page_scope": item["page_scope"],
@@ -58,8 +58,8 @@ def _ids(value: str) -> tuple[str, ...]:
 
 def reviewed_rows(
     path: Path,
-    references: list[dict[str, Any]],
-    audit: list[dict[str, Any]],
+    human_findings: list[dict[str, Any]],
+    llm: list[dict[str, Any]],
     programmatic: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Validate completeness and finding kind before granting any row credit."""
@@ -68,57 +68,57 @@ def reviewed_rows(
         if not set(REVIEW_COLUMNS).issubset(reader.fieldnames or ()):
             raise ValueError("Review CSV is missing required columns")
         entered = list(reader)
-    expected = {item["reference_id"]: item for item in references}
+    expected = {item["human_finding_id"]: item for item in human_findings}
     if len(entered) != len(expected):
-        raise ValueError("Review CSV must contain each Reference defect exactly once")
+        raise ValueError("Review CSV must contain each Human finding exactly once")
     by_kind = {
-        "audit": {item["finding_id"]: item for item in audit},
+        "llm": {item["finding_id"]: item for item in llm},
         "programmatic": {item["finding_id"]: item for item in programmatic},
     }
     seen_rows: set[str] = set()
-    used: dict[str, set[str]] = {"audit": set(), "programmatic": set()}
+    used: dict[str, set[str]] = {"llm": set(), "programmatic": set()}
     result = []
     for row in entered:
-        reference_id = row["reference_id"]
-        if reference_id not in expected or reference_id in seen_rows:
-            raise ValueError(f"Unknown or repeated Reference defect: {reference_id}")
-        seen_rows.add(reference_id)
-        reference = expected[reference_id]
+        human_finding_id = row["human_finding_id"]
+        if human_finding_id not in expected or human_finding_id in seen_rows:
+            raise ValueError(f"Unknown or repeated Human finding: {human_finding_id}")
+        seen_rows.add(human_finding_id)
+        human_finding = expected[human_finding_id]
         for field in ("source_sheet", "source_row", "source_element"):
-            if str(row[field]) != str(reference[field]):
+            if str(row[field]) != str(human_finding[field]):
                 raise ValueError(
-                    f"Reference identity changed for {reference_id}: {field}"
+                    f"Human finding identity changed for {human_finding_id}: {field}"
                 )
         classification = row["classification"].strip()
         if classification not in ELIGIBILITY_VALUES:
-            raise ValueError(f"Reference {reference_id} needs a valid classification")
+            raise ValueError(f"Human finding {human_finding_id}: invalid classification")
         if not row["classification_reason"].strip():
-            raise ValueError(f"Reference {reference_id} needs a classification reason")
+            raise ValueError(f"Human finding {human_finding_id}: missing classification reason")
         matched: dict[str, tuple[str, ...]] = {}
-        for kind, column in (
-            ("audit", "audit_finding_id"),
-            ("programmatic", "programmatic_finding_id"),
+        for kind, column, label in (
+            ("llm", "llm_finding_id", "LLM"),
+            ("programmatic", "programmatic_finding_id", "Programmatic"),
         ):
             ids = _ids(row[column])
             unknown = set(ids) - set(by_kind[kind])
             if unknown:
                 raise ValueError(
-                    f"Unknown {kind} finding ID: {', '.join(sorted(unknown))}"
+                    f"Unknown {label} finding ID: {', '.join(sorted(unknown))}"
                 )
             reused = set(ids) & used[kind]
             if reused:
                 raise ValueError(
-                    f"Conflicting {kind} finding ID: {', '.join(sorted(reused))}"
+                    f"Conflicting {label} finding ID: {', '.join(sorted(reused))}"
                 )
             used[kind].update(ids)
             matched[kind] = ids
         if any(matched.values()) and not row["match_reason"].strip():
-            raise ValueError(f"Reference {reference_id} needs a match reason")
+            raise ValueError(f"Human finding {human_finding_id} needs a match reason")
         if classification in {"unavailable_evidence", "ambiguous"} and any(
             matched.values()
         ):
-            raise ValueError(f"Excluded Reference {reference_id} cannot claim coverage")
-        result.append({"reference": reference, "decision": row, "matches": matched})
+            raise ValueError(f"Human finding {human_finding_id} is not testable; cannot claim coverage")
+        result.append({"human_finding": human_finding, "decision": row, "matches": matched})
     return result
 
 
@@ -156,19 +156,19 @@ def write_report(
     path: Path,
     manifest: dict[str, Any],
     rows: list[dict[str, Any]],
-    audit: list[dict[str, Any]],
+    llm: list[dict[str, Any]],
     programmatic: list[dict[str, Any]],
 ) -> None:
     """Write the single human-readable score and row evidence projection."""
     if not manifest["complete"]:
         raise ValueError("Incomplete Evaluation runs cannot produce a final report")
-    findings = {item["finding_id"]: item for item in audit + programmatic}
-    llm = [row for row in rows if row["decision"]["classification"] == "llm_eligible"]
+    findings = {item["finding_id"]: item for item in llm + programmatic}
+    llm_rows = [row for row in rows if row["decision"]["classification"] == "llm_eligible"]
     checks = [
         row for row in rows if row["decision"]["classification"] == "programmatic"
     ]
     covered = [row for row in rows if any(row["matches"].values())]
-    audit_caught = sum(bool(row["matches"]["audit"]) for row in llm)
+    llm_caught = sum(bool(row["matches"]["llm"]) for row in llm_rows)
     programmatic_caught = sum(bool(row["matches"]["programmatic"]) for row in checks)
     unavailable = sum(
         row["decision"]["classification"] == "unavailable_evidence" for row in rows
@@ -178,15 +178,15 @@ def write_report(
         f"# Evaluation run {manifest['run_id']}",
         "",
         f"- Model: {manifest['configuration']['model']}",
-        f"- Workbook-row recall: {_metric(audit_caught, len(llm))}",
-        f"- Programmatic coverage: {_metric(programmatic_caught, len(checks))}",
-        f"- Combined workbook coverage: {_metric(len(covered), len(rows))}",
+        f"- LLM detection rate: {_metric(llm_caught, len(llm_rows))}",
+        f"- Programmatic detection rate: {_metric(programmatic_caught, len(checks))}",
+        f"- Overall detection rate: {_metric(len(covered), len(rows))}",
         f"- Estimated run cost: ${manifest['estimated_cost_usd']}",
         f"- Unavailable evidence: {unavailable}; ambiguous: {ambiguous}",
         f"- Reported usage: {_md(json.dumps(manifest['usage'], sort_keys=True))}",
         "",
         (
-            "This is full-row coverage of this homepage workbook only. "
+            "This is full-row coverage of this homepage Human audit only. "
             "A blank finding cell means missed."
         ),
         (
@@ -198,27 +198,27 @@ def write_report(
             f"{_md(', '.join(manifest['format_failures']) or 'none')}"
         ),
         "",
-        "## Reference defects",
+        "## Human findings",
         "",
     ]
     for row in rows:
-        reference = row["reference"]
+        human_finding = row["human_finding"]
         decision = row["decision"]
         matches = row["matches"]
         lines.extend(
             [
-                f"### {reference['reference_id']} — {_md(reference['problem'])}",
+                f"### {human_finding['human_finding_id']} — {_md(human_finding['problem'])}",
                 "",
                 (
-                    f"- Source: {reference['source_sheet']} "
-                    f"row {reference['source_row']} ({reference['page_scope']})"
+                    f"- Source: {human_finding['source_sheet']} "
+                    f"row {human_finding['source_row']} ({human_finding['page_scope']})"
                 ),
-                f"- source_element: {_md(reference['source_element'])}",
+                f"- source_element: {_md(human_finding['source_element'])}",
                 (
                     f"- Classification: {decision['classification']} — "
                     f"{_md(decision['classification_reason'])}"
                 ),
-                f"- Audit findings: {_md('; '.join(matches['audit']) or 'none')}",
+                f"- LLM findings: {_md('; '.join(matches['llm']) or 'none')}",
                 (
                     "- Programmatic findings: "
                     f"{_md('; '.join(matches['programmatic']) or 'none')}"
@@ -227,11 +227,11 @@ def write_report(
                 f"- Review notes: {_md(decision['review_notes'] or 'none')}",
             ]
         )
-        for finding_id in (*matches["audit"], *matches["programmatic"]):
+        for finding_id in (*matches["llm"], *matches["programmatic"]):
             finding = findings[finding_id]
             lines.append(
                 f"- {finding_id}: {_md(finding['problem'])} "
                 f"@ {_md(finding['location'])}"
             )
-        lines.extend(["", *_evidence_block(reference["raw_evidence"]), ""])
+        lines.extend(["", *_evidence_block(human_finding["raw_evidence"]), ""])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
