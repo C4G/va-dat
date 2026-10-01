@@ -60,7 +60,8 @@ def positive_cost(value: str) -> Decimal:
 
 def execute(run: Path, manifest: dict[str, Any], api_key: str) -> bool:
     """Make each paid request once, saving reported usage and responses as received."""
-    schedule = PriceSchedule.load(run / "pricing.json")
+    artifacts = run / "artifacts"
+    schedule = PriceSchedule.load(artifacts / "pricing.json")
     client = LLMRequestClient(
         api_key=api_key,
         request_config=REQUEST_CONFIG,
@@ -79,7 +80,7 @@ def execute(run: Path, manifest: dict[str, Any], api_key: str) -> bool:
             complete, reason = False, "cost guardrail exhausted"
             break
         name = prompt["name"]
-        prompt_text = json.loads((run / "prompts" / f"{name}.json").read_text())[
+        prompt_text = json.loads((artifacts / "prompts" / f"{name}.json").read_text())[
             "prompt_text"
         ]
         result: dict[str, Any]
@@ -117,7 +118,7 @@ def execute(run: Path, manifest: dict[str, Any], api_key: str) -> bool:
             incomplete_reason=reason,
             format_failures=format_failures,
         )
-        write_json(run / "raw-llm-responses.json", responses)
+        write_json(artifacts / "raw-llm-responses.json", responses)
         write_json(run / "normalized-llm-findings.json", findings)
         write_json(run / "run.json", manifest)
         if not complete:

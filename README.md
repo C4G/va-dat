@@ -290,8 +290,8 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    failure or cost limit and start a new live run. Failed requests are not
    retried. Use `$RUN_DIR/normalized-llm-findings.json` and
    `$RUN_DIR/normalized-programmatic-findings.json` for finding IDs and evidence.
-   `$RUN_DIR/raw-llm-responses.json` has model responses;
-   `$RUN_DIR/raw-programmatic-findings.json` has the original checker output.
+   `$RUN_DIR/artifacts/raw-llm-responses.json` has model responses;
+   `$RUN_DIR/artifacts/raw-programmatic-findings.json` has the original checker output.
 
 5. **Make the human decisions in one CSV.** Open `$RUN_DIR/review.csv` in
    Excel or a CSV-aware text editor. Review every Human finding and fill in
@@ -312,38 +312,51 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    every missed finding with any recorded explanations, and findings not
    testable from the page file with their reasons. IDs, locations, and raw JSON
    stay in the run artifacts. Not-testable findings are left out of the LLM and
-   Programmatic rates but remain in the Overall denominator. Existing Evaluation
-   run directories are unsupported. Reporting rejects incomplete runs, missing
-   classifications, and invalid or reused finding IDs.
+   Programmatic rates but remain in the Overall denominator. Reporting rejects
+   incomplete runs, missing classifications, and invalid or reused finding IDs.
 
 ### Evaluation run files
 
-The `run` command saves these files under `$RUN_DIR`. Without `--live`, it
-prepares the prompts but makes no model requests.
+The run root holds the review evidence and scored results. Supporting files
+are together under `$RUN_DIR/artifacts/`. Without `--live`, the command prepares
+the prompts but makes no model requests; neither LLM output file exists yet.
+Successful reporting adds `report.md` at the root.
+
+New runs and reporting use only this layout. Existing run directories remain
+untouched and require manual reorganization before the updated `report` command
+can read them. Move their supporting files into `artifacts/`, including the
+`prompts/` and `payloads/` directories, preserving filenames. There is no
+compatibility fallback or automatic migration.
 
 | File | Role |
 | --- | --- |
-| `human-findings.json` | The imported Home and Global Human findings, their original Human audit evidence, and stable IDs. |
-| `payloads/cl01_payload.json` | Extracted headings, links, landmarks, tables, and other semantic page structure. |
-| `payloads/cl02_payload.json` | Extracted forms, fields, and labels. |
-| `payloads/cl03_payload.json` | Extracted images, SVGs, icons, and media. |
-| `prompts/*.json` | The exact `prompt_text` and filtered `payload_slice` prepared for each model request. These files do not hold model replies in an Evaluation run. |
-| `raw-programmatic-findings.json` | Original output from the Programmatic checks. |
-| `normalized-programmatic-findings.json` | Those checker results converted to findings with `finding_id` values for `review.csv`. |
-| `raw-llm-responses.json` | Live model replies, request outcomes, and reported token usage, including responses that could not be parsed into findings. |
-| `normalized-llm-findings.json` | Parsed LLM findings with `finding_id` values for `review.csv`. A malformed reply can appear in `raw-llm-responses.json` without producing a finding here. |
-| `run.json` | The run's configuration, snapshot checksum, prompt list, completion status, format failures, token usage, and estimated cost. `complete: true` does not imply that every response parsed successfully; check `format_failures`. |
-| `pricing.json` | A copy of the versioned model rates used to estimate this run's cost from reported usage. |
+| `review.csv` | Original Human audit evidence, source sheet and row, stable IDs, and the decision columns the reviewer edits. |
+| `snapshot.html` | The full Benchmark snapshot used to judge testability and coverage. |
+| `normalized-llm-findings.json` | Parsed LLM findings with `finding_id` values for `review.csv`. A malformed reply can appear in `artifacts/raw-llm-responses.json` without producing a finding here. |
+| `normalized-programmatic-findings.json` | Checker results converted to findings with `finding_id` values for `review.csv`. |
+| `run.json` | Configuration, snapshot checksum, prompt list, completion status, format failures, token usage, and estimated cost. `complete: true` does not imply that every response parsed successfully; check `format_failures`. |
+| `report.md` | Scored results generated after successful reporting. |
+| `artifacts/human-findings.json` | Canonical imported Home and Global Human findings used to validate and score the review. |
+| `artifacts/pricing.json` | The versioned model rates used to estimate this run's cost from reported usage. |
+| `artifacts/raw-llm-responses.json` | Live model replies, request outcomes, and reported token usage, including responses that could not be parsed into findings. |
+| `artifacts/raw-programmatic-findings.json` | Original output from the Programmatic checks. |
+| `artifacts/prompts/*.json` | The exact `prompt_text` and filtered `payload_slice` prepared for each model request. These files do not hold model replies in an Evaluation run. |
+| `artifacts/payloads/cl01_payload.json` | Extracted headings, links, landmarks, tables, and other semantic page structure. |
+| `artifacts/payloads/cl02_payload.json` | Extracted forms, fields, and labels. |
+| `artifacts/payloads/cl03_payload.json` | Extracted images, SVGs, icons, and media. |
 
 The payload files show extracted page data before filtering. The prompt files
 show what the model actually received after filtering and slicing. To review a
-Human finding, compare `human-findings.json` with the two normalized findings
-files and inspect `snapshot.html` for the full Benchmark evidence. Check
-`raw-llm-responses.json` when an LLM finding is missing or malformed, and
-check the prompt file to see whether the model received the relevant evidence.
+Human finding, compare its original evidence in `review.csv` with the two
+normalized findings files and inspect `snapshot.html` for the full Benchmark
+evidence. Check
+`artifacts/raw-llm-responses.json` when an LLM finding is missing or malformed, and
+check the file under `artifacts/prompts/` to see whether the model received the
+relevant evidence.
 Record decisions in `review.csv`; the `report` command reads that CSV and the
-run evidence to write `report.md`. The pipeline briefly writes `manifest.json`,
-but the Evaluation command removes it and keeps the relevant metadata in
+run evidence to write `report.md`. The pipeline briefly writes
+`artifacts/manifest.json`, but the Evaluation command removes it and keeps the
+relevant metadata in
 `run.json`.
 
 Earlier private experiments may also contain `preflight.json` with advance
@@ -406,7 +419,7 @@ uv run visionaid-evaluate run --html .model-evaluation/pristine-home.html \
 ```
 
 This needs no API key or approval. It creates an incomplete run with
-`raw-programmatic-findings.json`, `normalized-programmatic-findings.json`,
+`artifacts/raw-programmatic-findings.json`, `normalized-programmatic-findings.json`,
 LLM prompts, and `review.csv`. Use the normalized file's `finding_id` values
 for programmatic matches. It makes no Haiku requests and cannot produce a
 final report. `--max-cost-usd` must be positive but is not spent without

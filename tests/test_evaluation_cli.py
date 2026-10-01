@@ -101,19 +101,34 @@ def test_preview_preserves_human_findings_and_never_calls_provider(
     assert main(args(human_audit, html)) == 0
     output = capsys.readouterr().out
     run = directory(tmp_path)
+    assert {path.name for path in run.iterdir()} == {
+        "review.csv", "snapshot.html", "normalized-programmatic-findings.json",
+        "run.json", "artifacts",
+    }
+    artifacts = run / "artifacts"
+    assert {path.name for path in artifacts.iterdir()} == {
+        "human-findings.json", "pricing.json", "raw-programmatic-findings.json",
+        "prompts", "payloads",
+    }
+    assert list((artifacts / "prompts").glob("*.json"))
+    assert {path.name for path in (artifacts / "payloads").iterdir()} == {
+        "cl01_payload.json", "cl02_payload.json", "cl03_payload.json",
+    }
     assert "claude-haiku-4-5-20251001" in output
     assert "16000" in output and "24192" in output and "$0.01" in output
     assert (run / "snapshot.html").read_bytes() == html.read_bytes()
-    raw = json.loads((run / "raw-programmatic-findings.json").read_text())
+    raw = json.loads((run / "artifacts" / "raw-programmatic-findings.json").read_text())
     normalized = json.loads((run / "normalized-programmatic-findings.json").read_text())
     assert raw and [finding["raw_source"] for finding in normalized] == raw
     assert not (run / "programmatic_findings.json").exists()
     assert not (run / "programmatic-findings.json").exists()
     manifest = json.loads((run / "run.json").read_text())
+    assert manifest["run_id"] == run.name
+    assert all(item["run_id"] == run.name for item in normalized)
     assert manifest["snapshot_sha256"] == hashlib.sha256(html.read_bytes()).hexdigest()
     assert manifest["human_audit_filename"] == human_audit.name
     assert manifest["human_audit_sha256"] == hashlib.sha256(human_audit.read_bytes()).hexdigest()
-    imported = json.loads((run / "human-findings.json").read_text())
+    imported = json.loads((run / "artifacts" / "human-findings.json").read_text())
     assert imported["human_audit_sha256"] == manifest["human_audit_sha256"]
     assert all(item["human_finding_id"].startswith("human-") for item in imported["human_findings"])
     rows = read_review(run / "review.csv")
@@ -160,6 +175,15 @@ def test_live_csv_review_and_report_full_row_metrics(
 
         def call(self, prompt: str) -> dict:
             """Return a successful fake provider response with usage."""
+            if self.calls:
+                saved = directory(tmp_path)
+                responses = json.loads((saved / "artifacts" / "raw-llm-responses.json").read_text())
+                findings = json.loads((saved / "normalized-llm-findings.json").read_text())
+                manifest = json.loads((saved / "run.json").read_text())
+                assert len(responses) == self.calls
+                assert len(findings) == self.calls
+                assert manifest["usage"]["input_tokens"] == self.calls * 1000
+                assert manifest["complete"] is False
             self.calls += 1
             return {
                 "success": True,
@@ -188,10 +212,20 @@ def test_live_csv_review_and_report_full_row_metrics(
     assert client_options[0]["max_retries"] == 0
     run = directory(tmp_path)
     assert fake.calls == 3
+    root_entries = {
+        "review.csv", "snapshot.html", "normalized-llm-findings.json",
+        "normalized-programmatic-findings.json", "run.json", "artifacts",
+    }
+    assert {path.name for path in run.iterdir()} == root_entries
+    assert {path.name for path in (run / "artifacts").iterdir()} == {
+        "human-findings.json", "pricing.json", "raw-llm-responses.json",
+        "raw-programmatic-findings.json", "prompts", "payloads",
+    }
+    assert json.loads((run / "run.json").read_text())["run_id"] == run.name
     assert (
         json.loads((run / "run.json").read_text())["estimated_cost_usd"] == "0.006525"
     )
-    assert (run / "raw-llm-responses.json").exists()
+    assert (run / "artifacts" / "raw-llm-responses.json").exists()
     assert all(not (run / name).exists() for name in (
         "references.json", "raw-audit-responses.json", "normalized-audit-findings.json"
     ))
@@ -199,6 +233,7 @@ def test_live_csv_review_and_report_full_row_metrics(
     programmatic_file = run / "normalized-programmatic-findings.json"
     programmatic = json.loads(programmatic_file.read_text())
     assert findings and programmatic
+    assert all(item["run_id"] == run.name for item in findings + programmatic)
     assert all(item["source"] == "llm" and item["finding_id"].startswith("llm-") for item in findings)
     assert all(item["finding_id"].startswith("programmatic-") for item in programmatic)
     review = run / "review.csv"
@@ -225,6 +260,7 @@ def test_live_csv_review_and_report_full_row_metrics(
         main(["report", "--run-dir", str(run), "--reviewer", " "])
     write_review(review, list(reversed(rows)))
     assert main(["report", "--run-dir", str(run), "--reviewer", "Codex agent (operator-directed)"]) == 0
+    assert {path.name for path in run.iterdir()} == root_entries | {"report.md"}
     report = (run / "report.md").read_text()
     assert "# LLM accessibility evaluation: https://example.test/" in report
     headings = ["How to read this report", "Summary", "Human findings", "What each part of the tool caught", "Missed", "Not testable from the page file"]
@@ -260,9 +296,9 @@ def test_live_csv_review_and_report_full_row_metrics(
     write_review(review, rows)
     with pytest.raises(SystemExit):
         main(["report", "--run-dir", str(run), "--reviewer", "Codex agent (operator-directed)"])
-    imported = json.loads((run / "human-findings.json").read_text())
+    imported = json.loads((run / "artifacts" / "human-findings.json").read_text())
     imported["human_audit_sha256"] = "changed"
-    (run / "human-findings.json").write_text(json.dumps(imported))
+    (run / "artifacts" / "human-findings.json").write_text(json.dumps(imported))
     with pytest.raises(SystemExit):
         main(["report", "--run-dir", str(run), "--reviewer", "Codex agent (operator-directed)"])
 
@@ -297,6 +333,13 @@ def test_report_cross_catches_empty_misses_and_not_testable_findings(
     assert main(args(human_audit, html, "--live", "--approve-live")) == 0
     run = directory(tmp_path)
     findings = json.loads((run / "normalized-llm-findings.json").read_text())
+    manifest = json.loads((run / "run.json").read_text())
+    responses = json.loads((run / "artifacts" / "raw-llm-responses.json").read_text())
+    assert manifest["complete"] is True
+    assert manifest["format_failures"] == ["page_title"]
+    assert responses[0]["result"]["response"] == "not JSON"
+    assert len(findings) == 2
+    assert all(item["prompt"] != "page_title" for item in findings)
     review = run / "review.csv"
     rows = read_review(review)
     rows[0].update(classification="llm_eligible", llm_finding_id=findings[0]["finding_id"], match_reason="Full <main>|coverage")
@@ -438,9 +481,16 @@ def test_live_execution_needs_explicit_approval(
 
     monkeypatch.setattr("sys.stdin", DeclinedInput())
     assert main(args(human_audit, html, "--live")) == 0
-    assert (
-        json.loads((directory(tmp_path) / "run.json").read_text())["complete"] is False
-    )
+    run = directory(tmp_path)
+    manifest = json.loads((run / "run.json").read_text())
+    assert manifest["complete"] is False
+    assert manifest["incomplete_reason"] == "preview"
+    assert {path.name for path in run.iterdir()} == {
+        "review.csv", "snapshot.html", "normalized-programmatic-findings.json",
+        "run.json", "artifacts",
+    }
+    assert (run / "artifacts" / "prompts").is_dir()
+    assert not (run / "artifacts" / "raw-llm-responses.json").exists()
 
 
 @pytest.mark.parametrize("failure", [True, False])
@@ -460,7 +510,7 @@ def test_failed_or_over_budget_runs_keep_usage_and_cannot_report(
             self.calls += 1
             return {
                 "success": not failure,
-                "response": "[]" if not failure else None,
+                "response": json.dumps([{"problem": "Unclear page title"}]) if not failure else None,
                 "error": "synthetic failure" if failure else None,
                 "usage": {"input_tokens": 100000, "output_tokens": 20},
             }
@@ -472,8 +522,90 @@ def test_failed_or_over_budget_runs_keep_usage_and_cannot_report(
     manifest = json.loads((run / "run.json").read_text())
     assert fake.calls == 1
     assert manifest["complete"] is False
+    assert manifest["incomplete_reason"] == (
+        "synthetic failure" if failure else "cost guardrail exhausted"
+    )
+    assert {path.name for path in run.iterdir()} == {
+        "review.csv", "snapshot.html", "normalized-llm-findings.json",
+        "normalized-programmatic-findings.json", "run.json", "artifacts",
+    }
+    findings = json.loads((run / "normalized-llm-findings.json").read_text())
+    assert len(findings) == (0 if failure else 1)
+    assert all(item["run_id"] == run.name for item in findings)
     assert manifest["usage"]["input_tokens"] == 100000
     assert float(manifest["estimated_cost_usd"]) > 0
-    assert len(json.loads((run / "raw-llm-responses.json").read_text())) == 1
+    assert len(json.loads((run / "artifacts" / "raw-llm-responses.json").read_text())) == 1
     with pytest.raises(SystemExit):
         main(["report", "--run-dir", str(run), "--reviewer", "Codex agent (operator-directed)"])
+
+
+@pytest.mark.parametrize("filename", ["human-findings.json", "pricing.json"])
+def test_report_requires_supporting_artifacts_without_reorganizing_old_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str], filename: str,
+) -> None:
+    """Root-level evidence is neither a fallback nor an automatic migration."""
+    human_audit, html = inputs(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic")
+
+    class FakeClient:
+        def call(self, prompt: str) -> dict:
+            return {"success": True, "response": "[]", "usage": {}}
+
+    monkeypatch.setattr(llm_audit, "LLMRequestClient", lambda **_: FakeClient())
+    assert main(args(human_audit, html, "--live", "--approve-live")) == 0
+    run = directory(tmp_path)
+    rows = read_review(run / "review.csv")
+    for row in rows:
+        row.update(classification="llm_eligible")
+    write_review(run / "review.csv", rows)
+    (run / "artifacts" / filename).rename(run / filename)
+    before = {path.relative_to(run): path.read_bytes() for path in run.rglob("*") if path.is_file()}
+    with pytest.raises(SystemExit) as error:
+        main(["report", "--run-dir", str(run), "--reviewer", "Test reviewer"])
+    assert error.value.code == 2
+    assert str(run / "artifacts" / filename) in capsys.readouterr().err
+    assert {path.relative_to(run): path.read_bytes() for path in run.rglob("*") if path.is_file()} == before
+
+
+@pytest.mark.parametrize("filename,field", [
+    ("run.json", "run_id"),
+    ("artifacts/human-findings.json", "human_audit_sha256"),
+    ("normalized-llm-findings.json", "run_id"),
+    ("normalized-llm-findings.json", "source"),
+    ("normalized-llm-findings.json", "page_url"),
+    ("normalized-programmatic-findings.json", "run_id"),
+    ("normalized-programmatic-findings.json", "source"),
+    ("normalized-programmatic-findings.json", "page_url"),
+])
+def test_report_rejects_evidence_from_another_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str], filename: str, field: str,
+) -> None:
+    """Moving supporting evidence preserves all provenance validation."""
+    human_audit, html = inputs(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic")
+
+    class FakeClient:
+        def call(self, prompt: str) -> dict:
+            return {"success": True, "response": '[{"problem": "Unclear link"}]', "usage": {}}
+
+    monkeypatch.setattr(llm_audit, "LLMRequestClient", lambda **_: FakeClient())
+    assert main(args(human_audit, html, "--live", "--approve-live")) == 0
+    run = directory(tmp_path)
+    path = run / filename
+    evidence = json.loads(path.read_text())
+    record = evidence[0] if isinstance(evidence, list) else evidence
+    record[field] = "unrelated"
+    path.write_text(json.dumps(evidence))
+    with pytest.raises(SystemExit) as error:
+        main(["report", "--run-dir", str(run), "--reviewer", "Test reviewer"])
+    assert error.value.code == 2
+    message = capsys.readouterr().err
+    if field == "human_audit_sha256":
+        assert "identity differs" in message
+    else:
+        assert "do not belong" in message or "does not belong" in message
+    assert not (run / "report.md").exists()

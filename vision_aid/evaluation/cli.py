@@ -91,23 +91,25 @@ def _run(args: argparse.Namespace) -> int:
         raise ValueError(f"Benchmark HTML not found: {args.html}")
     human_audit = import_homepage_human_findings(args.human_audit, args.source_url)
     run = _new_run_directory()
+    artifacts = run / "artifacts"
+    artifacts.mkdir()
     shutil.copyfile(args.html, run / "snapshot.html")
-    shutil.copyfile(DEFAULT_SCHEDULE, run / "pricing.json")
+    shutil.copyfile(DEFAULT_SCHEDULE, artifacts / "pricing.json")
     snapshot_hash = hashlib.sha256((run / "snapshot.html").read_bytes()).hexdigest()
-    write_json(run / "human-findings.json", human_audit.to_dict())
+    write_json(artifacts / "human-findings.json", human_audit.to_dict())
     production = run_pipeline(
         html_path=str(run / "snapshot.html"),
-        output_dir=run,
+        output_dir=artifacts,
         api_key=None,
         model=MODEL,
         dry_run=True,
         include_summaries=False,
         request_config=REQUEST_CONFIG,
     )
-    (run / "manifest.json").unlink()
-    raw_path = run / "programmatic_findings.json"
+    (artifacts / "manifest.json").unlink()
+    raw_path = artifacts / "programmatic_findings.json"
     raw_programmatic = json.loads(raw_path.read_text())
-    raw_path.rename(run / "raw-programmatic-findings.json")
+    raw_path.rename(artifacts / "raw-programmatic-findings.json")
     findings = normalize_programmatic_findings(
         raw_programmatic,
         run_id=run.name,
@@ -118,7 +120,7 @@ def _run(args: argparse.Namespace) -> int:
         [asdict(item) for item in findings],
     )
     create_review(run / "review.csv", list(human_audit.to_dict()["human_findings"]))
-    schedule = PriceSchedule.load(run / "pricing.json")
+    schedule = PriceSchedule.load(artifacts / "pricing.json")
     manifest = {
         "run_id": run.name,
         "source_url": args.source_url,
@@ -190,12 +192,13 @@ def _report(args: argparse.Namespace) -> int:
     if not args.reviewer.strip():
         raise ValueError("A reviewer description is required")
     run = args.run_dir.resolve()
+    artifacts = run / "artifacts"
     manifest = json.loads((run / "run.json").read_text())
     if manifest["run_id"] != run.name:
         raise ValueError("Run evidence does not belong to this directory")
     if not manifest["complete"]:
         raise ValueError("Incomplete Evaluation runs cannot produce a final report")
-    human_audit = json.loads((run / "human-findings.json").read_text())
+    human_audit = json.loads((artifacts / "human-findings.json").read_text())
     if human_audit["human_audit_sha256"] != manifest["human_audit_sha256"]:
         raise ValueError("Human audit identity differs from the run")
     llm = json.loads((run / "normalized-llm-findings.json").read_text())
@@ -212,7 +215,7 @@ def _report(args: argparse.Namespace) -> int:
     rows = reviewed_rows(
         run / "review.csv", human_audit["human_findings"], llm, programmatic
     )
-    schedule = PriceSchedule.load(run / "pricing.json")
+    schedule = PriceSchedule.load(artifacts / "pricing.json")
     write_report(
         run / "report.md", manifest, rows, llm, programmatic,
         args.reviewer, str(schedule.data["published_at"]),
