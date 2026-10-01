@@ -1,6 +1,6 @@
 # Organize the Evaluation run directory for review and results
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -106,6 +106,16 @@ This is a clean break. New runs use only the new layout, and the updated report 
 - Run the evaluation CLI lifecycle suite and the repository's applicable existing checks. Reuse existing shared-pipeline checks to confirm its ordinary output contract remains unchanged.
 - No paid live verification is part of this spec.
 
+## Acceptance Criteria
+
+- [x] Complete runs expose exactly the agreed review files and `artifacts/` at the root; successful reporting adds only `report.md`.
+- [x] Supporting evidence retains its filenames under `artifacts/`, with prompts and payloads nested inside it.
+- [x] Preview, declined, stopped, and malformed-response cases preserve artifact availability, approval, completion, usage, and per-prompt persistence behavior.
+- [x] Run identity, finding provenance, Human audit identity, review validation, report content, and hand-calculated detection rates remain correct.
+- [x] Reporting reads only the new supporting locations and neither falls back to root files nor reorganizes existing evidence.
+- [x] The shared pipeline's ordinary output layout remains unchanged outside evaluation.
+- [x] README workflow, artifact references, review instructions, and the manual-reorganization requirement match the implemented layout.
+
 ## Out of Scope
 
 - Generated reviewer guides, readable finding references, or replacement review interfaces.
@@ -135,3 +145,7 @@ The plan preserves the existing decisions to separate human review from determin
 - Q4: The operator chose one supporting artifact directory with existing filenames.
 - Q5: The operator chose the new layout only, leaving existing directories untouched.
 - Q6: The operator confirmed the complete plan and requested publication through the to-spec skill.
+
+- Implementation complete in commit `1bc12d99` (`feat(evaluation)!: organize supporting run artifacts`).
+- Verification: all 47 repository tests passed, including 18 evaluation CLI lifecycle cases. The ordinary shared-pipeline dry run retained its output contract with 10 prompts, 14 Programmatic findings, and zero provider tokens. Lockfile, dependency export, entry-point imports, compilation, and diff checks passed. The repository has no configured type checker. No paid requests or private-run mutations were performed.
+- Review: independent Standards and Spec reviews each reported zero findings. All acceptance criteria above are demonstrated by lifecycle tests, the shared-pipeline check, or review. Resolved after the implementation commit and both reviews.
