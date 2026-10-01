@@ -239,6 +239,25 @@ GEMINI_API_KEY=AIza...
 
 ## Private Model Evaluation
 
+### Choose an evaluation model
+
+Each Evaluation run uses one fixed model through Anthropic's direct API.
+Choose it with `--model`; omitting the flag selects Haiku 4.5. The evaluator
+accepts only these exact IDs:
+
+| Model | `--model` value | Thinking | Effort |
+| --- | --- | --- | --- |
+| Haiku 4.5, default | `claude-haiku-4-5-20251001` | 16,000-token budget | Omitted |
+| Opus 5.5 | `claude-opus-5-5` | Adaptive | High |
+| Sonnet 5.5 | `claude-sonnet-5-5` | Adaptive | High |
+
+For example, add `--model claude-opus-5-5` to the run command below to evaluate
+Opus. Friendly names and aliases are rejected. Thinking settings are fixed
+presets, and all three models use a 24,192-token output cap that includes
+thinking and final text. Adaptive thinking does not reserve a fixed number of
+tokens for final text. Temperature is omitted and summaries are disabled.
+The selected model and settings are saved with each run.
+
 ### Get a final report with the supplied Human audit
 
 From the repository root, use the supplied `Pristine Accessibility Defect Report.xlsx`
@@ -275,8 +294,10 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
      --live
    ```
 
-   The CLI shows Haiku's 16,000 thinking tokens, 24,192 output token cap,
-   prompt count, pricing, snapshot checksum, and limit. Type `yes` to approve
+   The CLI shows the selected model's thinking settings, effort, output token cap,
+   prompt count, token rates, pricing version, snapshot checksum, and limit.
+   The cost guardrail is checked between requests; a request underway can exceed it.
+   Type `yes` to approve
    paid requests; `--approve-live` skips the prompt. It copies the snapshot,
    imports Human findings, runs checks, and saves responses and usage.
 
@@ -337,7 +358,7 @@ compatibility fallback or automatic migration.
 | `run.json` | Configuration, snapshot checksum, prompt list, completion status, format failures, token usage, and estimated cost. `complete: true` does not imply that every response parsed successfully; check `format_failures`. |
 | `report.md` | Scored results generated after successful reporting. |
 | `artifacts/human-findings.json` | Canonical imported Home and Global Human findings used to validate and score the review. |
-| `artifacts/pricing.json` | The versioned model rates used to estimate this run's cost from reported usage. |
+| `artifacts/pricing.json` | The versioned public model rates and capture date used to estimate this run's cost from reported usage. Older runs retain their original price schedule. |
 | `artifacts/raw-llm-responses.json` | Live model replies, request outcomes, and reported token usage, including responses that could not be parsed into findings. |
 | `artifacts/raw-programmatic-findings.json` | Original output from the Programmatic checks. |
 | `artifacts/prompts/*.json` | The exact `prompt_text` and filtered `payload_slice` prepared for each model request. These files do not hold model replies in an Evaluation run. |
@@ -421,7 +442,7 @@ uv run visionaid-evaluate run --html .model-evaluation/pristine-home.html \
 This needs no API key or approval. It creates an incomplete run with
 `artifacts/raw-programmatic-findings.json`, `normalized-programmatic-findings.json`,
 LLM prompts, and `review.csv`. Use the normalized file's `finding_id` values
-for programmatic matches. It makes no Haiku requests and cannot produce a
+for programmatic matches. It makes no model requests and cannot produce a
 final report. `--max-cost-usd` must be positive but is not spent without
 `--live`. Start a new live run at step 3 to finish the evaluation.
 

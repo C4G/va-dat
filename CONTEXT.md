@@ -17,7 +17,7 @@ The saved HTML of the audited page, identified by its source URL and checksum.
 _Avoid_: Live page.
 
 **Evaluation run**:
-One audit with a fixed model, together with its evidence, the human decisions, its completion status, and its report.
+One audit with one selected model held fixed throughout, together with its evidence, the human decisions, its completion status, and its report.
 _Avoid_: Execution plan, report bundle.
 
 **LLM**:

@@ -145,7 +145,7 @@ def write_report(
     llm: list[dict[str, Any]],
     programmatic: list[dict[str, Any]],
     reviewer: str,
-    pricing_date: str,
+    pricing_description: str,
 ) -> None:
     """Explain the review's catches, misses, and scoring in source order."""
     if not manifest["complete"]:
@@ -188,7 +188,7 @@ def write_report(
     lines.extend([
         _rate("Overall", len(covered), len(rows)),
         "",
-        f"Estimated run cost: ${Decimal(manifest['estimated_cost_usd']):.2f}, calculated from {', '.join(tokens)} multiplied by the published prices dated {_md(pricing_date)}. The actual bill may differ slightly.",
+        f"Estimated run cost: ${Decimal(manifest['estimated_cost_usd']):.2f}, calculated from {', '.join(tokens)} multiplied by the {_md(pricing_description)}. The actual bill may differ slightly.",
         "",
     ])
     if manifest["format_failures"]:

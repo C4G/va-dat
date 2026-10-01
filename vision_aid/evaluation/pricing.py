@@ -40,6 +40,13 @@ class PriceSchedule:
         """Return the curator-assigned price-schedule version."""
         return str(self.data["version"])
 
+    @property
+    def price_description(self) -> str:
+        """Distinguish captured public rates from older publication metadata."""
+        if "captured_at" in self.data:
+            return f"published prices captured on {self.data['captured_at']}"
+        return f"published prices dated {self.data['published_at']}"
+
     def estimate(self, model: str, usage: Mapping[str, int | None]) -> str:
         """Price reported categories without rounding away tie precision."""
         try:

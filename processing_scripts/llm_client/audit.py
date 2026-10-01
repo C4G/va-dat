@@ -36,6 +36,7 @@ class AuditRequestConfig:
     temperature: float | None = 0.1
     max_output_tokens: int = 8192
     thinking_budget_tokens: int | None = None
+    adaptive_thinking: bool = False
 
     def __post_init__(self) -> None:
         """Reject configuration values that cannot form an audit request."""
@@ -43,6 +44,16 @@ class AuditRequestConfig:
             raise ValueError("model must not be empty")
         if self.max_output_tokens <= 0:
             raise ValueError("max_output_tokens must be greater than zero")
+
+        if self.adaptive_thinking:
+            if is_openai_model(self.model) or is_gemini_model(self.model):
+                raise ValueError("adaptive_thinking requires Anthropic")
+            if self.thinking_budget_tokens is not None:
+                raise ValueError("adaptive thinking cannot have a manual budget")
+            if self.temperature is not None:
+                raise ValueError("temperature must be omitted with thinking")
+            if self.reasoning_effort not in (None, "low", "medium", "high", "xhigh", "max"):
+                raise ValueError("unsupported Anthropic reasoning effort")
 
         if self.thinking_budget_tokens is not None:
             if is_openai_model(self.model) or is_gemini_model(self.model):
@@ -56,6 +67,7 @@ class AuditRequestConfig:
         """Return the requested configuration as serializable metadata."""
         omitted = [] if self.temperature is not None else ["temperature"]
         return {
+            **({"thinking": {"type": "adaptive"}} if self.adaptive_thinking else {}),
             **(
                 {
                     "thinking": {
@@ -191,11 +203,16 @@ class AuditRequestClient:
         self._is_openai = is_openai_model(self.model)
         self._is_gemini = is_gemini_model(self.model)
 
-        if request_config.reasoning_effort is not None and not self._is_openai:
+        if (
+            request_config.reasoning_effort is not None
+            and not self._is_openai
+            and not request_config.adaptive_thinking
+        ):
             raise ValueError(
-                "reasoning_effort is only supported for OpenAI audit requests"
+                "reasoning_effort requires OpenAI or Anthropic adaptive thinking"
             )
 
+        self._client: Any
         if provider_client is not None:
             self._client = provider_client
         elif self._is_openai:
@@ -293,6 +310,17 @@ class AuditRequestClient:
                 "type": "enabled",
                 "budget_tokens": self.request_config.thinking_budget_tokens,
             }
+        elif self.request_config.adaptive_thinking:
+            request_kwargs["thinking"] = {"type": "adaptive"}
+            if self.request_config.reasoning_effort is not None:
+                request_kwargs["output_config"] = {
+                    "effort": self.request_config.reasoning_effort,
+                }
+
+        if (
+            self.request_config.thinking_budget_tokens is not None
+            or self.request_config.adaptive_thinking
+        ):
             message = self._stream_anthropic(request_kwargs)
         else:
             message = self._client.messages.create(**request_kwargs)

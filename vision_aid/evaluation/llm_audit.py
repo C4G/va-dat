@@ -1,4 +1,4 @@
-"""Fixed Haiku request configuration and sequential paid execution."""
+"""Fixed evaluation model presets and sequential paid execution."""
 
 from __future__ import annotations
 
@@ -15,21 +15,24 @@ from processing_scripts.llm_client.audit import (
 from vision_aid.evaluation.normalization import normalize_prompt_response
 from vision_aid.evaluation.pricing import PriceSchedule
 
-MODEL = "claude-haiku-4-5-20251001"
-REQUEST_CONFIG = LLMRequestConfig(
-    model=MODEL,
-    thinking_budget_tokens=16000,
-    max_output_tokens=24192,
-    temperature=None,
-)
-CONFIGURATION = {
-    "model": MODEL,
-    "provider": "anthropic",
-    "endpoint": "messages",
-    "thinking_budget_tokens": REQUEST_CONFIG.thinking_budget_tokens,
-    "max_output_tokens": REQUEST_CONFIG.max_output_tokens,
-    "temperature": "omitted",
-    "summaries": "disabled",
+DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+MODEL_PRESETS = {
+    DEFAULT_MODEL: LLMRequestConfig(
+        model=DEFAULT_MODEL,
+        thinking_budget_tokens=16000,
+        max_output_tokens=24192,
+        temperature=None,
+    ),
+    **{
+        model: LLMRequestConfig(
+            model=model,
+            adaptive_thinking=True,
+            reasoning_effort="high",
+            max_output_tokens=24192,
+            temperature=None,
+        )
+        for model in ("claude-opus-5-5", "claude-sonnet-5-5")
+    },
 }
 USAGE_KEYS = (
     "input_tokens",
@@ -37,6 +40,21 @@ USAGE_KEYS = (
     "cache_creation_input_tokens",
     "output_tokens",
 )
+
+
+def evaluation_configuration(config: LLMRequestConfig) -> dict[str, Any]:
+    """Record the selected preset and evaluation-only request settings."""
+    return {
+        "model": config.model,
+        "provider": "anthropic",
+        "endpoint": "messages",
+        "thinking": config.as_metadata()["thinking"],
+        "thinking_budget_tokens": config.thinking_budget_tokens,
+        "reasoning_effort": config.reasoning_effort,
+        "max_output_tokens": config.max_output_tokens,
+        "temperature": "omitted",
+        "summaries": "disabled",
+    }
 
 
 def write_json(path: Path, value: object) -> None:
@@ -58,13 +76,16 @@ def positive_cost(value: str) -> Decimal:
     return amount
 
 
-def execute(run: Path, manifest: dict[str, Any], api_key: str) -> bool:
+def execute(
+    run: Path, manifest: dict[str, Any], api_key: str,
+    request_config: LLMRequestConfig,
+) -> bool:
     """Make each paid request once, saving reported usage and responses as received."""
     artifacts = run / "artifacts"
     schedule = PriceSchedule.load(artifacts / "pricing.json")
     client = LLMRequestClient(
         api_key=api_key,
-        request_config=REQUEST_CONFIG,
+        request_config=request_config,
         max_retries=0,
     )
     usage: dict[str, int] = {key: 0 for key in USAGE_KEYS}
@@ -74,7 +95,7 @@ def execute(run: Path, manifest: dict[str, Any], api_key: str) -> bool:
     complete = True
     reason = None
     for prompt in manifest["prompts"]:
-        if Decimal(schedule.estimate(MODEL, usage)) >= Decimal(
+        if Decimal(schedule.estimate(request_config.model, usage)) >= Decimal(
             manifest["max_cost_usd"]
         ):
             complete, reason = False, "cost guardrail exhausted"
@@ -103,7 +124,7 @@ def execute(run: Path, manifest: dict[str, Any], api_key: str) -> bool:
                 name,
                 str(result.get("response") or ""),
                 run_id=manifest["run_id"],
-                model=MODEL,
+                model=request_config.model,
                 page_url=manifest["source_url"],
             )
             findings.extend(asdict(finding) for finding in normalized.findings)
@@ -113,7 +134,7 @@ def execute(run: Path, manifest: dict[str, Any], api_key: str) -> bool:
             complete, reason = False, str(result.get("error") or "request failed")
         manifest.update(
             usage=usage,
-            estimated_cost_usd=schedule.estimate(MODEL, usage),
+            estimated_cost_usd=schedule.estimate(request_config.model, usage),
             complete=False,
             incomplete_reason=reason,
             format_failures=format_failures,
@@ -126,7 +147,7 @@ def execute(run: Path, manifest: dict[str, Any], api_key: str) -> bool:
     manifest.update(
         complete=complete,
         incomplete_reason=reason,
-        estimated_cost_usd=schedule.estimate(MODEL, usage),
+        estimated_cost_usd=schedule.estimate(request_config.model, usage),
     )
     write_json(run / "run.json", manifest)
     return complete

@@ -1,4 +1,4 @@
-"""Run one private Haiku evaluation, then score a human-edited CSV."""
+"""Run one private fixed-model evaluation, then score a human-edited CSV."""
 
 from __future__ import annotations
 
@@ -19,9 +19,9 @@ from dotenv import load_dotenv
 from entry_points.run_pipeline import run_pipeline
 from vision_aid.evaluation.human_audit import import_homepage_human_findings
 from vision_aid.evaluation.llm_audit import (
-    CONFIGURATION,
-    MODEL,
-    REQUEST_CONFIG,
+    DEFAULT_MODEL,
+    MODEL_PRESETS,
+    evaluation_configuration,
     execute,
     positive_cost,
     write_json,
@@ -39,7 +39,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="visionaid-evaluate")
     commands = parser.add_subparsers(dest="command", required=True)
     run = commands.add_parser(
-        "run", help="preview or execute the fixed Haiku experiment"
+        "run", help="preview or execute an Evaluation run with one selected model"
+    )
+    run.add_argument(
+        "--model", choices=MODEL_PRESETS, default=DEFAULT_MODEL,
+        help=f"fixed model preset (default: {DEFAULT_MODEL})",
     )
     run.add_argument(
         "--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT, help="Human audit"
@@ -84,6 +88,8 @@ def _new_run_directory() -> Path:
 
 def _run(args: argparse.Namespace) -> int:
     """Prepare a fresh run and execute only after explicit approval."""
+    request_config = MODEL_PRESETS[args.model]
+    configuration = evaluation_configuration(request_config)
     limit = positive_cost(args.max_cost_usd)
     if args.approve_live and not args.live:
         raise ValueError("--approve-live requires --live")
@@ -101,10 +107,10 @@ def _run(args: argparse.Namespace) -> int:
         html_path=str(run / "snapshot.html"),
         output_dir=artifacts,
         api_key=None,
-        model=MODEL,
+        model=request_config.model,
         dry_run=True,
         include_summaries=False,
-        request_config=REQUEST_CONFIG,
+        request_config=request_config,
     )
     (artifacts / "manifest.json").unlink()
     raw_path = artifacts / "programmatic_findings.json"
@@ -127,7 +133,7 @@ def _run(args: argparse.Namespace) -> int:
         "human_audit_filename": human_audit.human_audit_filename,
         "human_audit_sha256": human_audit.human_audit_sha256,
         "snapshot_sha256": snapshot_hash,
-        "configuration": CONFIGURATION,
+        "configuration": configuration,
         "pricing_version": schedule.version,
         "pricing_sha256": schedule.identity,
         "max_cost_usd": str(limit),
@@ -154,9 +160,11 @@ def _run(args: argparse.Namespace) -> int:
     write_json(run / "run.json", manifest)
     print(f"Evaluation run: {run}")
     print(
-        f"Model: {MODEL}; endpoint: Messages; "
-        f"thinking: {CONFIGURATION['thinking_budget_tokens']}; "
-        f"output cap: {CONFIGURATION['max_output_tokens']}"
+        f"Model: {request_config.model}; endpoint: Messages; "
+        f"thinking: {configuration['thinking']['type']}; "
+        f"effort: {request_config.reasoning_effort or 'omitted'}; "
+        f"thinking budget: {request_config.thinking_budget_tokens or 'none'}; "
+        f"output cap: {request_config.max_output_tokens}"
     )
     print(
         "Temperature: omitted; summaries: disabled; "
@@ -167,7 +175,17 @@ def _run(args: argparse.Namespace) -> int:
         f"Human findings: {len(human_audit.human_findings)}"
     )
     print(f"Pricing: {schedule.version} ({schedule.identity})")
-    print(f"Cost guardrail: ${limit}; checked before each request")
+    rates = schedule.data["models"][request_config.model]
+    print(
+        f"Rates per million tokens (USD): input ${rates['input_per_million_usd']}; "
+        f"output ${rates['output_per_million_usd']}; "
+        f"cache read ${rates['cached_input_per_million_usd']}; "
+        f"5-minute cache write ${rates['cache_creation_input_per_million_usd']}"
+    )
+    print(
+        f"Cost guardrail: ${limit}; checked before each request; "
+        "a request underway can exceed the limit"
+    )
     print(f"Review CSV: {run / 'review.csv'}")
     if not args.live:
         print("Preview complete; no paid requests made.")
@@ -182,7 +200,7 @@ def _run(args: argparse.Namespace) -> int:
     ):
         print("Live execution declined; no paid requests made.")
         return 0
-    complete = execute(run, manifest, api_key)
+    complete = execute(run, manifest, api_key, request_config)
     print(f"Run {'complete' if complete else 'incomplete'}: {run}")
     return 0 if complete else 1
 
@@ -218,7 +236,7 @@ def _report(args: argparse.Namespace) -> int:
     schedule = PriceSchedule.load(artifacts / "pricing.json")
     write_report(
         run / "report.md", manifest, rows, llm, programmatic,
-        args.reviewer, str(schedule.data["published_at"]),
+        args.reviewer, schedule.price_description,
     )
     print(f"Markdown report: {run / 'report.md'}")
     return 0

@@ -262,7 +262,12 @@ class AuditRequestTests(TestCase):
 @pytest.mark.parametrize(
     "parts,stop", [(["[", "]"], "end_turn"), ([], "end_turn"), (["["], "max_tokens")]
 )
-def test_haiku_thinking_stream_exposes_only_final_text(parts, stop):
+@pytest.mark.parametrize("model,thinking,effort", [
+    ("claude-haiku-4-5-20251001", {"type": "enabled", "budget_tokens": 16000}, None),
+    ("claude-opus-5-5", {"type": "adaptive"}, "high"),
+    ("claude-sonnet-5-5", {"type": "adaptive"}, "high"),
+])
+def test_thinking_stream_exposes_only_final_text(parts, stop, model, thinking, effort):
     """Only final text and inclusive billed output leave a thinking stream."""
     from contextlib import nullcontext
 
@@ -276,7 +281,7 @@ def test_haiku_thinking_stream_exposes_only_final_text(parts, stop):
             "message_start",
             message=SimpleNamespace(
                 id="msg-thinking",
-                model="claude-haiku-4-5-20251001",
+                model=model,
                 type="message",
                 usage=SimpleNamespace(input_tokens=100, output_tokens=1),
             ),
@@ -309,22 +314,28 @@ def test_haiku_thinking_stream_exposes_only_final_text(parts, stop):
         "unused",
         provider_client=fake,
         request_config=AuditRequestConfig(
-            model="claude-haiku-4-5-20251001",
+            model=model,
             temperature=None,
-            thinking_budget_tokens=16000,
+            thinking_budget_tokens=thinking.get("budget_tokens"),
+            adaptive_thinking=thinking["type"] == "adaptive",
+            reasoning_effort=effort,
             max_output_tokens=24192,
         ),
     ).call("audit")
     assert fake.messages.requests == [
         {
-            "model": "claude-haiku-4-5-20251001",
+            "model": model,
             "max_tokens": 24192,
             "messages": [{"role": "user", "content": "audit"}],
-            "thinking": {"type": "enabled", "budget_tokens": 16000},
+            "thinking": thinking,
+            **({"output_config": {"effort": effort}} if effort else {}),
             "stream": True,
         }
     ]
     assert result["success"]
+    assert result["model"] == model
+    assert result["request"]["thinking"] == thinking
+    assert result["request"]["reasoning_effort"] == effort
     assert result["response"] == "".join(parts)
     assert result["stop_reason"] == stop
     assert result["usage"]["output_tokens"] == 16002

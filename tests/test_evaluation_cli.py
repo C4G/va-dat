@@ -1,9 +1,11 @@
 """Run, review, and report through the CLI and its saved artifacts."""
 
 import csv
+from contextlib import nullcontext
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import openpyxl
 import pytest
@@ -86,6 +88,129 @@ def write_review(path: Path, rows: list[dict[str, str]]) -> None:
         writer = csv.DictWriter(stream, fieldnames=rows[0])
         writer.writeheader()
         writer.writerows(rows)
+
+
+@pytest.mark.parametrize("model,thinking,effort,input_rate,output_rate", [
+    ("claude-haiku-4-5-20251001", {"type": "enabled", "budget_tokens": 16000}, None, "1", "5"),
+    ("claude-opus-5-5", {"type": "adaptive"}, "high", "4", "20"),
+    ("claude-sonnet-5-5", {"type": "adaptive"}, "high", "2", "10"),
+])
+def test_selected_model_preview_records_preset_without_provider_access(
+    tmp_path, monkeypatch, capsys, model, thinking, effort, input_rate, output_rate,
+):
+    """A key-free preview records and displays the selected preset and prices."""
+    human_audit, html = inputs(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr("anthropic.Anthropic", lambda **_: pytest.fail("provider access"))
+
+    assert main(args(human_audit, html, "--model", model)) == 0
+    run = directory(tmp_path)
+    manifest = json.loads((run / "run.json").read_text())
+    config = manifest["configuration"]
+    assert config["model"] == model
+    assert config["thinking"] == thinking
+    assert config["reasoning_effort"] == effort
+    assert config["max_output_tokens"] == 24192
+    assert config["temperature"] == "omitted"
+    assert config["summaries"] == "disabled"
+    assert config["provider"] == "anthropic" and config["endpoint"] == "messages"
+    schedule = json.loads((run / "artifacts" / "pricing.json").read_text())
+    assert schedule["models"][model]["input_per_million_usd"] == input_rate
+    assert schedule["models"][model]["output_per_million_usd"] == output_rate
+    assert manifest["pricing_sha256"] == hashlib.sha256((run / "artifacts" / "pricing.json").read_bytes()).hexdigest()
+    assert not (run / "artifacts" / "raw-llm-responses.json").exists()
+    output = capsys.readouterr().out
+    assert model in output and "24192" in output
+    assert f"input ${input_rate}; output ${output_rate}" in output
+    assert "16000" in output if effort is None else "adaptive; effort: high" in output
+    assert "request underway can exceed" in output
+
+
+@pytest.mark.parametrize("model", ["claude-haiku-4-5", "claude-unknown", "gpt-4o", "opus"])
+def test_unsupported_model_is_rejected_without_run_or_provider_access(
+    tmp_path, monkeypatch, capsys, model,
+):
+    """Unsupported IDs and aliases fail before creating evidence or buying requests."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("anthropic.Anthropic", lambda **_: pytest.fail("provider access"))
+    with pytest.raises(SystemExit) as error:
+        main(args(tmp_path / "missing.xlsx", tmp_path / "missing.html", "--model", model, "--live", "--approve-live"))
+    assert error.value.code == 2
+    message = capsys.readouterr().err
+    assert "invalid choice" in message
+    assert all(supported in message for supported in (
+        "claude-haiku-4-5-20251001", "claude-opus-5-5", "claude-sonnet-5-5",
+    ))
+    assert not (tmp_path / ".model-evaluation").exists()
+
+
+@pytest.mark.parametrize("model,thinking,effort,cost", [
+    ("claude-haiku-4-5-20251001", {"type": "enabled", "budget_tokens": 16000}, None, "0.006525"),
+    ("claude-opus-5-5", {"type": "adaptive"}, "high", "0.0258"),
+    ("claude-sonnet-5-5", {"type": "adaptive"}, "high", "0.01305"),
+])
+def test_selected_model_executes_and_reports_with_saved_prices(
+    tmp_path, monkeypatch, model, thinking, effort, cost,
+):
+    """The real CLI and request client retain selected-model evidence and costs."""
+    human_audit, html = inputs(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic")
+    requests = []
+    client_options = []
+
+    def create(**kwargs):
+        requests.append(kwargs)
+        assert kwargs["model"] == model
+        assert kwargs["thinking"] == thinking
+        assert kwargs["max_tokens"] == 24192 and kwargs["stream"] is True
+        assert "temperature" not in kwargs
+        if effort:
+            assert kwargs["output_config"] == {"effort": "high"}
+        else:
+            assert "output_config" not in kwargs
+        return nullcontext(iter([
+            SimpleNamespace(type="message_start", message=SimpleNamespace(
+                id="synthetic-response", model=model, type="message",
+                usage=SimpleNamespace(input_tokens=1000, output_tokens=1,
+                                      cache_read_input_tokens=500, cache_creation_input_tokens=100),
+            )),
+            SimpleNamespace(type="content_block_start", content_block=SimpleNamespace(type="thinking", thinking="SECRET")),
+            SimpleNamespace(type="content_block_delta", delta=SimpleNamespace(type="thinking_delta", thinking="SECRET")),
+            SimpleNamespace(type="content_block_start", content_block=SimpleNamespace(type="text", text='[{"problem": "Unclear link"}]')),
+            SimpleNamespace(type="message_delta", delta=SimpleNamespace(stop_reason="end_turn"), usage=SimpleNamespace(output_tokens=200)),
+            SimpleNamespace(type="message_stop"),
+        ]))
+
+    def client(**options):
+        client_options.append(options)
+        return SimpleNamespace(messages=SimpleNamespace(create=create))
+
+    monkeypatch.setattr("anthropic.Anthropic", client)
+    assert main(args(human_audit, html, "--model", model, "--max-cost-usd", "1", "--live", "--approve-live")) == 0
+    assert client_options == [{"api_key": "synthetic", "max_retries": 0}]
+    assert len(requests) == 3
+    run = directory(tmp_path)
+    manifest = json.loads((run / "run.json").read_text())
+    assert manifest["configuration"]["model"] == model
+    assert manifest["configuration"]["thinking"] == thinking
+    assert manifest["configuration"]["reasoning_effort"] == effort
+    assert manifest["estimated_cost_usd"] == cost
+    findings = json.loads((run / "normalized-llm-findings.json").read_text())
+    assert len(findings) == 3 and all(finding["model"] == model for finding in findings)
+    raw = json.loads((run / "artifacts" / "raw-llm-responses.json").read_text())
+    assert all(item["result"]["provider"]["response_model"] == model for item in raw)
+    assert all(item["result"]["request"]["thinking"] == thinking for item in raw)
+    assert "SECRET" not in json.dumps(raw)
+    rows = read_review(run / "review.csv")
+    for row in rows:
+        row.update(classification="llm_eligible")
+    write_review(run / "review.csv", rows)
+    assert main(["report", "--run-dir", str(run), "--reviewer", "Test reviewer"]) == 0
+    report = (run / "report.md").read_text()
+    assert model in report
+    assert "published prices captured on 2026-10-01" in report
 
 
 def test_preview_preserves_human_findings_and_never_calls_provider(
@@ -259,6 +384,24 @@ def test_live_csv_review_and_report_full_row_metrics(
     with pytest.raises(SystemExit):
         main(["report", "--run-dir", str(run), "--reviewer", " "])
     write_review(review, list(reversed(rows)))
+    # Reproduce saved evidence from before selectable model presets existed.
+    old_manifest = json.loads((run / "run.json").read_text())
+    old_manifest["configuration"].pop("thinking")
+    old_manifest["configuration"].pop("reasoning_effort")
+    old_pricing = {
+        "models": {"claude-haiku-4-5-20251001": {
+            "input_per_million_usd": "1", "output_per_million_usd": "5",
+            "cached_input_per_million_usd": "0.10", "cache_creation_input_per_million_usd": "1.25",
+        }},
+        "published_at": "2026-09-22",
+        "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+        "version": "anthropic-public-2026-09-22",
+    }
+    pricing_path = run / "artifacts" / "pricing.json"
+    pricing_path.write_text(json.dumps(old_pricing))
+    old_manifest["pricing_version"] = old_pricing["version"]
+    old_manifest["pricing_sha256"] = hashlib.sha256(pricing_path.read_bytes()).hexdigest()
+    (run / "run.json").write_text(json.dumps(old_manifest))
     assert main(["report", "--run-dir", str(run), "--reviewer", "Codex agent (operator-directed)"]) == 0
     assert {path.name for path in run.iterdir()} == root_entries | {"report.md"}
     report = (run / "report.md").read_text()
@@ -463,8 +606,9 @@ def test_review_requires_classification_and_rejects_invalid_finding_ids(
     assert "Of all 3 Human findings, either part of the tool caught 0 (0.0%)" in (run / "report.md").read_text()
 
 
+@pytest.mark.parametrize("model", ["claude-haiku-4-5-20251001", "claude-opus-5-5", "claude-sonnet-5-5"])
 def test_live_execution_needs_explicit_approval(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: str,
 ) -> None:
     """A noninteractive live flag without approval makes no paid request."""
     human_audit, html = inputs(tmp_path)
@@ -480,7 +624,7 @@ def test_live_execution_needs_explicit_approval(
             return False
 
     monkeypatch.setattr("sys.stdin", DeclinedInput())
-    assert main(args(human_audit, html, "--live")) == 0
+    assert main(args(human_audit, html, "--model", model, "--live")) == 0
     run = directory(tmp_path)
     manifest = json.loads((run / "run.json").read_text())
     assert manifest["complete"] is False
@@ -494,8 +638,9 @@ def test_live_execution_needs_explicit_approval(
 
 
 @pytest.mark.parametrize("failure", [True, False])
+@pytest.mark.parametrize("model", ["claude-haiku-4-5-20251001", "claude-opus-5-5", "claude-sonnet-5-5"])
 def test_failed_or_over_budget_runs_keep_usage_and_cannot_report(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: bool, model: str,
 ) -> None:
     """Failure and budget exhaustion stop after one request and remain inspectable."""
     human_audit, html = inputs(tmp_path)
@@ -517,7 +662,7 @@ def test_failed_or_over_budget_runs_keep_usage_and_cannot_report(
 
     fake = FakeClient()
     monkeypatch.setattr(llm_audit, "LLMRequestClient", lambda **_: fake)
-    assert main(args(human_audit, html, "--live", "--approve-live")) == 1
+    assert main(args(human_audit, html, "--model", model, "--live", "--approve-live")) == 1
     run = directory(tmp_path)
     manifest = json.loads((run / "run.json").read_text())
     assert fake.calls == 1
@@ -533,6 +678,8 @@ def test_failed_or_over_budget_runs_keep_usage_and_cannot_report(
     assert len(findings) == (0 if failure else 1)
     assert all(item["run_id"] == run.name for item in findings)
     assert manifest["usage"]["input_tokens"] == 100000
+    assert manifest["configuration"]["model"] == model
+    assert all(item["model"] == model for item in findings)
     assert float(manifest["estimated_cost_usd"]) > 0
     assert len(json.loads((run / "artifacts" / "raw-llm-responses.json").read_text())) == 1
     with pytest.raises(SystemExit):
