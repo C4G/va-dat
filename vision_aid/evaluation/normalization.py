@@ -191,7 +191,7 @@ def normalize_prompt_response(
     try:
         # Parse exactly as the API's report does, so only responses it skips are unreadable.
         parsed = safe_parse_json(raw_response)
-    except (json.JSONDecodeError, TypeError, ValueError) as error:
+    except (json.JSONDecodeError, ValueError) as error:
         return NormalizationResult(
             prompt=prompt_name,
             parse_status="malformed",
