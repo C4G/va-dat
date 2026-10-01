@@ -237,6 +237,159 @@ GEMINI_API_KEY=AIza...
 > checks only, no LLM findings, no CSV, and still a `200 OK` from the web app.
 > The only signal is `summary.dry_run` in the response.
 
+## Running the Web App
+
+```bash
+uv run python entry_points/api_server.py      # http://localhost:8000
+```
+
+Serves the UI and the audit API from one process. Users can paste their own API
+key into the form instead of configuring one server-side; per-request keys take
+priority over the environment.
+
+The audit endpoints stream **NDJSON** — progress events, one JSON object per
+line, then a final `{"type":"result"}` object. Parsing that body with a single
+`res.json()` fails; the front end branches on content type.
+
+To run it in a container:
+
+```bash
+docker compose up --build                     # http://localhost:8000
+HOST_PORT=8789 docker compose up --build      # if 8000 is taken
+```
+
+## Deployment
+
+Merges to `main` build the image, push it to `ghcr.io/c4g/va-dat`, and trigger a
+Coolify deploy to <https://va-dat.c4g.dev>. See [DEPLOY.md](DEPLOY.md) — in
+particular the proxy settings, since response buffering breaks the progress
+stream and short read timeouts cut off long audits.
+
+Note that Coolify runs the **image**; the hardening in `docker-compose.yml`
+(`read_only`, `tmpfs`) applies to local runs only.
+
+## Continuous Integration
+
+`.github/workflows/ci.yml` runs on every PR to `main` and needs no API key —
+everything it does is free:
+
+- `uv.lock` is in sync with `pyproject.toml`, and `requirements.txt` matches the lock
+- entry points import
+- the tracked synthetic pytest suite (`uv run pytest -q`), with no private data or provider calls
+- a full pipeline dry run, asserting prompts generated, findings found, and zero tokens consumed
+- `index.html`'s inline JavaScript parses
+- the Docker image builds, becomes healthy, serves the site, and returns a valid NDJSON audit
+
+Default pytest discovery is limited to `tests/`, where `tests/test_evaluation.py`
+covers the evaluator end to end through its CLI with a fake provider. Optional
+detailed evaluator cases live in the ignored `.local-tests/evaluation/` folder;
+run them with `uv run pytest -q .local-tests/evaluation`. CI never needs them.
+
+## Running the Pipeline
+
+### Dry run (no API calls, no cost)
+
+Generates all prompts and saves them as JSON files so you can inspect them before spending money:
+
+```bash
+uv run python entry_points/run_pipeline.py --html test_files/dat_visionaid_home.html --dry-run
+```
+
+### Live run
+
+Sends prompts to the LLM and saves responses:
+
+```bash
+uv run python entry_points/run_pipeline.py --html test_files/home.html
+```
+
+### Generate report
+
+After a live run, combine all findings into a single CSV:
+
+```bash
+uv run python entry_points/generate_report.py
+uv run python entry_points/generate_report.py --output-dir ./output --report-dir ./test_results/claude/
+```
+
+### Pipeline options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--html` | (required) | Path to the HTML file to analyze |
+| `--output-dir` | `./output` | Directory for results |
+| `--model` | `claude-sonnet-5` | Anthropic model to use |
+| `--dry-run` | off | Generate prompts without calling the API |
+| `--include-summaries` | off | Include the 3 cross-cutting summary prompts |
+| `--show-cost` | off | Print estimated dollar cost of the run based on model pricing |
+| `--env-file` | `.env` | Path to environment file |
+
+### Report generator options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--output-dir` | `./output` | Directory containing pipeline output |
+| `--report-dir` | `./test_results/claude/` | Directory to write the CSV report |
+
+## Output Structure
+
+### Pipeline output (`output/`)
+
+```
+output/
+├── manifest.json                 # Run metadata, token counts, prompt status
+├── programmatic_findings.json    # Rule-based checker results (free)
+├── payloads/                     # Raw extractor output (for inspection)
+│   ├── cl01_payload.json
+│   ├── cl02_payload.json
+│   └── cl03_payload.json
+└── prompts/                      # One file per prompt
+    ├── page_title.json           # Contains prompt text, payload slice, and API response
+    ├── heading_structure.json
+    ├── link_clarity.json
+    └── ...
+```
+
+### Report output (`test_results/claude/`)
+
+The report CSV has 13 columns matching the Vision Aid team's standard format:
+
+| Column | Description |
+|--------|-------------|
+| `ID` | Sequential row number |
+| `element_name` | HTML element (e.g. `<img class="...">`, `<a> "link text"`) |
+| `browser_combination` | Always `N/A` (static HTML analysis) |
+| `page_title` | Page title from the analyzed HTML |
+| `issue_title` | Short issue description |
+| `steps_to_reproduce` | Element snippet or inspection steps |
+| `actual_result` | What was found |
+| `expected_result` | What WCAG requires |
+| `recommendation` | Suggested fix |
+| `wcag_sc` | WCAG success criterion (e.g. `1.1.1`) |
+| `category` | Issue category (e.g. `Programmatic / Non-text Content`) |
+| `log_date` | Date of the pipeline run |
+| `reported_by` | `Programmatic` or the LLM model string |
+
+## Cost Estimate
+
+For visionaid.org homepage (using Claude Sonnet):
+
+| Approach | Input tokens | Cost |
+|----------|-------------|------|
+| Monolithic (entire HTML) | ~487,000 | ~$1.52 |
+| Element-specific pipeline | ~18,000 | ~$0.32 |
+
+The pipeline skips prompts with empty payloads (e.g., no forms on the page = no form prompts), so actual cost varies by page content.
+
+## Attribution
+
+| Contributor | What they own | Key files |
+|---|---|---|
+| ahildebrandt3 | Extractors, programmatic checkers (CL01–CL03), CL01 prompts | `processing_scripts/llm_preprocessing/`, `processing_scripts/programmatic/` |
+| Andrew Yin | CL02 + CL03 extractors, CL02 + CL03 prompts, LLM client, pipeline docs | `processing_scripts/llm_preprocessing/`, `processing_scripts/llm_client/`, `processing_scripts/llm/*.txt` |
+| nfulton99 | HTML ingestion, packaging | `vision_aid/ingestion/pull_html.py`, `pyproject.toml` |
+| ColeANiblett | Pipeline orchestration, prompt system, report generator | `processing_scripts/llm/{registry,slicers,templates}.py`, `entry_points/`, `docs/` |
+
 ## Private Model Evaluation
 
 ### Choose an evaluation model
@@ -477,6 +630,21 @@ you describe partial evidence in `review_notes`. For `unavailable_evidence` and
 `ambiguous` rows, leave both ID cells blank. The report command checks these
 rules and requires a `match_reason` whenever you enter an ID.
 
+#### Using Codex or Claude Code for the review
+
+If you use Codex or Claude Code to fill out `review.csv` and generate the
+report, give it the following prompt to guide semantic matching and avoid
+incorrectly rejecting valid matches:
+
+```text
+Review the latest run, fill out `review.csv`, and generate the report. Use practical semantic matching.
+Count a match when a finding identifies the same underlying accessibility problem in the same element or relevant section, even if its wording, certainty, examples, or recommended fix differ from the Human audit.
+Treat examples in a Human finding as illustrations of the problem unless they clearly describe separate defects. A different remediation recommendation does not invalidate detection of the problem.
+Conditional or tentative findings can count when they identify the reported defect and the Human audit supplies the context needed to support that interpretation. Use the saved HTML to confirm the location.
+Allow multiple findings together to cover a Human finding. Reject matches that merely share a WCAG criterion, concern a different element, or leave a distinct part of the reported problem undetected.
+Record qualifications in `review_notes` rather than automatically withholding credit. Apply this interpretation of full coverage consistently.
+```
+
 The run directory and Human audit are excluded from version control.
 This one-homepage result does not establish broad model equivalence.
 
@@ -495,156 +663,3 @@ LLM prompts, and `review.csv`. Use the normalized file's `finding_id` values
 for programmatic matches. It makes no model requests and cannot produce a
 final report. `--max-cost-usd` must be positive but is not spent without
 `--live`. Start a new live run at step 3 to finish the evaluation.
-
-## Running the Web App
-
-```bash
-uv run python entry_points/api_server.py      # http://localhost:8000
-```
-
-Serves the UI and the audit API from one process. Users can paste their own API
-key into the form instead of configuring one server-side; per-request keys take
-priority over the environment.
-
-The audit endpoints stream **NDJSON** — progress events, one JSON object per
-line, then a final `{"type":"result"}` object. Parsing that body with a single
-`res.json()` fails; the front end branches on content type.
-
-To run it in a container:
-
-```bash
-docker compose up --build                     # http://localhost:8000
-HOST_PORT=8789 docker compose up --build      # if 8000 is taken
-```
-
-## Deployment
-
-Merges to `main` build the image, push it to `ghcr.io/c4g/va-dat`, and trigger a
-Coolify deploy to <https://va-dat.c4g.dev>. See [DEPLOY.md](DEPLOY.md) — in
-particular the proxy settings, since response buffering breaks the progress
-stream and short read timeouts cut off long audits.
-
-Note that Coolify runs the **image**; the hardening in `docker-compose.yml`
-(`read_only`, `tmpfs`) applies to local runs only.
-
-## Continuous Integration
-
-`.github/workflows/ci.yml` runs on every PR to `main` and needs no API key —
-everything it does is free:
-
-- `uv.lock` is in sync with `pyproject.toml`, and `requirements.txt` matches the lock
-- entry points import
-- the tracked synthetic pytest suite (`uv run pytest -q`), with no private data or provider calls
-- a full pipeline dry run, asserting prompts generated, findings found, and zero tokens consumed
-- `index.html`'s inline JavaScript parses
-- the Docker image builds, becomes healthy, serves the site, and returns a valid NDJSON audit
-
-Default pytest discovery is limited to `tests/`, where `tests/test_evaluation.py`
-covers the evaluator end to end through its CLI with a fake provider. Optional
-detailed evaluator cases live in the ignored `.local-tests/evaluation/` folder;
-run them with `uv run pytest -q .local-tests/evaluation`. CI never needs them.
-
-## Running the Pipeline
-
-### Dry run (no API calls, no cost)
-
-Generates all prompts and saves them as JSON files so you can inspect them before spending money:
-
-```bash
-uv run python entry_points/run_pipeline.py --html test_files/dat_visionaid_home.html --dry-run
-```
-
-### Live run
-
-Sends prompts to the LLM and saves responses:
-
-```bash
-uv run python entry_points/run_pipeline.py --html test_files/home.html
-```
-
-### Generate report
-
-After a live run, combine all findings into a single CSV:
-
-```bash
-uv run python entry_points/generate_report.py
-uv run python entry_points/generate_report.py --output-dir ./output --report-dir ./test_results/claude/
-```
-
-### Pipeline options
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--html` | (required) | Path to the HTML file to analyze |
-| `--output-dir` | `./output` | Directory for results |
-| `--model` | `claude-sonnet-5` | Anthropic model to use |
-| `--dry-run` | off | Generate prompts without calling the API |
-| `--include-summaries` | off | Include the 3 cross-cutting summary prompts |
-| `--show-cost` | off | Print estimated dollar cost of the run based on model pricing |
-| `--env-file` | `.env` | Path to environment file |
-
-### Report generator options
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--output-dir` | `./output` | Directory containing pipeline output |
-| `--report-dir` | `./test_results/claude/` | Directory to write the CSV report |
-
-## Output Structure
-
-### Pipeline output (`output/`)
-
-```
-output/
-├── manifest.json                 # Run metadata, token counts, prompt status
-├── programmatic_findings.json    # Rule-based checker results (free)
-├── payloads/                     # Raw extractor output (for inspection)
-│   ├── cl01_payload.json
-│   ├── cl02_payload.json
-│   └── cl03_payload.json
-└── prompts/                      # One file per prompt
-    ├── page_title.json           # Contains prompt text, payload slice, and API response
-    ├── heading_structure.json
-    ├── link_clarity.json
-    └── ...
-```
-
-### Report output (`test_results/claude/`)
-
-The report CSV has 13 columns matching the Vision Aid team's standard format:
-
-| Column | Description |
-|--------|-------------|
-| `ID` | Sequential row number |
-| `element_name` | HTML element (e.g. `<img class="...">`, `<a> "link text"`) |
-| `browser_combination` | Always `N/A` (static HTML analysis) |
-| `page_title` | Page title from the analyzed HTML |
-| `issue_title` | Short issue description |
-| `steps_to_reproduce` | Element snippet or inspection steps |
-| `actual_result` | What was found |
-| `expected_result` | What WCAG requires |
-| `recommendation` | Suggested fix |
-| `wcag_sc` | WCAG success criterion (e.g. `1.1.1`) |
-| `category` | Issue category (e.g. `Programmatic / Non-text Content`) |
-| `log_date` | Date of the pipeline run |
-| `reported_by` | `Programmatic` or the LLM model string |
-
-## Cost Estimate
-
-For visionaid.org homepage (using Claude Sonnet):
-
-| Approach | Input tokens | Cost |
-|----------|-------------|------|
-| Monolithic (entire HTML) | ~487,000 | ~$1.52 |
-| Element-specific pipeline | ~18,000 | ~$0.32 |
-
-The pipeline skips prompts with empty payloads (e.g., no forms on the page = no form prompts), so actual cost varies by page content.
-
-## Attribution
-
-| Contributor | What they own | Key files |
-|---|---|---|
-| ahildebrandt3 | Extractors, programmatic checkers (CL01–CL03), CL01 prompts | `processing_scripts/llm_preprocessing/`, `processing_scripts/programmatic/` |
-| Andrew Yin | CL02 + CL03 extractors, CL02 + CL03 prompts, LLM client, pipeline docs | `processing_scripts/llm_preprocessing/`, `processing_scripts/llm_client/`, `processing_scripts/llm/*.txt` |
-| nfulton99 | HTML ingestion, packaging | `vision_aid/ingestion/pull_html.py`, `pyproject.toml` |
-| ColeANiblett | Pipeline orchestration, prompt system, report generator | `processing_scripts/llm/{registry,slicers,templates}.py`, `entry_points/`, `docs/` |
