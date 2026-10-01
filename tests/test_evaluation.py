@@ -381,10 +381,11 @@ def test_llm_findings_follow_the_tools_rules(workspace, monkeypatch):
              "location_hint": "Footer"}, {"text": "Home", "is_clear": True}]),
         # The table prompt asks for one object, not a list.
         ok({"is_data_table": True, "caption_clear": False,
-            "header_clarity_issues": [], "issues": ["No caption"]}),
+            "header_clarity_issues": ["Year is vague"], "issues": ["No caption"]}),
         # A list check answered with one object is unreadable.
         ok({"title": "Video", "is_descriptive": False}),
-        ok({"structure_appropriate": False, "issues": []}),
+        # Text where a list belongs is unreadable, not one finding per character.
+        ok({"structure_appropriate": False, "issues": "No main"}),
         ok([]),
         ok([{"field_id": None, "placeholder": "Email", "reason": "Placeholder only"}]),
         ok([{"legend_is_meaningful": False, "issues": []}]),
@@ -405,7 +406,8 @@ def test_llm_findings_follow_the_tools_rules(workspace, monkeypatch):
     assert run_cli(workspace, "--live", "--approve-live") == 0
     run = only_run(workspace)
     manifest = load(run, "run.json")
-    assert manifest["complete"] is True and manifest["format_failures"] == ["iframe_titles"]
+    assert manifest["complete"] is True
+    assert manifest["format_failures"] == ["iframe_titles", "landmark_structure"]
     findings = load(run, "normalized-llm-findings.json")
     assert [(item["prompt"], item["problem"]) for item in findings] == [
         ("page_title", "Title is generic"),
@@ -415,7 +417,7 @@ def test_llm_findings_follow_the_tools_rules(workspace, monkeypatch):
         ("heading_structure", 'Heading "News" is vague or unclear'),
         ("heading_structure", 'Heading "More" is vague or unclear'),
         ("link_clarity", "Ambiguous"),
-        ("table_semantics", "No caption"),
+        ("table_semantics", "No caption; Year is vague"),
         ("placeholder_as_label", "Placeholder only"),
         ("informative_alt_quality", "Too short; Omits names"),
         ("media_captions", "No captions track"),
@@ -426,6 +428,7 @@ def test_llm_findings_follow_the_tools_rules(workspace, monkeypatch):
     link = findings[6]
     assert (link["element"], link["location"]) == ('<a> "Contact"', "Footer")
     assert link["raw_source"]["text"] == "Contact" and link["wcag_evidence"] == ["2.4.4"]
+    assert findings[7]["raw_source"]["issues"] == ["No caption"]
     vague = findings[4]["raw_source"]
     assert vague["issue"] == "News" and vague["response"]["vague_headings"] == ["News", "More"]
     media = findings[-1]

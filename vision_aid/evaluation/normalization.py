@@ -5,11 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
-from entry_points.generate_report import NORMALIZERS, safe_parse_json
+from entry_points.generate_report import NORMALIZERS, ReportRow, safe_parse_json
 from processing_scripts.llm.registry import PROMPT_REGISTRY, PromptSpec
 from vision_aid.evaluation.schemas import CanonicalFinding
 
@@ -75,42 +75,57 @@ def _wcag(item: dict[str, Any], defaults: Sequence[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(criteria or defaults))
 
 
-def _listed(value: Any) -> list[Any]:
-    """Treat a missing or empty value as no issues and a lone value as one."""
-    if not value:
+class _Source(NamedTuple):
+    """One LLM finding's text, with the response part it came from."""
+
+    position: int
+    source: Any
+    problem: str
+    element: str
+    location: str
+
+
+def _issue_list(item: dict[str, Any], key: str) -> list[Any]:
+    """Copy a listed-problems field, rejecting text that would split per character."""
+    value = item.get(key)
+    if value is None:
         return []
-    return value if isinstance(value, list) else [value]
+    if not isinstance(value, list):
+        raise TypeError(f"Expected {key!r} to be a JSON array.")
+    return list(value)
 
 
-def _objects(parsed: Any, shape: str) -> list[dict[str, Any]]:
-    """Return a response's items, rejecting a shape the check's rule cannot read."""
+def _item_list(parsed: Any) -> list[dict[str, Any]]:
+    """Return an array response's items, rejecting a shape no rule can read."""
     if not isinstance(parsed, list) or not all(isinstance(item, dict) for item in parsed):
-        raise ValueError(f"Expected a JSON {shape} response.")
+        raise ValueError("Expected a JSON array response.")
+    for item in parsed:
+        _issue_list(item, "issues")
     return parsed
 
 
 def _tool_findings(
-    normalizer: Any, parsed: Any, spec: PromptSpec
-) -> list[tuple[int, Any, str, str, str]]:
+    normalizer: Callable[..., list[ReportRow]], parsed: Any, spec: PromptSpec
+) -> list[_Source]:
     """Read findings with the tool's report rule, pairing each row with its source."""
     wcag = ", ".join(spec.wcag_criteria)
     if spec.output_type == "object":
         if not isinstance(parsed, dict):
             raise ValueError("Expected a JSON object response.")
-        rows = normalizer(parsed, wcag=wcag)
         # Page-level rules write one row per issue, then one per vague heading.
-        issues = [*(parsed.get("issues") or []), *(parsed.get("vague_headings") or [])]
+        issues = _issue_list(parsed, "issues") + _issue_list(parsed, "vague_headings")
+        rows = normalizer(parsed, wcag=wcag)
         sources = [{"response": parsed, "issue": issue} for issue in issues]
         paired = list(enumerate(zip(sources, rows)))
     else:
         # One item at a time, so each row keeps the item it came from.
         paired = [
             (index, (item, row))
-            for index, item in enumerate(_objects(parsed, "array"))
+            for index, item in enumerate(_item_list(parsed))
             for row in normalizer([item], wcag=wcag)
         ]
     return [
-        (
+        _Source(
             position,
             source,
             row.actual_result or row.issue_title,
@@ -121,23 +136,21 @@ def _tool_findings(
     ]
 
 
-def _screen_only_findings(
-    prompt_name: str, parsed: Any
-) -> list[tuple[int, Any, str, str, str]]:
+def _screen_only_findings(prompt_name: str, parsed: Any) -> list[_Source]:
     """Read a check the tool's report skips: a finding needs a listed problem."""
     if prompt_name == "table_semantics" and isinstance(parsed, dict):
         # The table prompt asks for one object rather than a list.
         parsed = [parsed]
     findings = []
-    for index, item in enumerate(_objects(parsed, "array")):
-        issues = _listed(item.get("issues"))
+    for index, item in enumerate(_item_list(parsed)):
+        issues = _issue_list(item, "issues")
         if prompt_name == "table_semantics":
-            issues += _listed(item.get("header_clarity_issues"))
+            issues += _issue_list(item, "header_clarity_issues")
         # Placeholder-only fields are the problem; that check lists no issues.
         if not issues and prompt_name != "placeholder_as_label":
             continue
         problem = "; ".join(str(issue) for issue in issues)
-        findings.append((
+        findings.append(_Source(
             index,
             item,
             problem or str(item.get("reason") or "") or prompt_name,

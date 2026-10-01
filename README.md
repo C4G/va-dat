@@ -343,8 +343,9 @@ way the tool's CSV report does, using the tool's own code rather than a copy.
 
 **Parsing.** Each response is parsed with the tool's JSON parser, including its
 code-fence and repair steps. A response the tool cannot parse, or whose shape
-the check's rule cannot read (for example one object where a list is expected),
-is an Unreadable response: it gives no LLM findings, `run.json` lists the check
+the check's rule cannot read (for example one object where a list is expected,
+or text where `issues`, `vague_headings`, or `header_clarity_issues` should be
+a list), is an Unreadable response: it gives no LLM findings, `run.json` lists the check
 under `format_failures`, and the run continues with the next check.
 
 **What counts as a finding.** For the 12 checks the tool's CSV report covers,
