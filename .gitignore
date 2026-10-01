@@ -225,3 +225,7 @@ web/prisma/generated/
 
 # Stray git worktrees — never belong in the index
 .claude/worktrees/
+
+# Local-only issue tracker and detailed evaluator tests
+/.scratch/
+/.local-tests/

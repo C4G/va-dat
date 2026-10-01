@@ -29,6 +29,7 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 include = ["vision_aid*", "processing_scripts*", "entry_points*"]

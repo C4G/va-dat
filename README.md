@@ -484,10 +484,17 @@ everything it does is free:
 
 - `uv.lock` is in sync with `pyproject.toml`, and `requirements.txt` matches the lock
 - entry points import
-- the complete synthetic pytest suite, with no private data or provider calls
+- the tracked synthetic pytest suite (`uv run pytest -q`), with no private data or provider calls
 - a full pipeline dry run, asserting prompts generated, findings found, and zero tokens consumed
 - `index.html`'s inline JavaScript parses
 - the Docker image builds, becomes healthy, serves the site, and returns a valid NDJSON audit
+
+Default pytest discovery is limited to `tests/`. There, `tests/test_evaluation.py`
+covers the evaluator end to end through its CLI: preview, live runs against a
+fake provider, review validation, scoring, and evidence checks. Detailed
+evaluator cases can also be kept in the ignored `.local-tests/evaluation/`
+folder and run separately with `uv run pytest -q .local-tests/evaluation`.
+That folder is optional, so a fresh checkout and CI never depend on it.
 
 ## Running the Pipeline
 

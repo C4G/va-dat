@@ -1,6 +1,8 @@
 # Issue tracker: Local Markdown
 
-Issues and specs for this repo live as markdown files in `.scratch/`.
+Issues and specs for this repo live as markdown files in `.scratch/`. The
+folder is ignored by Git: records are the maintainer's local workspace and
+are never committed.
 
 ## Conventions
 
@@ -13,7 +15,7 @@ Issues and specs for this repo live as markdown files in `.scratch/`.
 ## Completing implementation issues
 
 Close an implementation issue only after its implementation, verification, and
-review fixes are committed:
+review fixes are committed. The ticket itself stays local:
 
 - Change each demonstrated acceptance criterion from `[ ]` to `[x]`. Leave the
   issue open if any criterion is unmet.
@@ -21,7 +23,7 @@ review fixes are committed:
   triage role from `triage-labels.md`.
 - Under `## Comments`, append the implementation commit IDs and a concise
   verification note.
-- Commit the ticket update separately so the recorded commit IDs are exact.
+- Do not commit the ticket update; `.scratch/` is untracked.
 
 ## When a skill says "publish to the issue tracker"
 
