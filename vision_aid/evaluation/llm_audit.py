@@ -27,7 +27,7 @@ MODEL_PRESETS = {
         model: LLMRequestConfig(
             model=model,
             adaptive_thinking=True,
-            reasoning_effort="high",
+            reasoning_effort="medium",
             max_output_tokens=24192,
             temperature=None,
         )

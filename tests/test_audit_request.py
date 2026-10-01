@@ -264,8 +264,8 @@ class AuditRequestTests(TestCase):
 )
 @pytest.mark.parametrize("model,thinking,effort", [
     ("claude-haiku-4-5-20251001", {"type": "enabled", "budget_tokens": 16000}, None),
-    ("claude-opus-5-5", {"type": "adaptive"}, "high"),
-    ("claude-sonnet-5-5", {"type": "adaptive"}, "high"),
+    ("claude-opus-5-5", {"type": "adaptive"}, "medium"),
+    ("claude-sonnet-5-5", {"type": "adaptive"}, "medium"),
 ])
 def test_thinking_stream_exposes_only_final_text(parts, stop, model, thinking, effort):
     """Only final text and inclusive billed output leave a thinking stream."""

@@ -11,7 +11,7 @@ Design decisions settled and implementation authorized on October 1, 2026.
 - Each Evaluation run holds its selected model fixed throughout. A command that evaluates several models is outside this feature.
 - Accept only the three canonical API IDs below. Reject unsupported IDs, including convenience aliases, with an error listing the supported choices.
 - Use fixed request presets with no operator overrides for thinking, effort, or output token limits.
-- Preserve Haiku's existing thinking budget. Use adaptive thinking with explicit `high` effort for both Opus and Sonnet.
+- Preserve Haiku's existing thinking budget. Use adaptive thinking with explicit `medium` effort for both Opus and Sonnet.
 - Keep the existing 24,192 output-token cap for all three models. This cap includes thinking and final text; adaptive thinking does not reserve a fixed number of final-text tokens.
 - Preserve the positive cost guardrail checked between requests. A request underway can take the final Estimated run cost above the limit.
 - Add versioned public prices for the new models, and show the selected model's settings and rates before Live-run approval.
@@ -23,8 +23,8 @@ This changes the Haiku-only scope in [the POC reduction spec](../poc-reduction/s
 | Model | Accepted `--model` value | Thinking | Effort | Output-token cap |
 | --- | --- | --- | --- | --- |
 | Haiku 4.5, default | `claude-haiku-4-5-20251001` | Enabled, 16,000-token budget | Omitted | 24,192 |
-| Opus 5.5 | `claude-opus-5-5` | Adaptive, no manual budget | `high` | 24,192 |
-| Sonnet 5.5 | `claude-sonnet-5-5` | Adaptive, no manual budget | `high` | 24,192 |
+| Opus 5.5 | `claude-opus-5-5` | Adaptive, no manual budget | `medium` | 24,192 |
+| Sonnet 5.5 | `claude-sonnet-5-5` | Adaptive, no manual budget | `medium` | 24,192 |
 
 All presets omit temperature, disable summaries, and use standard Anthropic Messages requests. These exact IDs identify fixed model snapshots. The dateless Opus and Sonnet IDs do not require invented date suffixes.
 
@@ -67,7 +67,7 @@ This feature uses standard pricing and does not add fast mode, batch execution, 
 ## Implementation constraints
 
 - Keep model selection and the three-model restriction in the evaluator. The shared client remains usable by existing production callers with their current defaults.
-- Add explicit support for adaptive thinking and Anthropic effort in the shared request configuration. For the new models, send adaptive thinking and `output_config` with `effort` set to `high`; omit `budget_tokens`.
+- Add explicit support for adaptive thinking and Anthropic effort in the shared request configuration. For the new models, send adaptive thinking and `output_config` with `effort` set to `medium`; omit `budget_tokens`.
 - Stream all three evaluation presets. The Anthropic Python SDK requires streaming above 21,333 output tokens, and all presets retain a 24,192 cap. Streaming must not depend only on the presence of a manual thinking budget.
 - Continue extracting final text separately from thinking content and preserving reported usage and failures in raw evidence.
 - No model-discovery or dynamic-pricing subsystem is required. Adding another model later requires an explicit preset and versioned prices.
@@ -78,7 +78,7 @@ This feature uses standard pricing and does not add fast mode, batch execution, 
 - [x] Omitted `--model` selects the existing Haiku preset; each of the three exact IDs is accepted in preview and live paths.
 - [x] An unsupported ID is rejected before creating a run or making provider requests, and the error lists supported choices.
 - [x] Every selected model uses its prescribed request settings and appears consistently in run metadata, request evidence, LLM findings, cost calculations, and the final report.
-- [x] Mock-provider tests verify the exact Haiku and adaptive request shapes, explicit `high` effort for both new models, omitted temperature, streaming, and final-text extraction.
+- [x] Mock-provider tests verify the exact Haiku and adaptive request shapes, explicit `medium` effort for both new models, omitted temperature, streaming, and final-text extraction.
 - [x] Cost tests verify each model's token categories, including Opus cache-read pricing, using saved versioned prices.
 - [x] Preview, declined approval, failure, and cost exhaustion retain existing lifecycle behavior for selected models.
 - [x] Previously completed Haiku evidence still produces a report.
@@ -107,7 +107,7 @@ None.
 - [Anthropic effort configuration](https://platform.claude.com/docs/en/build-with-claude/effort), checked October 1, 2026.
 - [Anthropic model IDs and versioning](https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions), checked October 1, 2026.
 
-Opus defaults to medium effort and Sonnet to high. Explicit high effort for both is the agreed evaluation preset. Equal effort labels and output caps do not imply equal computation across models.
+Opus defaults to medium effort and Sonnet to high. Explicit medium effort for both is the agreed evaluation preset. Equal effort labels and output caps do not imply equal computation across models.
 
 ## Comments
 

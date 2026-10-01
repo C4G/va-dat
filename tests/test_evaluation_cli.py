@@ -92,8 +92,8 @@ def write_review(path: Path, rows: list[dict[str, str]]) -> None:
 
 @pytest.mark.parametrize("model,thinking,effort,input_rate,output_rate", [
     ("claude-haiku-4-5-20251001", {"type": "enabled", "budget_tokens": 16000}, None, "1", "5"),
-    ("claude-opus-5-5", {"type": "adaptive"}, "high", "4", "20"),
-    ("claude-sonnet-5-5", {"type": "adaptive"}, "high", "2", "10"),
+    ("claude-opus-5-5", {"type": "adaptive"}, "medium", "4", "20"),
+    ("claude-sonnet-5-5", {"type": "adaptive"}, "medium", "2", "10"),
 ])
 def test_selected_model_preview_records_preset_without_provider_access(
     tmp_path, monkeypatch, capsys, model, thinking, effort, input_rate, output_rate,
@@ -123,7 +123,7 @@ def test_selected_model_preview_records_preset_without_provider_access(
     output = capsys.readouterr().out
     assert model in output and "24192" in output
     assert f"input ${input_rate}; output ${output_rate}" in output
-    assert "16000" in output if effort is None else "adaptive; effort: high" in output
+    assert "16000" in output if effort is None else "adaptive; effort: medium" in output
     assert "request underway can exceed" in output
 
 
@@ -147,8 +147,8 @@ def test_unsupported_model_is_rejected_without_run_or_provider_access(
 
 @pytest.mark.parametrize("model,thinking,effort,cost", [
     ("claude-haiku-4-5-20251001", {"type": "enabled", "budget_tokens": 16000}, None, "0.006525"),
-    ("claude-opus-5-5", {"type": "adaptive"}, "high", "0.0258"),
-    ("claude-sonnet-5-5", {"type": "adaptive"}, "high", "0.01305"),
+    ("claude-opus-5-5", {"type": "adaptive"}, "medium", "0.0258"),
+    ("claude-sonnet-5-5", {"type": "adaptive"}, "medium", "0.01305"),
 ])
 def test_selected_model_executes_and_reports_with_saved_prices(
     tmp_path, monkeypatch, model, thinking, effort, cost,
@@ -167,7 +167,7 @@ def test_selected_model_executes_and_reports_with_saved_prices(
         assert kwargs["max_tokens"] == 24192 and kwargs["stream"] is True
         assert "temperature" not in kwargs
         if effort:
-            assert kwargs["output_config"] == {"effort": "high"}
+            assert kwargs["output_config"] == {"effort": "medium"}
         else:
             assert "output_config" not in kwargs
         return nullcontext(iter([
@@ -269,7 +269,7 @@ def test_preview_preserves_human_findings_and_never_calls_provider(
     help_text = " ".join(capsys.readouterr().out.split())
     assert "Human audit" in help_text
     assert "16,000" in help_text and "24,192" in help_text
-    assert "adaptive thinking with high effort" in help_text
+    assert "adaptive thinking with medium effort" in help_text
     assert "a request underway can exceed" in help_text
     with pytest.raises(SystemExit):
         main([*args(human_audit, html), "--workbook", str(human_audit)])

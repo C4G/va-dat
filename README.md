@@ -248,8 +248,8 @@ accepts only these exact IDs:
 | Model | `--model` value | Thinking | Effort |
 | --- | --- | --- | --- |
 | Haiku 4.5, default | `claude-haiku-4-5-20251001` | 16,000-token budget | Omitted |
-| Opus 5.5 | `claude-opus-5-5` | Adaptive | High |
-| Sonnet 5.5 | `claude-sonnet-5-5` | Adaptive | High |
+| Opus 5.5 | `claude-opus-5-5` | Adaptive | Medium |
+| Sonnet 5.5 | `claude-sonnet-5-5` | Adaptive | Medium |
 
 For example, add `--model claude-opus-5-5` to the run command below to evaluate
 Opus. Friendly names and aliases are rejected. Thinking settings are fixed

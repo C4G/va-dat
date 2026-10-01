@@ -42,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
         "run", help="preview or execute an Evaluation run with one selected model",
         description=(
             "Haiku uses a 16,000-token thinking budget; Opus and Sonnet use "
-            "adaptive thinking with high effort. All presets omit temperature, "
+            "adaptive thinking with medium effort. All presets omit temperature, "
             "disable summaries, and cap output at 24,192 tokens including thinking."
         ),
     )
