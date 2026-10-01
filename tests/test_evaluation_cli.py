@@ -266,7 +266,11 @@ def test_preview_preserves_human_findings_and_never_calls_provider(
     with pytest.raises(SystemExit) as help_exit:
         main(["run", "--help"])
     assert help_exit.value.code == 0
-    assert "Human audit" in capsys.readouterr().out
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "Human audit" in help_text
+    assert "16,000" in help_text and "24,192" in help_text
+    assert "adaptive thinking with high effort" in help_text
+    assert "a request underway can exceed" in help_text
     with pytest.raises(SystemExit):
         main([*args(human_audit, html), "--workbook", str(human_audit)])
     with pytest.raises(SystemExit):

@@ -39,7 +39,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="visionaid-evaluate")
     commands = parser.add_subparsers(dest="command", required=True)
     run = commands.add_parser(
-        "run", help="preview or execute an Evaluation run with one selected model"
+        "run", help="preview or execute an Evaluation run with one selected model",
+        description=(
+            "Haiku uses a 16,000-token thinking budget; Opus and Sonnet use "
+            "adaptive thinking with high effort. All presets omit temperature, "
+            "disable summaries, and cap output at 24,192 tokens including thinking."
+        ),
     )
     run.add_argument(
         "--model", choices=MODEL_PRESETS, default=DEFAULT_MODEL,
@@ -51,7 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--html", type=Path, required=True, help="local Benchmark HTML")
     run.add_argument("--source-url", required=True, help="URL represented by the HTML")
     run.add_argument(
-        "--max-cost-usd", required=True, help="positive between-request limit"
+        "--max-cost-usd", required=True,
+        help="positive between-request limit; a request underway can exceed it",
     )
     run.add_argument("--live", action="store_true", help="enable billable execution")
     run.add_argument(
