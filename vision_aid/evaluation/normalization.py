@@ -9,7 +9,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from entry_points.generate_report import safe_parse_json
+from entry_points.generate_report import NORMALIZERS, safe_parse_json
 from processing_scripts.llm.registry import PROMPT_REGISTRY, PromptSpec
 from vision_aid.evaluation.schemas import CanonicalFinding
 
@@ -24,14 +24,6 @@ _PROBLEM_KEYS = (
     "actual_result",
     "summary",
 )
-_EXPLICIT_PROBLEM_KEYS = (
-    "problem",
-    "issue",
-    "issue_title",
-    "description",
-    "finding",
-    "actual_result",
-)
 _LOCATION_KEYS = (
     "location",
     "location_hint",
@@ -43,6 +35,8 @@ _LOCATION_KEYS = (
 )
 _ELEMENT_KEYS = ("element", "element_name", "tag", "html", "selector")
 _WCAG_KEYS = ("wcag", "wcag_sc", "wcag_criteria", "criterion", "criteria")
+# Checks without a tool normalizer only reach users on screen; these fields name their element.
+_SCREEN_ONLY_ELEMENT_KEYS = ("field_id", "src", "legend", "placeholder")
 
 
 @dataclass(frozen=True)
@@ -81,93 +75,76 @@ def _wcag(item: dict[str, Any], defaults: Sequence[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(criteria or defaults))
 
 
-def _items(parsed: Any, spec: PromptSpec) -> list[dict[str, Any]] | None:
-    """Return source finding objects from either supported JSON shape."""
-    if isinstance(parsed, list):
-        return [item for item in parsed if isinstance(item, dict)]
-    if not isinstance(parsed, dict):
-        return None
-    for key in ("findings", "violations", "results"):
-        nested = parsed.get(key)
-        if isinstance(nested, list) and all(isinstance(item, dict) for item in nested):
-            return [item for item in nested if isinstance(item, dict)]
-    return [parsed] if parsed else []
+def _listed(value: Any) -> list[Any]:
+    """Treat a missing or empty value as no issues and a lone value as one."""
+    if not value:
+        return []
+    return value if isinstance(value, list) else [value]
 
 
-def _has_values(value: Any) -> bool:
-    """Treat non-empty strings, mappings, and sequences as evidence."""
-    return value not in (None, "", [], {}, ())
+def _objects(parsed: Any, shape: str) -> list[dict[str, Any]]:
+    """Return a response's items, rejecting a shape the check's rule cannot read."""
+    if not isinstance(parsed, list) or not all(isinstance(item, dict) for item in parsed):
+        raise ValueError(f"Expected a JSON {shape} response.")
+    return parsed
 
 
-def _is_failure(prompt: str, item: dict[str, Any]) -> bool:
-    """Apply the fixed failure predicate for one active prompt category."""
-    if any(_has_values(item.get(key)) for key in _EXPLICIT_PROBLEM_KEYS):
-        return True
-    if _has_values(item.get("issues")):
-        return True
-    if prompt == "page_title":
-        return item.get("is_descriptive") is False or item.get("matches_h1") is False
-    if prompt == "heading_structure":
-        return item.get("structure_clear") is False or _has_values(
-            item.get("vague_headings")
+def _tool_findings(
+    normalizer: Any, parsed: Any, spec: PromptSpec
+) -> list[tuple[int, Any, str, str, str]]:
+    """Read findings with the tool's report rule, pairing each row with its source."""
+    wcag = ", ".join(spec.wcag_criteria)
+    if spec.output_type == "object":
+        if not isinstance(parsed, dict):
+            raise ValueError("Expected a JSON object response.")
+        rows = normalizer(parsed, wcag=wcag)
+        # Page-level rules write one row per issue, then one per vague heading.
+        issues = [*(parsed.get("issues") or []), *(parsed.get("vague_headings") or [])]
+        sources = [{"response": parsed, "issue": issue} for issue in issues]
+        paired = list(enumerate(zip(sources, rows)))
+    else:
+        # One item at a time, so each row keeps the item it came from.
+        paired = [
+            (index, (item, row))
+            for index, item in enumerate(_objects(parsed, "array"))
+            for row in normalizer([item], wcag=wcag)
+        ]
+    return [
+        (
+            position,
+            source,
+            row.actual_result or row.issue_title,
+            row.element_name,
+            row.steps_to_reproduce,
         )
-    if prompt == "link_clarity":
-        return item.get("is_clear") is False
-    if prompt == "table_semantics":
-        return item.get("caption_clear") is False or _has_values(
-            item.get("header_clarity_issues")
-        )
-    if prompt == "iframe_titles":
-        return item.get("is_descriptive") is False
-    if prompt == "landmark_structure":
-        return item.get("structure_appropriate") is False
-    if prompt == "label_quality":
-        return item.get("is_descriptive") is False
-    if prompt == "placeholder_as_label":
-        return True
-    if prompt == "group_labels":
-        return item.get("legend_is_meaningful") is False
-    if prompt == "required_field_indicators":
-        return (
-            item.get("requirement_in_label") is False
-            and item.get("requirement_in_instructions") is False
-        )
-    if prompt == "form_instructions":
-        return item.get("instructions_are_helpful") is False
-    if prompt == "informative_alt_quality":
-        return item.get("quality") == "poor"
-    if prompt == "decorative_verification":
-        return item.get("likely_decorative") is False
-    if prompt == "actionable_image_alt":
-        return item.get("describes_action_not_appearance") is False
-    if prompt == "complex_descriptions":
-        return item.get("alt_is_sufficient") is False or (
-            item.get("long_description_needed") is True
-            and item.get("long_description_adequate") is not True
-        )
-    if prompt == "svg_accessibility":
-        return (
-            item.get("has_accessible_name") is False
-            or item.get("title_is_meaningful") is False
-        )
-    if prompt == "icon_font_accessibility":
-        return item.get("pattern") in {"unlabeled_control", "missing_label"}
-    if prompt == "media_captions":
-        return (
-            item.get("has_captions_track") is False or item.get("has_controls") is False
-        )
-    return False
+        for position, (source, row) in paired
+    ]
 
 
-def _problem(item: dict[str, Any], prompt_name: str) -> str:
-    """Choose a readable problem statement while retaining the raw object."""
-    explicit = _first_text(item, _EXPLICIT_PROBLEM_KEYS)
-    if explicit:
-        return explicit
-    issues = item.get("issues")
-    if isinstance(issues, list) and issues:
-        return "; ".join(str(value) for value in issues)
-    return _first_text(item, ("reason", "summary")) or prompt_name
+def _screen_only_findings(
+    prompt_name: str, parsed: Any
+) -> list[tuple[int, Any, str, str, str]]:
+    """Read a check the tool's report skips: a finding needs a listed problem."""
+    if prompt_name == "table_semantics" and isinstance(parsed, dict):
+        # The table prompt asks for one object rather than a list.
+        parsed = [parsed]
+    findings = []
+    for index, item in enumerate(_objects(parsed, "array")):
+        issues = _listed(item.get("issues"))
+        if prompt_name == "table_semantics":
+            issues += _listed(item.get("header_clarity_issues"))
+        # Placeholder-only fields are the problem; that check lists no issues.
+        if not issues and prompt_name != "placeholder_as_label":
+            continue
+        problem = "; ".join(str(issue) for issue in issues)
+        findings.append((
+            index,
+            item,
+            problem or str(item.get("reason") or "") or prompt_name,
+            _first_text(item, _SCREEN_ONLY_ELEMENT_KEYS),
+            str(item.get("location_hint") or ""),
+        ))
+    return findings
 
 
 def normalize_prompt_response(
@@ -178,7 +155,7 @@ def normalize_prompt_response(
     model: str,
     page_url: str,
 ) -> NormalizationResult:
-    """Normalize one prompt directly, without suppression or deduplication."""
+    """Read one response with the tool's rules, without its filter or deduplication."""
     spec = _PROMPTS.get(prompt_name)
     if spec is None:
         return NormalizationResult(
@@ -199,26 +176,30 @@ def normalize_prompt_response(
             findings=(),
             error=str(error),
         )
-    items = _items(parsed, spec)
-    if items is None:
+    normalizer = NORMALIZERS.get(prompt_name)
+    try:
+        if normalizer is None:
+            sources = _screen_only_findings(prompt_name, parsed)
+        else:
+            sources = _tool_findings(normalizer, parsed, spec)
+    except Exception as error:  # noqa: BLE001
+        # A shape the check's rule cannot read is unreadable, not fatal to the run.
         return NormalizationResult(
             prompt=prompt_name,
             parse_status="malformed",
             raw_response=raw_response,
             findings=(),
-            error=f"Expected a JSON {spec.output_type} response.",
+            error=str(error) or type(error).__name__,
         )
     findings = []
-    for index, item in enumerate(items):
-        if not _is_failure(prompt_name, item):
-            continue
-        canonical_item = json.dumps(
-            item,
+    for position, source, problem, element, location in sources:
+        canonical_source = json.dumps(
+            source,
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
         )
-        identity = f"{run_id}\0{prompt_name}\0{index}\0{canonical_item}".encode()
+        identity = f"{run_id}\0{prompt_name}\0{position}\0{canonical_source}".encode()
         findings.append(
             CanonicalFinding(
                 finding_id="llm-" + hashlib.sha256(identity).hexdigest()[:20],
@@ -229,12 +210,13 @@ def normalize_prompt_response(
                 checklist=spec.checklist,
                 page_url=page_url,
                 problem_family=prompt_name,
-                problem=_problem(item, prompt_name),
-                element=_first_text(item, _ELEMENT_KEYS),
-                location=_first_text(item, _LOCATION_KEYS),
-                wcag_evidence=_wcag(item, spec.wcag_criteria),
-                raw_source=item,
+                problem=problem,
+                element=element,
+                location=location,
+                wcag_evidence=tuple(spec.wcag_criteria),
+                raw_source=source,
                 parse_status="parsed",
+                screen_only=normalizer is None,
             )
         )
     return NormalizationResult(

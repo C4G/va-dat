@@ -29,11 +29,11 @@ The part of the tool that applies fixed rules to the page's HTML. It uses no AI 
 _Avoid_: Deterministic checker.
 
 **LLM finding**:
-An accessibility problem reported by the LLM, kept with the response it came from.
+One accessibility problem the tool reads from an LLM response, before any false-positive filtering or deduplication, kept with the response it came from.
 _Avoid_: Audit finding, Human finding, Programmatic finding.
 
 **Unreadable response**:
-An LLM response the tool itself cannot parse and would therefore skip. A response counts as readable whenever the tool could use it, even if it contains extra text or needed repair.
+An LLM response the tool itself cannot parse or interpret, so it yields no LLM findings. A response counts as readable whenever the tool could use it, even if it contains extra text or needed repair.
 _Avoid_: Malformed output, format failure (in reports).
 
 **Programmatic finding**:

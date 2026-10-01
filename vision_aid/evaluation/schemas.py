@@ -46,3 +46,5 @@ class CanonicalFinding:
     wcag_evidence: tuple[str, ...]
     raw_source: Any
     parse_status: str
+    # True when the tool shows this finding on screen but leaves it out of its CSV report.
+    screen_only: bool = False

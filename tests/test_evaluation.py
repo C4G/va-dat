@@ -114,7 +114,7 @@ def edit_review(run: Path, *decisions: dict[str, str]) -> None:
 def fake_client(monkeypatch: pytest.MonkeyPatch, *responses: dict) -> list[str]:
     """Replace the request client, replaying responses and recording prompts."""
     prompts: list[str] = []
-    default = {"success": True, "response": '[{"problem": "Vague link"}]',
+    default = {"success": True, "response": '[{"issues": ["Vague link"]}]',
                "usage": {"input_tokens": 1, "output_tokens": 1}}
 
     def call(prompt: str) -> dict:
@@ -200,7 +200,7 @@ def test_presets_stream_every_category_and_report_saved_prices(
             SimpleNamespace(type="content_block_start",
                             content_block=SimpleNamespace(type="thinking", thinking="SECRET")),
             SimpleNamespace(type="content_block_start", content_block=SimpleNamespace(
-                type="text", text='[{"problem": "Synthetic failure", "location": "body"}]')),
+                type="text", text='[{"issues": ["Synthetic failure"], "location_hint": "body"}]')),
             SimpleNamespace(type="message_delta", delta=SimpleNamespace(stop_reason="end_turn"),
                             usage=SimpleNamespace(output_tokens=200)),
             SimpleNamespace(type="message_stop"),
@@ -227,8 +227,16 @@ def test_presets_stream_every_category_and_report_saved_prices(
     raw = load(run, "artifacts/raw-llm-responses.json")
     assert all(item["result"]["provider"]["response_model"] == model for item in raw)
     assert "SECRET" not in json.dumps(raw)
+    assert manifest["format_failures"] == [
+        "page_title", "heading_structure", "landmark_structure",
+    ]
     findings = load(run, "normalized-llm-findings.json")
-    assert [finding["prompt"] for finding in findings] == CATEGORIES
+    assert [finding["prompt"] for finding in findings] == [
+        "table_semantics", "placeholder_as_label", "group_labels",
+        "required_field_indicators", "form_instructions", "informative_alt_quality",
+        "actionable_image_alt", "complex_descriptions", "svg_accessibility",
+        "icon_font_accessibility", "media_captions",
+    ]
     assert all(finding["model"] == model for finding in findings)
     assert all(finding["problem"] == "Synthetic failure" for finding in findings)
     assert all(finding["finding_id"].startswith("llm-") for finding in findings)
@@ -245,11 +253,15 @@ def test_review_validation_and_report_metrics(workspace, monkeypatch, capsys):
     fake_client(
         monkeypatch,
         {"success": True, "response": "not JSON", "usage": {}},
-        {"success": True, "response": "[]", "usage": {}},
+        {"success": True, "response": '{"issues": []}', "usage": {}},
         # The API reads the first fenced block and ignores trailing prose.
         {"success": True, "usage": {}, "response": (
-            '```json\n[{"problem": "Fenced with a note"}]\n```\n\n**Note:** Context was limited.'
+            '```json\n[{"text": "Click here", "is_clear": false, "reason": "Fenced with a note"}]'
+            '\n```\n\n**Note:** Context was limited.'
         )},
+        {"success": True, "response": "[]", "usage": {}},
+        {"success": True, "response": "[]", "usage": {}},
+        {"success": True, "response": '{"issues": []}', "usage": {}},
     )
     assert run_cli(workspace, "--live", "--approve-live") == 0
     run = only_run(workspace)
@@ -258,7 +270,7 @@ def test_review_validation_and_report_metrics(workspace, monkeypatch, capsys):
     findings = load(run, "normalized-llm-findings.json")
     assert findings[0]["problem"] == "Fenced with a note"
     llm = [item["finding_id"] for item in findings]
-    assert len(llm) == len(CATEGORIES) - 2
+    assert len(llm) == 11
     programmatic = load(run, "normalized-programmatic-findings.json")[0]["finding_id"]
     assert "classification" in refused(run, capsys)
     decisions = [
@@ -312,7 +324,7 @@ def test_failure_or_exhaustion_stops_and_keeps_partial_evidence(
 ):
     """Requests stop, billed usage and findings remain, and reporting refuses."""
     usage = {"input_tokens": 100000, "output_tokens": 20}
-    success = {"success": True, "response": '[{"problem": "Unclear title"}]', "usage": usage}
+    success = {"success": True, "response": '{"issues": ["Unclear title"]}', "usage": usage}
     stopped = {"success": False, "response": None, "error": "synthetic failure", "usage": usage}
     prompts = fake_client(monkeypatch, success, stopped if failure else success)
     limit = "1" if failure else "0.01"
@@ -351,3 +363,80 @@ def test_report_rejects_unrelated_or_missing_evidence(
         (evidence[0] if isinstance(evidence, list) else evidence)[field] = "unrelated"
         (run / name).write_text(json.dumps(evidence))
     assert message in refused(run, capsys)
+
+
+def test_llm_findings_follow_the_tools_rules(workspace, monkeypatch):
+    """Findings come from the tool's per-check rules, before filtering or deduplication."""
+    def ok(response: object) -> dict:
+        """Script one successful response as JSON text."""
+        return {"success": True, "response": json.dumps(response), "usage": {}}
+
+    fake_client(
+        monkeypatch,
+        ok({"is_descriptive": False, "issues": ["Title is generic"]}),
+        ok({"structure_clear": False, "issues": ["Skips h2", "Two h1s", "No outline"],
+            "vague_headings": ["News", "More"]}),
+        # Kept although the tool's false-positive filter would drop it.
+        ok([{"text": "Contact", "is_clear": False, "reason": "Ambiguous",
+             "location_hint": "Footer"}, {"text": "Home", "is_clear": True}]),
+        # The table prompt asks for one object, not a list.
+        ok({"is_data_table": True, "caption_clear": False,
+            "header_clarity_issues": [], "issues": ["No caption"]}),
+        # A list check answered with one object is unreadable.
+        ok({"title": "Video", "is_descriptive": False}),
+        ok({"structure_appropriate": False, "issues": []}),
+        ok([]),
+        ok([{"field_id": None, "placeholder": "Email", "reason": "Placeholder only"}]),
+        ok([{"legend_is_meaningful": False, "issues": []}]),
+        ok([{"field_id": "n", "requirement_in_label": False,
+             "requirement_in_instructions": False, "issues": []}]),
+        ok([]),
+        ok([{"src": "team.png", "alt": "Team", "quality": "poor",
+             "issues": ["Too short", "Omits names"]}]),
+        ok([]),
+        ok([]),
+        ok([]),
+        ok([{"has_accessible_name": False, "issues": [],
+             "reason": "No 1.1.1 failure; presentational"}]),
+        ok([]),
+        ok([{"src": "v.mp4", "has_captions_track": False, "issues": []},
+            {"src": "v.mp4", "has_captions_track": False, "issues": ["No captions track"]}]),
+    )
+    assert run_cli(workspace, "--live", "--approve-live") == 0
+    run = only_run(workspace)
+    manifest = load(run, "run.json")
+    assert manifest["complete"] is True and manifest["format_failures"] == ["iframe_titles"]
+    findings = load(run, "normalized-llm-findings.json")
+    assert [(item["prompt"], item["problem"]) for item in findings] == [
+        ("page_title", "Title is generic"),
+        ("heading_structure", "Skips h2"),
+        ("heading_structure", "Two h1s"),
+        ("heading_structure", "No outline"),
+        ("heading_structure", 'Heading "News" is vague or unclear'),
+        ("heading_structure", 'Heading "More" is vague or unclear'),
+        ("link_clarity", "Ambiguous"),
+        ("table_semantics", "No caption"),
+        ("placeholder_as_label", "Placeholder only"),
+        ("informative_alt_quality", "Too short; Omits names"),
+        ("media_captions", "No captions track"),
+    ]
+    assert len({item["finding_id"] for item in findings}) == len(findings)
+    screen_only = [item["prompt"] for item in findings if item["screen_only"]]
+    assert screen_only == ["table_semantics", "placeholder_as_label", "media_captions"]
+    link = findings[6]
+    assert (link["element"], link["location"]) == ('<a> "Contact"', "Footer")
+    assert link["raw_source"]["text"] == "Contact" and link["wcag_evidence"] == ["2.4.4"]
+    vague = findings[4]["raw_source"]
+    assert vague["issue"] == "News" and vague["response"]["vague_headings"] == ["News", "More"]
+    media = findings[-1]
+    assert media["raw_source"]["issues"] == ["No captions track"]
+    edit_review(
+        run, *[{"classification": "llm_eligible"}] * 5,
+        {"classification": "llm_eligible", "llm_finding_id": media["finding_id"],
+         "match_reason": "No captions on the video"},
+    )
+    text = report(run)
+    assert ("LLM findings are read from each response with the tool's own rules, "
+            "before its false-positive filter and deduplication.") in text
+    assert ("- LLM (media captions check; shown on screen only, not in the tool's "
+            "CSV report): No captions track") in text

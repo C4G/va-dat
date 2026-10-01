@@ -170,6 +170,7 @@ def write_report(
         "",
         "The benchmark is the Human audit, an accessibility audit performed by human testers. Each problem they reported is a Human finding.",
         "This API uses LLM checks and Programmatic checks. LLM checks send extracted page content to the model with prompts asking it to identify accessibility problems. Programmatic checks apply fixed rules directly to the page's HTML.",
+        "LLM findings are read from each response with the tool's own rules, before its false-positive filter and deduplication.",
         "The tool saw only saved HTML, not a live browser or screen reader. This evaluation covers the homepage only, including Global findings that apply there.",
         "A reviewer decided which part should be expected to detect each Human finding. A catch counts only when the matched findings fully cover the whole Human finding. Partial coverage earns no credit.",
         "",
@@ -230,8 +231,11 @@ def write_report(
             for kind in ("llm", "programmatic"):
                 for identity in matches[kind]:
                     finding = findings[identity]
+                    check = finding["prompt"].replace("_", " ") + " check"
+                    if finding.get("screen_only"):
+                        check += "; shown on screen only, not in the tool's CSV report"
                     label = (
-                        f"LLM ({finding['prompt'].replace('_', ' ')} check)"
+                        f"LLM ({check})"
                         if kind == "llm" else f"Programmatic check {finding['prompt']}"
                     )
                     lines.extend([f"- {_md(label)}: {_md(finding['problem'])}", "", f"  - Why this counts: {_md(decision['match_reason'])}"])

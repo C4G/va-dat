@@ -336,6 +336,55 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    Programmatic rates but remain in the Overall denominator. Reporting rejects
    incomplete runs, missing classifications, and invalid or reused finding IDs.
 
+### How the evaluator reads LLM responses
+
+The evaluator measures the tool as it is, so it reads each LLM response the
+way the tool's CSV report does, using the tool's own code rather than a copy.
+
+**Parsing.** Each response is parsed with the tool's JSON parser, including its
+code-fence and repair steps. A response the tool cannot parse, or whose shape
+the check's rule cannot read (for example one object where a list is expected),
+is an Unreadable response: it gives no LLM findings, `run.json` lists the check
+under `format_failures`, and the run continues with the next check.
+
+**What counts as a finding.** For the 12 checks the tool's CSV report covers,
+the tool's own per-check rule decides, and each row it would write becomes one
+LLM finding:
+
+- Page title and landmarks: one finding per entry in `issues`. Yes/no answers
+  such as `is_descriptive` are ignored.
+- Headings: one finding per entry in `issues`, plus one per entry in
+  `vague_headings`.
+- Link clarity, iframe titles, label quality, and decorative verification: one
+  finding per item whose verdict (`is_clear`, `is_descriptive`, or
+  `likely_decorative`) is `false`. A missing verdict counts as a pass.
+- Required field indicators, informative alt quality, actionable image alt,
+  SVGs, and icon fonts: one finding per item with a non-empty `issues` list,
+  with its issues joined. An item the model judged acceptable gives no
+  finding, even if a yes/no answer such as `has_accessible_name` is `false`.
+
+Each finding's problem, element, and location are the text the tool would
+write in its row. `raw_source` keeps the full item, or for page title,
+headings, and landmarks the whole response plus the specific issue.
+
+**What is skipped.** The tool's false-positive filter and LLM deduplication are
+not applied. The filter guesses from the page HTML and can remove a finding
+other than the one it matched; deduplication costs extra LLM calls and is not
+repeatable. Evaluation counts therefore measure what the model reported and
+will not match the rows in the tool's downloadable CSV report.
+
+**Checks shown on screen only.** Six checks have no rule in the tool's CSV
+report; their results appear only in the web app's on-screen panel:
+`table_semantics`, `placeholder_as_label`, `group_labels`, `form_instructions`,
+`complex_descriptions`, and `media_captions`. The evaluator still reads them,
+giving at most one finding per item, and only when the item's `issues` list is
+non-empty (for tables, `issues` or `header_clarity_issues`). Every
+`placeholder_as_label` item is a finding, because that check only receives
+placeholder-only fields. Yes/no answers never create a finding on their own.
+A table response may be one object or a list. These findings have
+`"screen_only": true`, and `report.md` labels them "shown on screen only, not
+in the tool's CSV report".
+
 ### Evaluation run files
 
 The run root holds the review evidence and scored results. Supporting files
@@ -353,7 +402,7 @@ compatibility fallback or automatic migration.
 | --- | --- |
 | `review.csv` | Original Human audit evidence, source sheet and row, stable IDs, and the decision columns the reviewer edits. |
 | `snapshot.html` | The full Benchmark snapshot used to judge testability and coverage. |
-| `normalized-llm-findings.json` | Parsed LLM findings with `finding_id` values for `review.csv`. A malformed reply can appear in `artifacts/raw-llm-responses.json` without producing a finding here. |
+| `normalized-llm-findings.json` | LLM findings with `finding_id` values for `review.csv`, read as described above. An Unreadable response can appear in `artifacts/raw-llm-responses.json` without producing a finding here. |
 | `normalized-programmatic-findings.json` | Checker results converted to findings with `finding_id` values for `review.csv`. |
 | `run.json` | Configuration, snapshot checksum, prompt list, completion status, format failures, token usage, and estimated cost. `complete: true` does not imply that every response parsed successfully; check `format_failures`. |
 | `report.md` | Scored results generated after successful reporting. |
