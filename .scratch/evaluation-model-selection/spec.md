@@ -1,5 +1,7 @@
 # Select a model for an Evaluation run
 
+Status: resolved
+
 Design decisions settled and implementation authorized on October 1, 2026.
 
 ## Settled decisions
@@ -73,15 +75,15 @@ This feature uses standard pricing and does not add fast mode, batch execution, 
 
 ## Acceptance criteria
 
-- [ ] Omitted `--model` selects the existing Haiku preset; each of the three exact IDs is accepted in preview and live paths.
-- [ ] An unsupported ID is rejected before creating a run or making provider requests, and the error lists supported choices.
-- [ ] Every selected model uses its prescribed request settings and appears consistently in run metadata, request evidence, LLM findings, cost calculations, and the final report.
-- [ ] Mock-provider tests verify the exact Haiku and adaptive request shapes, explicit `high` effort for both new models, omitted temperature, streaming, and final-text extraction.
-- [ ] Cost tests verify each model's token categories, including Opus cache-read pricing, using saved versioned prices.
-- [ ] Preview, declined approval, failure, and cost exhaustion retain existing lifecycle behavior for selected models.
-- [ ] Previously completed Haiku evidence still produces a report.
-- [ ] Shared-client regression checks confirm existing production caller defaults remain intact.
-- [ ] CLI help and README show model selection and explain that the guardrail can be exceeded by a request underway.
+- [x] Omitted `--model` selects the existing Haiku preset; each of the three exact IDs is accepted in preview and live paths.
+- [x] An unsupported ID is rejected before creating a run or making provider requests, and the error lists supported choices.
+- [x] Every selected model uses its prescribed request settings and appears consistently in run metadata, request evidence, LLM findings, cost calculations, and the final report.
+- [x] Mock-provider tests verify the exact Haiku and adaptive request shapes, explicit `high` effort for both new models, omitted temperature, streaming, and final-text extraction.
+- [x] Cost tests verify each model's token categories, including Opus cache-read pricing, using saved versioned prices.
+- [x] Preview, declined approval, failure, and cost exhaustion retain existing lifecycle behavior for selected models.
+- [x] Previously completed Haiku evidence still produces a report.
+- [x] Shared-client regression checks confirm existing production caller defaults remain intact.
+- [x] CLI help and README show model selection and explain that the guardrail can be exceeded by a request underway.
 
 Verification uses mocked providers and local fixtures; this feature does not require a paid verification run.
 
@@ -106,3 +108,11 @@ None.
 - [Anthropic model IDs and versioning](https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions), checked October 1, 2026.
 
 Opus defaults to medium effort and Sonnet to high. Explicit high effort for both is the agreed evaluation preset. Equal effort labels and output caps do not imply equal computation across models.
+
+## Comments
+
+Completed October 1, 2026, in implementation commit `bd1d9f68` and review-fix commit `896ccebe` on `feat/model-evaluation`.
+
+Verification: `uv run pytest -q` passed all 69 tests after the review fix. `uvx ty check processing_scripts/llm_client/audit.py vision_aid/evaluation --output-format concise` passed. `git diff --check` passed. Provider tests used synthetic responses; no paid verification requests were made.
+
+The independent Standards review had no findings. The Spec review found one missing CLI-help requirement, fixed in `896ccebe` and confirmed resolved by the reviewer. See [the review record](review.md).
