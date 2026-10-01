@@ -230,8 +230,8 @@ def test_live_csv_review_and_report_full_row_metrics(
     headings = ["How to read this report", "Summary", "Human findings", "What each part of the tool caught", "Missed", "Not testable from the page file"]
     assert [report.index("## " + heading + "\n") for heading in headings] == sorted(report.index("## " + heading + "\n") for heading in headings)
     assert all(text in report for text in (
-        "benchmark is the Human audit", "The tool has two parts", "large language model",
-        "fixed rules without AI", "only saved HTML", "homepage only", "A reviewer decided",
+        "benchmark is the Human audit", "This API uses LLM checks and Programmatic checks",
+        "send extracted page content to the model", "apply fixed rules directly", "only saved HTML", "homepage only", "A reviewer decided",
         "fully cover the whole Human finding", "Partial coverage earns no credit",
     ))
     assert "Review decisions by: Codex agent (operator-directed)" in report
@@ -250,7 +250,7 @@ def test_live_csv_review_and_report_full_row_metrics(
     assert "| Missing destination | 2.4.4 | Programmatic checks | ✗ | ✓ |" in table
     assert "LLM (link clarity check): Unclear link" in report
     assert "Programmatic check " + programmatic[0]["prompt"].replace("_", r"\_") in report
-    assert "Why this counts: Full issue" in report
+    assert "\n\n  - Why this counts: Full issue" in report
     assert "Visual context" in report
     assert all(row["human_finding_id"] not in report for row in rows)
     assert all(item["finding_id"] not in report for item in findings + programmatic)
@@ -309,7 +309,7 @@ def test_report_cross_catches_empty_misses_and_not_testable_findings(
     report = (run / "report.md").read_text()
     assert r"Unclear \<main\>\|link" in report
     assert r"Use \<main\>\|landmark" in report
-    assert r"Why this counts: Full \<main\>\|coverage" in report
+    assert "\n\n  - " + r"Why this counts: Full \<main\>\|coverage" in report
     assert "| Missing destination | 2.4.4 | Programmatic checks | ✓ | ✗ |" in report
     assert "it caught 1 (100.0%)" in report and "they caught 0 (0.0%)" in report
     assert "Of all 5 Human findings, either part of the tool caught 2 (40.0%)" in report
@@ -331,8 +331,8 @@ def test_report_cross_catches_empty_misses_and_not_testable_findings(
     write_review(review, rows)
     assert main(["report", "--run-dir", str(run), "--reviewer", "Codex agent (operator-directed)"]) == 0
     explained = (run / "report.md").read_text().split("## Missed\n", 1)[1]
-    assert "Why it was expected to be caught: The image is in the HTML" in explained
-    assert "Why it was missed: No full finding" in explained
+    assert "\n- Why it was expected to be caught: The image is in the HTML" in explained
+    assert "\n- Why it was missed: No full finding" in explained
 
 
 def test_review_requires_classification_and_rejects_invalid_finding_ids(

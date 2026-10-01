@@ -169,7 +169,7 @@ def write_report(
         "## How to read this report",
         "",
         "The benchmark is the Human audit, an accessibility audit performed by human testers. Each problem they reported is a Human finding.",
-        "The tool has two parts. The LLM asks a large language model to judge accessibility problems. Programmatic checks apply fixed rules without AI.",
+        "This API uses LLM checks and Programmatic checks. LLM checks send extracted page content to the model with prompts asking it to identify accessibility problems. Programmatic checks apply fixed rules directly to the page's HTML.",
         "The tool saw only saved HTML, not a live browser or screen reader. This evaluation covers the homepage only, including Global findings that apply there.",
         "A reviewer decided which part should be expected to detect each Human finding. A catch counts only when the matched findings fully cover the whole Human finding. Partial coverage earns no credit.",
         "",
@@ -234,7 +234,7 @@ def write_report(
                         f"LLM ({finding['prompt'].replace('_', ' ')} check)"
                         if kind == "llm" else f"Programmatic check {finding['prompt']}"
                     )
-                    lines.extend([f"- {_md(label)}: {_md(finding['problem'])}", f"  Why this counts: {_md(decision['match_reason'])}"])
+                    lines.extend([f"- {_md(label)}: {_md(finding['problem'])}", "", f"  - Why this counts: {_md(decision['match_reason'])}"])
             if heading == "Not testable from the page file":
                 lines.append(_md(decision["classification_reason"]))
             elif not any(matches.values()):
@@ -243,6 +243,6 @@ def write_report(
                     ("review_notes", "Why it was missed"),
                 ):
                     if decision[field].strip():
-                        lines.append(f"{label}: {_md(decision[field])}")
+                        lines.append(f"- {label}: {_md(decision[field])}")
             lines.append("")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
