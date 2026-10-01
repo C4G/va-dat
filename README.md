@@ -489,12 +489,10 @@ everything it does is free:
 - `index.html`'s inline JavaScript parses
 - the Docker image builds, becomes healthy, serves the site, and returns a valid NDJSON audit
 
-Default pytest discovery is limited to `tests/`. There, `tests/test_evaluation.py`
-covers the evaluator end to end through its CLI: preview, live runs against a
-fake provider, review validation, scoring, and evidence checks. Detailed
-evaluator cases can also be kept in the ignored `.local-tests/evaluation/`
-folder and run separately with `uv run pytest -q .local-tests/evaluation`.
-That folder is optional, so a fresh checkout and CI never depend on it.
+Default pytest discovery is limited to `tests/`, where `tests/test_evaluation.py`
+covers the evaluator end to end through its CLI with a fake provider. Optional
+detailed evaluator cases live in the ignored `.local-tests/evaluation/` folder;
+run them with `uv run pytest -q .local-tests/evaluation`. CI never needs them.
 
 ## Running the Pipeline
 

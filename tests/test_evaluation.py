@@ -16,6 +16,8 @@ from vision_aid.evaluation.cli import main
 
 MODELS = ("claude-haiku-4-5-20251001", "claude-opus-5-5", "claude-sonnet-5-5")
 CATEGORIES = [spec.name for spec in PROMPT_REGISTRY if not spec.is_summary]
+RUN_ROOT = {"review.csv", "snapshot.html", "normalized-programmatic-findings.json",
+            "run.json", "artifacts"}
 REVIEWER = "Test reviewer"
 # Synthetic markup that activates every non-summary prompt category.
 HTML = (
@@ -73,7 +75,7 @@ def run_cli(workspace: Path, *extra: str) -> int:
 def report(run: Path) -> str:
     """Score a reviewed run and return the Markdown report."""
     assert main(["report", "--run-dir", str(run), "--reviewer", REVIEWER]) == 0
-    return (run / "report.md").read_text()
+    return (run / "report.md").read_text(encoding="utf-8")
 
 
 def refused(run: Path, capsys: pytest.CaptureFixture[str], reviewer: str = REVIEWER) -> str:
@@ -116,6 +118,7 @@ def fake_client(monkeypatch: pytest.MonkeyPatch, *responses: dict) -> list[str]:
                "usage": {"input_tokens": 1, "output_tokens": 1}}
 
     def call(prompt: str) -> dict:
+        """Return the next scripted response."""
         prompts.append(prompt)
         return responses[len(prompts) - 1] if len(prompts) <= len(responses) else default
 
@@ -124,17 +127,13 @@ def fake_client(monkeypatch: pytest.MonkeyPatch, *responses: dict) -> list[str]:
     return prompts
 
 
-ROOT = {"review.csv", "snapshot.html", "normalized-programmatic-findings.json",
-        "run.json", "artifacts"}
-
-
 @pytest.mark.parametrize("model", [None, "claude-opus-5-5", "claude-sonnet-5-5"])
 def test_preview_preserves_evidence_without_provider_access(workspace, monkeypatch, model):
     """Credentials alone never buy requests, and all homepage rows survive."""
     monkeypatch.setattr("anthropic.Anthropic", lambda **_: pytest.fail("provider access"))
     assert run_cli(workspace, *(["--model", model] if model else [])) == 0
     run = only_run(workspace)
-    assert {path.name for path in run.iterdir()} == ROOT
+    assert {path.name for path in run.iterdir()} == RUN_ROOT
     assert {path.name for path in (run / "artifacts").iterdir()} == {
         "human-findings.json", "pricing.json", "raw-programmatic-findings.json",
         "prompts", "payloads",
@@ -142,8 +141,9 @@ def test_preview_preserves_evidence_without_provider_access(workspace, monkeypat
     manifest = load(run, "run.json")
     assert manifest["configuration"]["model"] == (model or MODELS[0])
     assert manifest["complete"] is False and manifest["incomplete_reason"] == "preview"
+    assert len(CATEGORIES) == 18
     assert [prompt["name"] for prompt in manifest["prompts"]] == CATEGORIES
-    assert (run / "snapshot.html").read_text() == HTML
+    assert (run / "snapshot.html").read_text(encoding="utf-8", errors="replace") == HTML
     audit = workspace / "human-audit.xlsx"
     assert manifest["human_audit_sha256"] == hashlib.sha256(audit.read_bytes()).hexdigest()
     assert manifest["snapshot_sha256"] == hashlib.sha256(HTML.encode()).hexdigest()
@@ -167,11 +167,15 @@ def test_live_run_without_approval_or_with_unsupported_model_buys_nothing(
         run_cli(workspace, "--model", "gpt-4o", "--live", "--approve-live")
     assert error.value.code == 2 and "invalid choice" in capsys.readouterr().err
     assert not (workspace / ".model-evaluation").exists()
-    monkeypatch.setattr("sys.stdin", SimpleNamespace(isatty=lambda: False))
-    assert run_cli(workspace, "--live") == 0
-    manifest = load(only_run(workspace), "run.json")
-    assert manifest["incomplete_reason"] == "preview"
-    assert not (only_run(workspace) / "artifacts" / "raw-llm-responses.json").exists()
+    monkeypatch.setattr("builtins.input", lambda _: "no")
+    for interactive in (False, True):
+        monkeypatch.setattr("sys.stdin", SimpleNamespace(isatty=lambda: interactive))
+        assert run_cli(workspace, "--live") == 0
+    runs = list((workspace / ".model-evaluation" / "runs").iterdir())
+    assert len(runs) == 2
+    for run in runs:
+        assert load(run, "run.json")["incomplete_reason"] == "preview"
+        assert not (run / "artifacts" / "raw-llm-responses.json").exists()
 
 
 @pytest.mark.parametrize("model,thinking,effort,cost", [
@@ -186,6 +190,7 @@ def test_presets_stream_every_category_and_report_saved_prices(
     requests, options = [], []
 
     def create(**kwargs):
+        """Stream thinking, then final text, with cache usage."""
         requests.append(kwargs)
         usage = SimpleNamespace(input_tokens=1000, output_tokens=1,
                                 cache_read_input_tokens=500, cache_creation_input_tokens=100)
@@ -202,6 +207,7 @@ def test_presets_stream_every_category_and_report_saved_prices(
         ]))
 
     def client(**kwargs):
+        """Record client options and expose the fake Messages API."""
         options.append(kwargs)
         return SimpleNamespace(messages=SimpleNamespace(create=create))
 
@@ -254,7 +260,8 @@ def test_review_validation_and_report_metrics(workspace, monkeypatch, capsys):
         {"classification": "programmatic", "programmatic_finding_id": programmatic,
          "match_reason": "HTML check"},
         {"classification": "programmatic", "llm_finding_id": llm[1], "match_reason": "Cross-catch"},
-        {"classification": "unavailable_evidence", "classification_reason": "Needs a browser"},
+        {"classification": "unavailable_evidence", "classification_reason": "Needs a browser",
+         "llm_finding_id": "", "match_reason": ""},
         {"classification": "ambiguous", "classification_reason": "Needs judgment"},
         {"classification": "llm_eligible", "review_notes": "No full finding"},
     ]
@@ -264,6 +271,8 @@ def test_review_validation_and_report_metrics(workspace, monkeypatch, capsys):
     assert "needs a match reason" in refused(run, capsys)
     edit_review(run, {"llm_finding_id": programmatic, "match_reason": "Full issue"})
     assert "Unknown LLM finding ID" in refused(run, capsys)
+    edit_review(run, *decisions[:3], {"llm_finding_id": llm[2], "match_reason": "Claimed"})
+    assert "cannot claim coverage" in refused(run, capsys)
     edit_review(run, *decisions)
     text = report(run)
     assert ("Of the 2 Human findings the LLM could be expected to detect from the "
@@ -295,10 +304,9 @@ def test_failure_or_exhaustion_stops_and_keeps_partial_evidence(
     workspace, monkeypatch, capsys, failure, calls, cost, reason,
 ):
     """Requests stop, billed usage and findings remain, and reporting refuses."""
-    success = {"success": True, "response": '[{"problem": "Unclear title"}]',
-               "usage": {"input_tokens": 100000, "output_tokens": 20}}
-    stopped = {"success": False, "response": None, "error": "synthetic failure",
-               "usage": {"input_tokens": 100000, "output_tokens": 20}}
+    usage = {"input_tokens": 100000, "output_tokens": 20}
+    success = {"success": True, "response": '[{"problem": "Unclear title"}]', "usage": usage}
+    stopped = {"success": False, "response": None, "error": "synthetic failure", "usage": usage}
     prompts = fake_client(monkeypatch, success, stopped if failure else success)
     limit = "1" if failure else "0.01"
     assert run_cli(workspace, "--max-cost-usd", limit, "--live", "--approve-live") == 1
