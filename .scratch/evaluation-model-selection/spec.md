@@ -116,3 +116,5 @@ Completed October 1, 2026, in implementation commit `bd1d9f68` and review-fix co
 Verification: `uv run pytest -q` passed all 69 tests after the review fix. `uvx ty check processing_scripts/llm_client/audit.py vision_aid/evaluation --output-format concise` passed. `git diff --check` passed. Provider tests used synthetic responses; no paid verification requests were made.
 
 The independent Standards review had no findings. The Spec review found one missing CLI-help requirement, fixed in `896ccebe` and confirmed resolved by the reviewer. See [the review record](review.md).
+
+On October 1, 2026, the operator requested medium effort for both Opus and Sonnet. Commit `f9e21865` updates both presets, CLI help, README, this spec, and request/evidence tests. All 69 tests and scoped typechecks passed. Independent Standards and Spec reviews found no issues in this follow-up.

@@ -25,3 +25,17 @@ No other concrete Spec findings or scope creep were identified. Model selection,
 The reviewer verified `896ccebe`: CLI help now describes all preset settings and explains guardrail overshoot, with assertions covering both. The finding is resolved. No remaining Spec findings.
 
 Standards: 0 findings. Spec: 1 P3 finding, resolved. No outstanding findings on either axis.
+
+## Medium effort follow-up
+
+The operator requested medium effort for both Opus and Sonnet. Reviewed commit `f9e21865` against starting commit `5994cda43dc5ba26f41d06ff5f69c71cbb3ebb5e`.
+
+### Standards
+
+No findings or actionable baseline smells. The shared preset, CLI help, README, spec, and provider assertions consistently use medium effort. Domain vocabulary and ADR boundaries remain intact.
+
+### Spec
+
+No findings. Presets, request assertions, metadata expectations, CLI help, README, and the updated spec consistently specify medium effort for both models. No missing requirements, incorrect behavior, or scope creep identified.
+
+Standards: 0 findings. Spec: 0 findings. All 69 tests and scoped typechecks pass.
