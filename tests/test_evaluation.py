@@ -246,12 +246,18 @@ def test_review_validation_and_report_metrics(workspace, monkeypatch, capsys):
         monkeypatch,
         {"success": True, "response": "not JSON", "usage": {}},
         {"success": True, "response": "[]", "usage": {}},
+        # The API reads the first fenced block and ignores trailing prose.
+        {"success": True, "usage": {}, "response": (
+            '```json\n[{"problem": "Fenced with a note"}]\n```\n\n**Note:** Context was limited.'
+        )},
     )
     assert run_cli(workspace, "--live", "--approve-live") == 0
     run = only_run(workspace)
     manifest = load(run, "run.json")
     assert manifest["complete"] is True and manifest["format_failures"] == ["page_title"]
-    llm = [item["finding_id"] for item in load(run, "normalized-llm-findings.json")]
+    findings = load(run, "normalized-llm-findings.json")
+    assert findings[0]["problem"] == "Fenced with a note"
+    llm = [item["finding_id"] for item in findings]
     assert len(llm) == len(CATEGORIES) - 2
     programmatic = load(run, "normalized-programmatic-findings.json")[0]["finding_id"]
     assert "classification" in refused(run, capsys)
@@ -286,7 +292,8 @@ def test_review_validation_and_report_metrics(workspace, monkeypatch, capsys):
     excluded = text.split("## Not testable from the page file\n", 1)[1]
     assert "### Hidden menu" in excluded and "Needs a browser" in excluded
     assert "### Unclear claim" in excluded and "Needs judgment" in excluded
-    assert "The LLM returned unreadable output for 1 of 18 checks: page title check." in text
+    assert ("1 of 18 LLM checks returned an Unreadable response that the tool "
+            "would skip: page title check.") in text
     assert all(finding_id not in text for finding_id in [*llm, programmatic])
     edit_review(run, *[{"classification": "ambiguous", "llm_finding_id": "",
                         "programmatic_finding_id": "", "match_reason": ""}] * 6)

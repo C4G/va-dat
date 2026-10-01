@@ -32,6 +32,10 @@ _Avoid_: Deterministic checker.
 An accessibility problem reported by the LLM, kept with the response it came from.
 _Avoid_: Audit finding, Human finding, Programmatic finding.
 
+**Unreadable response**:
+An LLM response the tool itself cannot parse and would therefore skip. A response counts as readable whenever the tool could use it, even if it contains extra text or needed repair.
+_Avoid_: Malformed output, format failure (in reports).
+
 **Programmatic finding**:
 An accessibility problem reported by the Programmatic checks.
 _Avoid_: Audit finding, LLM finding.

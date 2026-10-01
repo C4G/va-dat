@@ -9,6 +9,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from entry_points.generate_report import safe_parse_json
 from processing_scripts.llm.registry import PROMPT_REGISTRY, PromptSpec
 from vision_aid.evaluation.schemas import CanonicalFinding
 
@@ -53,12 +54,6 @@ class NormalizationResult:
     raw_response: str
     findings: tuple[CanonicalFinding, ...]
     error: str | None = None
-
-
-def _strip_fence(value: str) -> str:
-    """Remove one optional Markdown JSON fence."""
-    match = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", value, re.DOTALL)
-    return match.group(1) if match else value.strip()
 
 
 def _first_text(item: dict[str, Any], keys: Iterable[str]) -> str:
@@ -194,8 +189,9 @@ def normalize_prompt_response(
             error=(f"No fixed evaluation normalizer exists for {prompt_name!r}."),
         )
     try:
-        parsed = json.loads(_strip_fence(raw_response))
-    except (json.JSONDecodeError, TypeError) as error:
+        # Parse exactly as the API's report does, so only responses it skips are unreadable.
+        parsed = safe_parse_json(raw_response)
+    except (json.JSONDecodeError, TypeError, ValueError) as error:
         return NormalizationResult(
             prompt=prompt_name,
             parse_status="malformed",

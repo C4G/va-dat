@@ -193,7 +193,7 @@ def write_report(
     ])
     if manifest["format_failures"]:
         checks = ", ".join(_md(name.replace("_", " ") + " check") for name in manifest["format_failures"])
-        lines.extend([f"The LLM returned unreadable output for {len(manifest['format_failures'])} of {len(manifest['prompts'])} checks: {checks}.", ""])
+        lines.extend([f"{len(manifest['format_failures'])} of {len(manifest['prompts'])} LLM checks returned an Unreadable response that the tool would skip: {checks}.", ""])
     lines.extend([
         "## Human findings", "",
         "| Issue Title | WCAG | Expected to be caught by | LLM | Programmatic checks |",
