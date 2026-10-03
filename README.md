@@ -119,11 +119,11 @@ HTML file (e.g. 1.9 MB)
 
 Each extractor has an `extract(file_path)` function that parses HTML with BeautifulSoup and returns a structured dict:
 
-| Extractor | Focus | Output tokens (visionaid.org) |
-|-----------|-------|-------------------------------|
-| `semantic_checklist_01.py` | Page title, headings, links, landmarks, tables, iframes | ~17,600 |
-| `forms_checklist_02.py` | Form fields with label source, instructions, required flags | ~2,500 |
-| `nontext_checklist_03.py` | Images (4 categories), SVGs, icon fonts, video/audio | ~19,200 |
+| Extractor                  | Focus                                                       | Output tokens (visionaid.org) |
+| -------------------------- | ----------------------------------------------------------- | ----------------------------- |
+| `semantic_checklist_01.py` | Page title, headings, links, landmarks, tables, iframes     | ~17,600                       |
+| `forms_checklist_02.py`    | Form fields with label source, instructions, required flags | ~2,500                        |
+| `nontext_checklist_03.py`  | Images (4 categories), SVGs, icon fonts, video/audio        | ~19,200                       |
 
 These files live in `processing_scripts/llm_preprocessing/` and were authored by ahildebrandt3 and Andrew Yin. They should not need modification unless a new checklist (CL04+) is added.
 
@@ -314,22 +314,22 @@ uv run python entry_points/generate_report.py --output-dir ./output --report-dir
 
 ### Pipeline options
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--html` | (required) | Path to the HTML file to analyze |
-| `--output-dir` | `./output` | Directory for results |
-| `--model` | `claude-sonnet-5` | Anthropic model to use |
-| `--dry-run` | off | Generate prompts without calling the API |
-| `--include-summaries` | off | Include the 3 cross-cutting summary prompts |
-| `--show-cost` | off | Print estimated dollar cost of the run based on model pricing |
-| `--env-file` | `.env` | Path to environment file |
+| Flag                  | Default           | Description                                                   |
+| --------------------- | ----------------- | ------------------------------------------------------------- |
+| `--html`              | (required)        | Path to the HTML file to analyze                              |
+| `--output-dir`        | `./output`        | Directory for results                                         |
+| `--model`             | `claude-sonnet-5` | Anthropic model to use                                        |
+| `--dry-run`           | off               | Generate prompts without calling the API                      |
+| `--include-summaries` | off               | Include the 3 cross-cutting summary prompts                   |
+| `--show-cost`         | off               | Print estimated dollar cost of the run based on model pricing |
+| `--env-file`          | `.env`            | Path to environment file                                      |
 
 ### Report generator options
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--output-dir` | `./output` | Directory containing pipeline output |
-| `--report-dir` | `./test_results/claude/` | Directory to write the CSV report |
+| Flag           | Default                  | Description                          |
+| -------------- | ------------------------ | ------------------------------------ |
+| `--output-dir` | `./output`               | Directory containing pipeline output |
+| `--report-dir` | `./test_results/claude/` | Directory to write the CSV report    |
 
 ## Output Structure
 
@@ -354,43 +354,43 @@ output/
 
 The report CSV has 13 columns matching the Vision Aid team's standard format:
 
-| Column | Description |
-|--------|-------------|
-| `ID` | Sequential row number |
-| `element_name` | HTML element (e.g. `<img class="...">`, `<a> "link text"`) |
-| `browser_combination` | Always `N/A` (static HTML analysis) |
-| `page_title` | Page title from the analyzed HTML |
-| `issue_title` | Short issue description |
-| `steps_to_reproduce` | Element snippet or inspection steps |
-| `actual_result` | What was found |
-| `expected_result` | What WCAG requires |
-| `recommendation` | Suggested fix |
-| `wcag_sc` | WCAG success criterion (e.g. `1.1.1`) |
-| `category` | Issue category (e.g. `Programmatic / Non-text Content`) |
-| `log_date` | Date of the pipeline run |
-| `reported_by` | `Programmatic` or the LLM model string |
+| Column                | Description                                                |
+| --------------------- | ---------------------------------------------------------- |
+| `ID`                  | Sequential row number                                      |
+| `element_name`        | HTML element (e.g. `<img class="...">`, `<a> "link text"`) |
+| `browser_combination` | Always `N/A` (static HTML analysis)                        |
+| `page_title`          | Page title from the analyzed HTML                          |
+| `issue_title`         | Short issue description                                    |
+| `steps_to_reproduce`  | Element snippet or inspection steps                        |
+| `actual_result`       | What was found                                             |
+| `expected_result`     | What WCAG requires                                         |
+| `recommendation`      | Suggested fix                                              |
+| `wcag_sc`             | WCAG success criterion (e.g. `1.1.1`)                      |
+| `category`            | Issue category (e.g. `Programmatic / Non-text Content`)    |
+| `log_date`            | Date of the pipeline run                                   |
+| `reported_by`         | `Programmatic` or the LLM model string                     |
 
 ## Cost Estimate
 
 For visionaid.org homepage (using Claude Sonnet):
 
-| Approach | Input tokens | Cost |
-|----------|-------------|------|
-| Monolithic (entire HTML) | ~487,000 | ~$1.52 |
-| Element-specific pipeline | ~18,000 | ~$0.32 |
+| Approach                  | Input tokens | Cost   |
+| ------------------------- | ------------ | ------ |
+| Monolithic (entire HTML)  | ~487,000     | ~$1.52 |
+| Element-specific pipeline | ~18,000      | ~$0.32 |
 
 The pipeline skips prompts with empty payloads (e.g., no forms on the page = no form prompts), so actual cost varies by page content.
 
 ## Attribution
 
-| Contributor | What they own | Key files |
-|---|---|---|
-| ahildebrandt3 | Extractors, programmatic checkers (CL01–CL03), CL01 prompts | `processing_scripts/llm_preprocessing/`, `processing_scripts/programmatic/` |
-| Andrew Yin | CL02 + CL03 extractors, CL02 + CL03 prompts, LLM client, pipeline docs | `processing_scripts/llm_preprocessing/`, `processing_scripts/llm_client/`, `processing_scripts/llm/*.txt` |
-| nfulton99 | HTML ingestion, packaging | `vision_aid/ingestion/pull_html.py`, `pyproject.toml` |
-| ColeANiblett | Pipeline orchestration, prompt system, report generator | `processing_scripts/llm/{registry,slicers,templates}.py`, `entry_points/`, `docs/` |
+| Contributor   | What they own                                                          | Key files                                                                                                 |
+| ------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| ahildebrandt3 | Extractors, programmatic checkers (CL01–CL03), CL01 prompts            | `processing_scripts/llm_preprocessing/`, `processing_scripts/programmatic/`                               |
+| Andrew Yin    | CL02 + CL03 extractors, CL02 + CL03 prompts, LLM client, pipeline docs | `processing_scripts/llm_preprocessing/`, `processing_scripts/llm_client/`, `processing_scripts/llm/*.txt` |
+| nfulton99     | HTML ingestion, packaging                                              | `vision_aid/ingestion/pull_html.py`, `pyproject.toml`                                                     |
+| ColeANiblett  | Pipeline orchestration, prompt system, report generator                | `processing_scripts/llm/{registry,slicers,templates}.py`, `entry_points/`, `docs/`                        |
 
-## Private Model Evaluation
+## Model Evaluation
 
 ### Choose an evaluation model
 
@@ -398,11 +398,11 @@ Each Evaluation run uses one fixed model through Anthropic's direct API.
 Choose it with `--model`; omitting the flag selects Haiku 4.5. The evaluator
 accepts only these exact IDs:
 
-| Model | `--model` value | Thinking | Effort |
-| --- | --- | --- | --- |
+| Model              | `--model` value             | Thinking            | Effort  |
+| ------------------ | --------------------------- | ------------------- | ------- |
 | Haiku 4.5, default | `claude-haiku-4-5-20251001` | 16,000-token budget | Omitted |
-| Opus 5.5 | `claude-opus-5-5` | Adaptive | Medium |
-| Sonnet 5.5 | `claude-sonnet-5-5` | Adaptive | Medium |
+| Opus 5.5           | `claude-opus-5-5`           | Adaptive            | Medium  |
+| Sonnet 5.5         | `claude-sonnet-5-5`         | Adaptive            | Medium  |
 
 For example, add `--model claude-opus-5-5` to the run command below to evaluate
 Opus. Friendly names and aliases are rejected. Thinking settings are fixed
@@ -554,22 +554,22 @@ can read them. Move their supporting files into `artifacts/`, including the
 `prompts/` and `payloads/` directories, preserving filenames. There is no
 compatibility fallback or automatic migration.
 
-| File | Role |
-| --- | --- |
-| `review.csv` | Original Human audit evidence, source sheet and row, stable IDs, and the decision columns the reviewer edits. |
-| `snapshot.html` | The full Benchmark snapshot used to judge testability and coverage. |
-| `normalized-llm-findings.json` | LLM findings with `finding_id` values for `review.csv`, read as described above. An Unreadable response can appear in `artifacts/raw-llm-responses.json` without producing a finding here. |
-| `normalized-programmatic-findings.json` | Checker results converted to findings with `finding_id` values for `review.csv`. |
-| `run.json` | Configuration, snapshot checksum, prompt list, completion status, format failures, token usage, and estimated cost. `complete: true` does not imply that every response parsed successfully; check `format_failures`. |
-| `report.md` | Scored results generated after successful reporting. |
-| `artifacts/human-findings.json` | Canonical imported Home and Global Human findings used to validate and score the review. |
-| `artifacts/pricing.json` | The versioned public model rates and capture date used to estimate this run's cost from reported usage. Older runs retain their original price schedule. |
-| `artifacts/raw-llm-responses.json` | Live model replies, request outcomes, and reported token usage, including responses that could not be parsed into findings. |
-| `artifacts/raw-programmatic-findings.json` | Original output from the Programmatic checks. |
-| `artifacts/prompts/*.json` | The exact `prompt_text` and filtered `payload_slice` prepared for each model request. These files do not hold model replies in an Evaluation run. |
-| `artifacts/payloads/cl01_payload.json` | Extracted headings, links, landmarks, tables, and other semantic page structure. |
-| `artifacts/payloads/cl02_payload.json` | Extracted forms, fields, and labels. |
-| `artifacts/payloads/cl03_payload.json` | Extracted images, SVGs, icons, and media. |
+| File                                       | Role                                                                                                                                                                                                                  |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `review.csv`                               | Original Human audit evidence, source sheet and row, stable IDs, and the decision columns the reviewer edits.                                                                                                         |
+| `snapshot.html`                            | The full Benchmark snapshot used to judge testability and coverage.                                                                                                                                                   |
+| `normalized-llm-findings.json`             | LLM findings with `finding_id` values for `review.csv`, read as described above. An Unreadable response can appear in `artifacts/raw-llm-responses.json` without producing a finding here.                            |
+| `normalized-programmatic-findings.json`    | Checker results converted to findings with `finding_id` values for `review.csv`.                                                                                                                                      |
+| `run.json`                                 | Configuration, snapshot checksum, prompt list, completion status, format failures, token usage, and estimated cost. `complete: true` does not imply that every response parsed successfully; check `format_failures`. |
+| `report.md`                                | Scored results generated after successful reporting.                                                                                                                                                                  |
+| `artifacts/human-findings.json`            | Canonical imported Home and Global Human findings used to validate and score the review.                                                                                                                              |
+| `artifacts/pricing.json`                   | The versioned public model rates and capture date used to estimate this run's cost from reported usage. Older runs retain their original price schedule.                                                              |
+| `artifacts/raw-llm-responses.json`         | Live model replies, request outcomes, and reported token usage, including responses that could not be parsed into findings.                                                                                           |
+| `artifacts/raw-programmatic-findings.json` | Original output from the Programmatic checks.                                                                                                                                                                         |
+| `artifacts/prompts/*.json`                 | The exact `prompt_text` and filtered `payload_slice` prepared for each model request. These files do not hold model replies in an Evaluation run.                                                                     |
+| `artifacts/payloads/cl01_payload.json`     | Extracted headings, links, landmarks, tables, and other semantic page structure.                                                                                                                                      |
+| `artifacts/payloads/cl02_payload.json`     | Extracted forms, fields, and labels.                                                                                                                                                                                  |
+| `artifacts/payloads/cl03_payload.json`     | Extracted images, SVGs, icons, and media.                                                                                                                                                                             |
 
 The payload files show extracted page data before filtering. The prompt files
 show what the model actually received after filtering and slicing. To review a
@@ -603,12 +603,12 @@ In particular, `source_sheet` and `source_row` point back to the Human audit,
 
 For **every row**, fill in `classification`:
 
-| `classification` value | Use it when |
-| --- | --- |
-| `llm_eligible` | The Benchmark snapshot contains enough evidence to judge the defect, and the issue calls for the LLM's judgment. |
-| `programmatic` | A Programmatic check can establish the defect from the available evidence. Classification alone does not mean the checker found it. |
+| `classification` value | Use it when                                                                                                                                           |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `llm_eligible`         | The Benchmark snapshot contains enough evidence to judge the defect, and the issue calls for the LLM's judgment.                                      |
+| `programmatic`         | A Programmatic check can establish the defect from the available evidence. Classification alone does not mean the checker found it.                   |
 | `unavailable_evidence` | The snapshot lacks evidence needed to verify the defect, such as behavior that requires interaction or a browser or assistive technology observation. |
-| `ambiguous` | The Human finding is too unclear to decide fairly whether a finding covers it. |
+| `ambiguous`            | The Human finding is too unclear to decide fairly whether a finding covers it.                                                                        |
 
 Base the classification on the Human finding and available evidence, not on
 whether this run happened to produce a matching finding. In
@@ -618,12 +618,12 @@ optional, but `classification` cannot be blank when you generate the report.
 
 Then complete the remaining decision columns for that row:
 
-| Column | What to enter |
-| --- | --- |
-| `llm_finding_id` | Copy `finding_id` values from `$RUN_DIR/normalized-llm-findings.json` only when the selected LLM findings **jointly cover the whole Human finding**. Separate multiple IDs with semicolons (`;`). Otherwise leave blank. |
+| Column                    | What to enter                                                                                                                                                                                                                  |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `llm_finding_id`          | Copy `finding_id` values from `$RUN_DIR/normalized-llm-findings.json` only when the selected LLM findings **jointly cover the whole Human finding**. Separate multiple IDs with semicolons (`;`). Otherwise leave blank.       |
 | `programmatic_finding_id` | Copy `finding_id` values from `$RUN_DIR/normalized-programmatic-findings.json` only when the selected Programmatic findings **jointly cover the whole Human finding**. Use semicolons for multiple IDs. Otherwise leave blank. |
-| `match_reason` | If either finding-ID cell has an ID, briefly explain how those findings cover the full defect, including the relevant element or behavior. If both ID cells are blank, this can be blank. |
-| `review_notes` | Optional context, such as a more precise location or a finding that covers only part of the defect. Notes do not award coverage. |
+| `match_reason`            | If either finding-ID cell has an ID, briefly explain how those findings cover the full defect, including the relevant element or behavior. If both ID cells are blank, this can be blank.                                      |
+| `review_notes`            | Optional context, such as a more precise location or a finding that covers only part of the defect. Notes do not award coverage.                                                                                               |
 
 You may use findings from both files for one row. Each finding ID must exist in
 the named file and can be assigned to only one Human finding. Leave both ID
