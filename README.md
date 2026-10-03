@@ -491,19 +491,21 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
 
 ### How the evaluator reads LLM responses
 
-The evaluator measures the tool as it is, so it reads each LLM response the
-way the tool's CSV report does, using the tool's own code rather than a copy.
+The evaluator reads each LLM response using va-dat's own parsing and reporting
+code. This keeps the evaluation consistent with how va-dat produces its CSV
+report.
 
-**Parsing.** Each response is parsed with the tool's JSON parser, including its
-code-fence and repair steps. A response the tool cannot parse, or whose shape
-the check's rule cannot read (for example one object where a list is expected,
-or text where `issues`, `vague_headings`, or `header_clarity_issues` should be
-a list), is an Unreadable response: it gives no LLM findings, `run.json` lists the check
-under `format_failures`, and the run continues with the next check.
+**Parsing.** The evaluator parses each response with va-dat's JSON parser,
+including its code-fence and repair steps. If va-dat cannot parse a response,
+or the check's rule cannot read its structure, it counts as an Unreadable
+response. Examples include one object where a list is expected, or text where
+`issues`, `vague_headings`, or `header_clarity_issues` should be a list.
+An Unreadable response gives no LLM findings. The evaluator lists the check
+under `format_failures` in `run.json` and continues with the next check.
 
-**What counts as a finding.** For the 12 checks the tool's CSV report covers,
-the tool's own per-check rule decides, and each row it would write becomes one
-LLM finding:
+**What counts as a finding.** For the 12 checks covered by va-dat's CSV report,
+the evaluator applies va-dat's per-check rules. Each row those rules would
+produce becomes one LLM finding:
 
 - Page title and landmarks: one finding per entry in `issues`. Yes/no answers
   such as `is_descriptive` are ignored.
@@ -517,18 +519,18 @@ LLM finding:
   with its issues joined. An item the model judged acceptable gives no
   finding, even if a yes/no answer such as `has_accessible_name` is `false`.
 
-Each finding's problem, element, and location are the text the tool would
-write in its row. `raw_source` keeps the full item, or for page title,
+Each finding's problem, element, and location use the text va-dat would
+write in its CSV row. `raw_source` keeps the full item, or for page title,
 headings, and landmarks the whole response plus the specific issue.
 
-**What is skipped.** The tool's false-positive filter and LLM deduplication are
-not applied. The filter guesses from the page HTML and can remove a finding
-other than the one it matched; deduplication costs extra LLM calls and is not
+**What is skipped.** The evaluator skips va-dat's false-positive filter and LLM
+deduplication. The filter guesses from the page HTML and can remove a finding
+other than the one it matched. Deduplication costs extra LLM calls and is not
 repeatable. Evaluation counts therefore measure what the model reported and
-will not match the rows in the tool's downloadable CSV report.
+will not match the rows in va-dat's downloadable CSV report.
 
-**Checks shown on screen only.** Six checks have no rule in the tool's CSV
-report; their results appear only in the web app's on-screen panel:
+**Checks shown on screen only.** Six checks have no rule in va-dat's CSV
+report. Their results appear only in the web app's on-screen panel:
 `table_semantics`, `placeholder_as_label`, `group_labels`, `form_instructions`,
 `complex_descriptions`, and `media_captions`. The evaluator still reads them,
 giving at most one finding per item, and only when the item's `issues` list is
@@ -536,8 +538,8 @@ non-empty (for tables, `issues` or `header_clarity_issues`). Every
 `placeholder_as_label` item is a finding, because that check only receives
 placeholder-only fields. Yes/no answers never create a finding on their own.
 A table response may be one object or a list. These findings have
-`"screen_only": true`, and `report.md` labels them "shown on screen only, not
-in the tool's CSV report".
+`"screen_only": true`. The evaluation report, `report.md`, labels them as shown
+on screen only and absent from va-dat's CSV report.
 
 ### Evaluation run files
 
