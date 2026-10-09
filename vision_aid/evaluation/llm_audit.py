@@ -16,6 +16,7 @@ from vision_aid.evaluation.normalization import normalize_prompt_response
 from vision_aid.evaluation.pricing import PriceSchedule
 
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+OPENAI_MODELS = ("gpt-6-luna", "gpt-6.1-sol")
 MODEL_PRESETS = {
     DEFAULT_MODEL: LLMRequestConfig(
         model=DEFAULT_MODEL,
@@ -40,7 +41,7 @@ MODEL_PRESETS = {
             max_output_tokens=24192,
             temperature=None,
         )
-        for model in ("gpt-6-luna", "gpt-6.1-sol")
+        for model in OPENAI_MODELS
     },
 }
 USAGE_KEYS = (
@@ -53,7 +54,7 @@ USAGE_KEYS = (
 
 def evaluation_configuration(config: LLMRequestConfig) -> dict[str, Any]:
     """Record the selected preset and evaluation-only request settings."""
-    provider = "openai" if config.model in ("gpt-6-luna", "gpt-6.1-sol") else "anthropic"
+    provider = "openai" if config.model in OPENAI_MODELS else "anthropic"
     metadata = config.as_metadata()
     return {
         "model": config.model,
@@ -90,7 +91,7 @@ def positive_cost(value: str) -> Decimal:
 def billable_usage(model: str, reported: dict[str, Any]) -> dict[str, int]:
     """Separate OpenAI cached subsets without changing reported evidence."""
     usage = {key: int(reported.get(key) or 0) for key in USAGE_KEYS}
-    if model in ("gpt-6-luna", "gpt-6.1-sol"):
+    if model in OPENAI_MODELS:
         raw = reported.get("provider_usage") or {}
         details = raw.get("prompt_tokens_details") or {}
         usage["cached_input_tokens"] = int(details.get("cached_tokens") or 0)
