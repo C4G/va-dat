@@ -87,6 +87,20 @@ def positive_cost(value: str) -> Decimal:
     return amount
 
 
+def billable_usage(model: str, reported: dict[str, Any]) -> dict[str, int]:
+    """Separate OpenAI cached subsets without changing reported evidence."""
+    usage = {key: int(reported.get(key) or 0) for key in USAGE_KEYS}
+    if model in ("gpt-6-luna", "gpt-6.1-sol"):
+        raw = reported.get("provider_usage") or {}
+        details = raw.get("prompt_tokens_details") or {}
+        usage["cached_input_tokens"] = int(details.get("cached_tokens") or 0)
+        usage["cache_creation_input_tokens"] = int(details.get("cache_write_tokens") or 0)
+        usage["input_tokens"] -= (
+            usage["cached_input_tokens"] + usage["cache_creation_input_tokens"]
+        )
+    return usage
+
+
 def execute(
     run: Path, manifest: dict[str, Any], api_key: str,
     request_config: LLMRequestConfig,
@@ -100,15 +114,14 @@ def execute(
         max_retries=0,
     )
     usage: dict[str, int] = {key: 0 for key in USAGE_KEYS}
+    estimated_cost = Decimal(0)
     responses: list[dict[str, Any]] = []
     findings: list[dict[str, Any]] = []
     format_failures: list[str] = []
     complete = True
     reason = None
     for prompt in manifest["prompts"]:
-        if Decimal(schedule.estimate(request_config.model, usage)) >= Decimal(
-            manifest["max_cost_usd"]
-        ):
+        if estimated_cost >= Decimal(manifest["max_cost_usd"]):
             complete, reason = False, "cost guardrail exhausted"
             break
         name = prompt["name"]
@@ -129,7 +142,13 @@ def execute(
         reported: dict[str, Any] = result.get("usage") or {}
         for key in USAGE_KEYS:
             usage[key] += int(reported.get(key) or 0)
-        responses.append({"prompt": name, "result": result})
+        billable = billable_usage(request_config.model, reported)
+        request_cost = schedule.estimate(request_config.model, billable)
+        estimated_cost += Decimal(request_cost)
+        responses.append({
+            "prompt": name, "result": result, "billable_usage": billable,
+            "estimated_cost_usd": request_cost,
+        })
         if result.get("success"):
             normalized = normalize_prompt_response(
                 name,
@@ -145,7 +164,7 @@ def execute(
             complete, reason = False, str(result.get("error") or "request failed")
         manifest.update(
             usage=usage,
-            estimated_cost_usd=schedule.estimate(request_config.model, usage),
+            estimated_cost_usd=format(estimated_cost.normalize(), "f"),
             complete=False,
             incomplete_reason=reason,
             format_failures=format_failures,
@@ -158,7 +177,7 @@ def execute(
     manifest.update(
         complete=complete,
         incomplete_reason=reason,
-        estimated_cost_usd=schedule.estimate(request_config.model, usage),
+        estimated_cost_usd=format(estimated_cost.normalize(), "f"),
     )
     write_json(run / "run.json", manifest)
     return complete

@@ -189,7 +189,7 @@ def write_report(
     lines.extend([
         _rate("Overall", len(covered), len(rows)),
         "",
-        f"Estimated run cost: ${Decimal(manifest['estimated_cost_usd']):.2f}, calculated from {', '.join(tokens)} multiplied by the {_md(pricing_description)}. The actual bill may differ slightly.",
+        f"Estimated run cost: ${Decimal(manifest['estimated_cost_usd']):.2f}, calculated using provider-reported token usage and the {_md(pricing_description)}. Reported totals: {', '.join(tokens)}. The actual bill may differ slightly.",
         "",
     ])
     if manifest["format_failures"]:

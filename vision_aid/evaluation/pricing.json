@@ -22,22 +22,46 @@
       "input_per_million_usd": "0.10",
       "output_per_million_usd": "0.50",
       "cached_input_per_million_usd": "0.01",
-      "cache_creation_input_per_million_usd": "0.125"
+      "cache_creation_input_per_million_usd": "0.125",
+      "long_context": {
+        "above_input_tokens": 272000,
+        "input_per_million_usd": "0.20",
+        "output_per_million_usd": "0.75",
+        "cached_input_per_million_usd": "0.02",
+        "cache_creation_input_per_million_usd": "0.25"
+      }
     },
     "gpt-6.1-sol": {
       "input_per_million_usd": "2.00",
       "output_per_million_usd": "10.00",
       "cached_input_per_million_usd": "0.10",
-      "cache_creation_input_per_million_usd": "2.50"
+      "cache_creation_input_per_million_usd": "2.50",
+      "long_context": {
+        "above_input_tokens": 272000,
+        "input_per_million_usd": "4.00",
+        "output_per_million_usd": "15.00",
+        "cached_input_per_million_usd": "0.20",
+        "cache_creation_input_per_million_usd": "5.00"
+      }
     },
     "claude-haiku-5-5": {
       "input_per_million_usd": "0.10",
       "output_per_million_usd": "0.50",
       "cached_input_per_million_usd": "0.01",
-      "cache_creation_input_per_million_usd": "0.125"
+      "cache_creation_input_per_million_usd": "0.125",
+      "long_context": {
+        "above_input_tokens": 100000,
+        "input_per_million_usd": "0.50",
+        "output_per_million_usd": "2.50",
+        "cached_input_per_million_usd": "0.05",
+        "cache_creation_input_per_million_usd": "0.625"
+      }
     }
   },
-  "captured_at": "2026-10-01",
-  "source": "https://platform.claude.com/docs/en/about-claude/pricing",
-  "version": "anthropic-public-2026-10-01"
+  "captured_at": "2026-10-09",
+  "sources": [
+    "https://developers.openai.com/api/docs/pricing",
+    "https://platform.claude.com/docs/en/about-claude/pricing"
+  ],
+  "version": "public-standard-2026-10-09"
 }

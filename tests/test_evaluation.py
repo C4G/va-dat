@@ -130,6 +130,59 @@ def fake_client(monkeypatch: pytest.MonkeyPatch, *responses: dict) -> list[str]:
     return prompts
 
 
+def recording_provider_usage(monkeypatch, model, *usages, stream_failure_at=None):
+    """Replay SDK usage payloads, then zero usage, through the public CLI."""
+    requests = []
+    text = '{"issues": ["Synthetic failure"]}'
+
+    def create(**kwargs):
+        """Return a Chat Completion or streamed Message with supplied usage."""
+        index = len(requests)
+        requests.append(kwargs)
+        usage = usages[index] if index < len(usages) else {}
+        if model.startswith("gpt-"):
+            return SimpleNamespace(
+                id="synthetic-price", model=model,
+                choices=[SimpleNamespace(message=SimpleNamespace(content=text), finish_reason="stop")],
+                usage=SimpleNamespace(
+                    prompt_tokens=usage.get("prompt_tokens", 0),
+                    completion_tokens=usage.get("completion_tokens", 0),
+                    total_tokens=usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0),
+                    prompt_tokens_details=usage.get("prompt_tokens_details"),
+                    completion_tokens_details=usage.get("completion_tokens_details"),
+                ),
+            )
+
+        def events():
+            """Expose reported usage before optional transport failure."""
+            yield SimpleNamespace(type="message_start", message=SimpleNamespace(
+                id="synthetic-price", model=model, type="message", usage=SimpleNamespace(
+                    input_tokens=usage.get("input_tokens", 0), output_tokens=0,
+                    cache_read_input_tokens=usage.get("cache_read_input_tokens", 0),
+                    cache_creation_input_tokens=usage.get("cache_creation_input_tokens", 0),
+                )))
+            yield SimpleNamespace(type="content_block_start", content_block=SimpleNamespace(
+                type="text", text=text))
+            yield SimpleNamespace(type="message_delta", delta=SimpleNamespace(stop_reason="end_turn"),
+                                  usage=SimpleNamespace(output_tokens=usage.get("output_tokens", 0)))
+            if index == stream_failure_at:
+                raise TimeoutError("synthetic stream failure")
+            yield SimpleNamespace(type="message_stop")
+
+        return nullcontext(events())
+
+    if model.startswith("gpt-"):
+        monkeypatch.setenv("OPENAI_API_KEY", "synthetic-openai")
+        monkeypatch.setattr("anthropic.Anthropic", lambda **_: pytest.fail("wrong provider"))
+        monkeypatch.setattr("openai.OpenAI", lambda **_: SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+    else:
+        monkeypatch.setattr("openai.OpenAI", lambda **_: pytest.fail("wrong provider"))
+        monkeypatch.setattr("anthropic.Anthropic", lambda **_: SimpleNamespace(
+            messages=SimpleNamespace(create=create)))
+    return requests
+
+
 @pytest.mark.parametrize("model", [None, *MODELS])
 def test_preview_preserves_evidence_without_provider_access(workspace, monkeypatch, capsys, model):
     """Credentials alone never buy requests, and all homepage rows survive."""
@@ -272,7 +325,7 @@ def test_presets_stream_every_category_and_report_saved_prices(
     edit_review(run, *[{"classification": "llm_eligible"}] * 6)
     text = report(run)
     assert model in text and run.name in text
-    assert "published prices captured on 2026-10-01" in text
+    assert "published prices captured on 2026-10-09" in text
     assert "18000 input tokens" in text and "3600 output tokens" in text
     assert "9000 cached input tokens" in text and "1800 cache-creation input tokens" in text
 
@@ -347,6 +400,201 @@ def test_run_help_explains_presets_and_provider_credentials(capsys):
     assert "24,192" in text and "temperature" in text and "summaries" in text
     assert "Chat Completions" in text
     assert "OPENAI_API_KEY" in text and "ANTHROPIC_API_KEY" in text
+
+
+@pytest.mark.parametrize("model,threshold,low,high,source", [
+    ("gpt-6-luna", 272000, ("0.10", "0.50", "0.01", "0.125"),
+     ("0.20", "0.75", "0.02", "0.25"), "https://developers.openai.com/api/docs/pricing"),
+    ("gpt-6.1-sol", 272000, ("2.00", "10.00", "0.10", "2.50"),
+     ("4.00", "15.00", "0.20", "5.00"), "https://developers.openai.com/api/docs/pricing"),
+    ("claude-haiku-5-5", 100000, ("0.10", "0.50", "0.01", "0.125"),
+     ("0.50", "2.50", "0.05", "0.625"),
+     "https://platform.claude.com/docs/en/about-claude/pricing"),
+])
+def test_preview_saves_and_displays_both_request_price_tiers(
+    workspace, monkeypatch, capsys, model, threshold, low, high, source,
+):
+    """Key-free previews expose the recorded rates applicable to each request."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr("anthropic.Anthropic", lambda **_: pytest.fail("provider access"))
+    monkeypatch.setattr("openai.OpenAI", lambda **_: pytest.fail("provider access"))
+    assert run_cli(workspace, "--model", model) == 0
+    run = only_run(workspace)
+    schedule = load(run, "artifacts/pricing.json")
+    assert schedule["captured_at"] == "2026-10-09"
+    assert schedule["version"] == "public-standard-2026-10-09"
+    assert source in schedule["sources"]
+    manifest = load(run, "run.json")
+    assert manifest["pricing_sha256"] == hashlib.sha256(
+        (run / "artifacts/pricing.json").read_bytes()
+    ).hexdigest()
+    output = capsys.readouterr().out
+    assert f"up to {threshold:,} total input tokens per request" in output
+    assert f"above {threshold:,} total input tokens per request" in output
+    cache_write = "5-minute cache write" if model.startswith("claude-") else "cache write"
+    for input_rate, output_rate, read_rate, write_rate in (low, high):
+        assert (f"input ${input_rate}; output ${output_rate}; "
+                f"cache read ${read_rate}; {cache_write} ${write_rate}") in output
+    if model.startswith("gpt-"):
+        assert "5-minute" not in output
+
+
+@pytest.mark.parametrize("model,cost", [("gpt-6-luna", "0.0002345"), ("gpt-6.1-sol", "0.00467")])
+def test_openai_prices_cached_subsets_and_reasoning_once(workspace, monkeypatch, model, cost):
+    """Cache reads/writes replace ordinary input; output already includes reasoning."""
+    details = SimpleNamespace(cached_tokens=200, cache_write_tokens=100)
+    requests = recording_provider_usage(monkeypatch, model, {
+        "prompt_tokens": 1000, "completion_tokens": 300, "prompt_tokens_details": details,
+        "completion_tokens_details": SimpleNamespace(reasoning_tokens=250),
+    })
+    assert run_cli(workspace, "--model", model, "--live", "--approve-live") == 0
+    assert len(requests) == len(CATEGORIES)
+    run = only_run(workspace)
+    manifest = load(run, "run.json")
+    assert manifest["estimated_cost_usd"] == cost
+    # Aggregate reported usage and raw provider evidence retain their existing meaning.
+    assert manifest["usage"] == {"input_tokens": 1000, "cached_input_tokens": 200,
+                                 "cache_creation_input_tokens": 0, "output_tokens": 300}
+    (first, *rest) = load(run, "artifacts/raw-llm-responses.json")
+    assert first["result"]["usage"]["provider_usage"]["prompt_tokens_details"] == {
+        "cached_tokens": 200, "cache_write_tokens": 100,
+    }
+    assert first["result"]["usage"]["provider_usage"]["completion_tokens_details"] == {
+        "reasoning_tokens": 250,
+    }
+    assert first["billable_usage"] == {"input_tokens": 700, "cached_input_tokens": 200,
+                                       "cache_creation_input_tokens": 100, "output_tokens": 300}
+    assert first["estimated_cost_usd"] == cost
+    assert all(item["estimated_cost_usd"] == "0" for item in rest)
+
+
+@pytest.mark.parametrize("model,threshold,costs,total", [
+    ("gpt-6-luna", 272000, ["0.0271895", "0.0543767"], "0.0815662"),
+    ("gpt-6.1-sol", 272000, ["0.54377", "1.087494"], "1.631264"),
+    ("claude-haiku-5-5", 100000, ["0.0099895", "0.049948"], "0.0599375"),
+])
+def test_each_request_uses_total_input_and_inclusive_price_threshold(
+    workspace, monkeypatch, model, threshold, costs, total,
+):
+    """Equality gets the lower tier; one extra token prices the whole request higher."""
+    if model.startswith("gpt-"):
+        usages = [{"prompt_tokens": size, "completion_tokens": 10,
+                   "prompt_tokens_details": SimpleNamespace(cached_tokens=200, cache_write_tokens=100)}
+                  for size in (threshold, threshold + 1)]
+    else:
+        usages = [{"input_tokens": size - 300, "output_tokens": 10,
+                   "cache_read_input_tokens": 200, "cache_creation_input_tokens": 100}
+                  for size in (threshold, threshold + 1)]
+    requests = recording_provider_usage(monkeypatch, model, *usages)
+    assert run_cli(workspace, "--model", model, "--max-cost-usd", "10",
+                   "--live", "--approve-live") == 0
+    assert len(requests) == len(CATEGORIES)
+    run = only_run(workspace)
+    assert load(run, "run.json")["estimated_cost_usd"] == total
+    raw = load(run, "artifacts/raw-llm-responses.json")
+    assert [item["estimated_cost_usd"] for item in raw[:2]] == costs
+    assert [item["billable_usage"]["input_tokens"] for item in raw[:2]] == [threshold - 300, threshold - 299]
+    assert all(item["estimated_cost_usd"] == "0" for item in raw[2:])
+
+
+@pytest.mark.parametrize("limited", [False, True])
+@pytest.mark.parametrize("model,short_size,long_size,costs,total,partial,guardrail", [
+    ("gpt-6-luna", 136001, 272001,
+     ["0.0136051", "0.0136051", "0.0544077", "0.000015"], "0.0816329", "0.0816179", "0.03"),
+    ("gpt-6.1-sol", 136001, 272001,
+     ["0.272102", "0.272102", "1.088154", "0.0003"], "1.632658", "1.632358", "0.6"),
+    ("claude-haiku-5-5", 50001, 100001,
+     ["0.0050051", "0.0050051", "0.0500255", "0.000015"], "0.0600507", "0.0600357", "0.012"),
+])
+def test_mixed_request_sizes_accumulate_cost_and_drive_guardrail(
+    workspace, monkeypatch, model, short_size, long_size, costs, total, partial, guardrail, limited,
+):
+    """Combined short input never triggers long rates or stops execution early."""
+    input_key, output_key = (("prompt_tokens", "completion_tokens") if model.startswith("gpt-")
+                             else ("input_tokens", "output_tokens"))
+    usages = [{input_key: size, output_key: 10} for size in (short_size, short_size, long_size, 100)]
+    requests = recording_provider_usage(monkeypatch, model, *usages)
+    assert run_cli(workspace, "--model", model, "--max-cost-usd", guardrail if limited else "10",
+                   "--live", "--approve-live") == (1 if limited else 0)
+    run = only_run(workspace)
+    manifest = load(run, "run.json")
+    assert manifest["estimated_cost_usd"] == (partial if limited else total)
+    assert len(requests) == (3 if limited else len(CATEGORIES))
+    assert manifest["incomplete_reason"] == ("cost guardrail exhausted" if limited else None)
+    raw = load(run, "artifacts/raw-llm-responses.json")
+    assert [item["estimated_cost_usd"] for item in raw[:4]] == (costs[:3] if limited else costs)
+    assert manifest["usage"]["input_tokens"] == short_size * 2 + long_size + (0 if limited else 100)
+    assert manifest["usage"]["output_tokens"] == (30 if limited else 40)
+    assert load(run, "normalized-llm-findings.json")
+
+
+def test_stream_failure_retains_observed_tiered_cost_and_partial_usage(workspace, monkeypatch, capsys):
+    """A failed stream still contributes observed input, caches, and output to cost."""
+    model = "claude-haiku-5-5"
+    requests = recording_provider_usage(monkeypatch, model,
+        {"input_tokens": 1000, "output_tokens": 10},
+        {"input_tokens": 99701, "cache_read_input_tokens": 200,
+         "cache_creation_input_tokens": 100, "output_tokens": 10},
+        stream_failure_at=1,
+    )
+    assert run_cli(workspace, "--model", model, "--live", "--approve-live") == 1
+    assert len(requests) == 2
+    run = only_run(workspace)
+    manifest = load(run, "run.json")
+    assert manifest["incomplete_reason"] == "synthetic stream failure"
+    assert manifest["estimated_cost_usd"] == "0.050053"
+    assert manifest["usage"] == {"input_tokens": 100701, "cached_input_tokens": 200,
+                                 "cache_creation_input_tokens": 100, "output_tokens": 20}
+    raw = load(run, "artifacts/raw-llm-responses.json")
+    assert [item["estimated_cost_usd"] for item in raw] == ["0.000105", "0.049948"]
+    assert raw[1]["result"]["response"] == '{"issues": ["Synthetic failure"]}'
+    assert raw[1]["result"]["failure"]["type"] == "TimeoutError"
+    assert raw[1]["result"]["usage"]["provider_usage"] == {
+        "input_tokens": 99701, "cache_read_input_tokens": 200,
+        "cache_creation_input_tokens": 100, "output_tokens": 10,
+    }
+    assert len(load(run, "normalized-llm-findings.json")) == 1
+    edit_review(run, *[{"classification": "llm_eligible"}] * 6)
+    assert "Incomplete" in refused(run, capsys)
+
+
+def test_historical_reports_keep_saved_prices_and_stored_estimate(workspace, monkeypatch):
+    """Legacy evidence needs no new per-request fields or current schedule rates."""
+    response = {"success": True, "response": '{"issues": []}',
+                "usage": {"input_tokens": 10000, "output_tokens": 1000}}
+    fake_client(monkeypatch, *[response] * len(CATEGORIES))
+    assert run_cli(workspace, "--live", "--approve-live") == 0
+    run = only_run(workspace)
+    # Turn the saved artifacts into a historical fixture with its original rates.
+    schedule = {
+        "version": "historical-public-2025-10-01", "published_at": "2025-10-01",
+        "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+        "models": {MODELS[0]: {
+            "input_per_million_usd": "20", "output_per_million_usd": "100",
+            "cached_input_per_million_usd": "2", "cache_creation_input_per_million_usd": "25",
+        }},
+    }
+    price_path = run / "artifacts/pricing.json"
+    price_path.write_text(json.dumps(schedule))
+    manifest = load(run, "run.json")
+    manifest.update(pricing_version=schedule["version"],
+                    pricing_sha256=hashlib.sha256(price_path.read_bytes()).hexdigest(),
+                    estimated_cost_usd="5.4")
+    (run / "run.json").write_text(json.dumps(manifest))
+    raw = load(run, "artifacts/raw-llm-responses.json")
+    for item in raw:
+        item.pop("estimated_cost_usd")
+        item.pop("billable_usage")
+    (run / "artifacts/raw-llm-responses.json").write_text(json.dumps(raw))
+    edit_review(run, *[{"classification": "llm_eligible"}] * 6)
+    originals = {path: path.read_bytes() for path in (price_path, run / "run.json",
+                 run / "artifacts/raw-llm-responses.json")}
+    text = report(run)
+    assert "Estimated run cost: $5.40" in text
+    assert "published prices dated 2025-10-01" in text
+    assert "180000 input tokens" in text and "18000 output tokens" in text
+    assert all(path.read_bytes() == saved for path, saved in originals.items())
 
 def test_review_validation_and_report_metrics(workspace, monkeypatch, capsys):
     """Known decisions yield hand-calculated rates, cross-catches, and exclusions."""

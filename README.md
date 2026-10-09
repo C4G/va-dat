@@ -461,6 +461,13 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    effort, output token cap, prompt count, token rates, pricing version, snapshot
    checksum, and limit.
    The cost guardrail is checked between requests; a request underway can exceed it.
+   Estimated run cost sums each request's reported token usage at its applicable
+   public price tier. GPT models use the higher tier above 272,000 total input
+   tokens; Haiku 5.5 uses it above 100,000. Equality uses the lower tier, and
+   input counts from separate requests are never combined to select a tier.
+   OpenAI cache reads and writes replace ordinary input charges, and completion
+   usage already includes reasoning. Anthropic's cache categories are separate
+   input counts; its write rate is for five-minute caching.
    Type `yes` to approve
    paid requests; `--approve-live` skips the prompt. It copies the snapshot,
    imports Human findings, runs checks, and saves responses and usage.
@@ -475,7 +482,8 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    failure or cost limit and start a new live run. Failed requests are not
    retried. Use `$RUN_DIR/normalized-llm-findings.json` and
    `$RUN_DIR/normalized-programmatic-findings.json` for finding IDs and evidence.
-   `$RUN_DIR/artifacts/raw-llm-responses.json` has model responses;
+   `$RUN_DIR/artifacts/raw-llm-responses.json` has model responses, unchanged raw
+   provider usage, and each request's billable categories and estimated cost;
    `$RUN_DIR/artifacts/raw-programmatic-findings.json` has the original checker output.
 
 5. **Make the human decisions in one CSV.** Open `$RUN_DIR/review.csv` in

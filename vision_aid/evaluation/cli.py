@@ -186,12 +186,25 @@ def _run(args: argparse.Namespace) -> int:
     )
     print(f"Pricing: {schedule.version} ({schedule.identity})")
     rates = schedule.data["models"][request_config.model]
-    print(
-        f"Rates per million tokens (USD): input ${rates['input_per_million_usd']}; "
-        f"output ${rates['output_per_million_usd']}; "
-        f"cache read ${rates['cached_input_per_million_usd']}; "
-        f"5-minute cache write ${rates['cache_creation_input_per_million_usd']}"
+    tiers = [("", rates)]
+    if "long_context" in rates:
+        upper = rates["long_context"]
+        threshold = upper["above_input_tokens"]
+        tiers = [
+            (f"up to {threshold:,} total input tokens per request", rates),
+            (f"above {threshold:,} total input tokens per request", upper),
+        ]
+    cache_write = (
+        "5-minute cache write" if configuration["provider"] == "anthropic" else "cache write"
     )
+    for description, tier in tiers:
+        print(
+            f"Rates per million tokens (USD){f' ({description})' if description else ''}: "
+            f"input ${tier['input_per_million_usd']}; "
+            f"output ${tier['output_per_million_usd']}; "
+            f"cache read ${tier['cached_input_per_million_usd']}; "
+            f"{cache_write} ${tier['cache_creation_input_per_million_usd']}"
+        )
     print(
         f"Cost guardrail: ${limit}; checked before each request; "
         "a request underway can exceed the limit"
