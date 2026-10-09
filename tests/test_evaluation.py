@@ -14,7 +14,10 @@ from processing_scripts.llm.registry import PROMPT_REGISTRY
 from vision_aid.evaluation import llm_audit
 from vision_aid.evaluation.cli import main
 
-MODELS = ("claude-haiku-4-5-20251001", "claude-opus-5-5", "claude-sonnet-5-5")
+MODELS = (
+    "claude-haiku-4-5-20251001", "claude-opus-5-5", "claude-sonnet-5-5",
+    "claude-haiku-5-5", "gpt-6-luna", "gpt-6.1-sol",
+)
 CATEGORIES = [spec.name for spec in PROMPT_REGISTRY if not spec.is_summary]
 RUN_ROOT = {"review.csv", "snapshot.html", "normalized-programmatic-findings.json",
             "run.json", "artifacts"}
@@ -127,10 +130,13 @@ def fake_client(monkeypatch: pytest.MonkeyPatch, *responses: dict) -> list[str]:
     return prompts
 
 
-@pytest.mark.parametrize("model", [None, "claude-opus-5-5", "claude-sonnet-5-5"])
-def test_preview_preserves_evidence_without_provider_access(workspace, monkeypatch, model):
+@pytest.mark.parametrize("model", [None, *MODELS])
+def test_preview_preserves_evidence_without_provider_access(workspace, monkeypatch, capsys, model):
     """Credentials alone never buy requests, and all homepage rows survive."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setattr("anthropic.Anthropic", lambda **_: pytest.fail("provider access"))
+    monkeypatch.setattr("openai.OpenAI", lambda **_: pytest.fail("provider access"))
     assert run_cli(workspace, *(["--model", model] if model else [])) == 0
     run = only_run(workspace)
     assert {path.name for path in run.iterdir()} == RUN_ROOT
@@ -139,7 +145,24 @@ def test_preview_preserves_evidence_without_provider_access(workspace, monkeypat
         "prompts", "payloads",
     }
     manifest = load(run, "run.json")
-    assert manifest["configuration"]["model"] == (model or MODELS[0])
+    selected = model or MODELS[0]
+    config = manifest["configuration"]
+    assert config["model"] == selected
+    provider, endpoint = (("openai", "chat.completions") if selected.startswith("gpt-")
+                          else ("anthropic", "messages"))
+    assert (config["provider"], config["endpoint"]) == (provider, endpoint)
+    assert config["temperature"] == "omitted" and config["summaries"] == "disabled"
+    assert config["max_output_tokens"] == 24192
+    output = capsys.readouterr().out
+    assert f"provider: {provider}; endpoint: {endpoint}" in output
+    assert "Cost guardrail: $1" in output
+    if selected != MODELS[0]:
+        assert config["reasoning_effort"] == "medium"
+    if selected.startswith("gpt-"):
+        assert "thinking" not in config
+        assert "thinking: none" in output
+    else:
+        assert config["thinking"]["type"] == ("enabled" if selected == MODELS[0] else "adaptive")
     assert manifest["complete"] is False and manifest["incomplete_reason"] == "preview"
     assert len(CATEGORIES) == 18
     assert [prompt["name"] for prompt in manifest["prompts"]] == CATEGORIES
@@ -158,11 +181,14 @@ def test_preview_preserves_evidence_without_provider_access(workspace, monkeypat
     assert all(not row["classification"] for row in rows)
 
 
+@pytest.mark.parametrize("model", MODELS)
 def test_live_run_without_approval_or_with_unsupported_model_buys_nothing(
-    workspace, monkeypatch, capsys,
+    workspace, monkeypatch, capsys, model,
 ):
     """Declined approval prepares a preview; invalid models create no run."""
-    monkeypatch.setattr(llm_audit, "LLMRequestClient", lambda **_: pytest.fail("paid call"))
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-openai")
+    monkeypatch.setattr("openai.OpenAI", lambda **_: pytest.fail("paid call"))
+    monkeypatch.setattr("anthropic.Anthropic", lambda **_: pytest.fail("paid call"))
     with pytest.raises(SystemExit) as error:
         run_cli(workspace, "--model", "gpt-4o", "--live", "--approve-live")
     assert error.value.code == 2 and "invalid choice" in capsys.readouterr().err
@@ -170,7 +196,7 @@ def test_live_run_without_approval_or_with_unsupported_model_buys_nothing(
     monkeypatch.setattr("builtins.input", lambda _: "no")
     for interactive in (False, True):
         monkeypatch.setattr("sys.stdin", SimpleNamespace(isatty=lambda: interactive))
-        assert run_cli(workspace, "--live") == 0
+        assert run_cli(workspace, "--model", model, "--live") == 0
     runs = list((workspace / ".model-evaluation" / "runs").iterdir())
     assert len(runs) == 2
     for run in runs:
@@ -182,12 +208,15 @@ def test_live_run_without_approval_or_with_unsupported_model_buys_nothing(
     (MODELS[0], {"type": "enabled", "budget_tokens": 16000}, None, "0.03915"),
     (MODELS[1], {"type": "adaptive"}, "medium", "0.1548"),
     (MODELS[2], {"type": "adaptive"}, "medium", "0.0783"),
+    ("claude-haiku-5-5", {"type": "adaptive"}, "medium", "0.003915"),
 ])
 def test_presets_stream_every_category_and_report_saved_prices(
     workspace, monkeypatch, model, thinking, effort, cost,
 ):
     """Each preset's request settings, final text, model, and costs persist."""
     requests, options = [], []
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr("openai.OpenAI", lambda **_: pytest.fail("wrong provider"))
 
     def create(**kwargs):
         """Stream thinking, then final text, with cache usage."""
@@ -247,6 +276,77 @@ def test_presets_stream_every_category_and_report_saved_prices(
     assert "18000 input tokens" in text and "3600 output tokens" in text
     assert "9000 cached input tokens" in text and "1800 cache-creation input tokens" in text
 
+
+@pytest.mark.parametrize("model,cost", [("gpt-6-luna", "0.0036"), ("gpt-6.1-sol", "0.072")])
+def test_gpt_presets_use_openai_key_and_save_response_identity(
+    workspace, monkeypatch, model, cost,
+):
+    """GPT requests use the selected preset and preserve provider evidence for review."""
+    requests, options = [], []
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-openai")
+    monkeypatch.setattr("anthropic.Anthropic", lambda **_: pytest.fail("wrong provider"))
+
+    def create(**kwargs):
+        """Return final text and reported usage through Chat Completions."""
+        requests.append(kwargs)
+        return SimpleNamespace(
+            id="synthetic-gpt", model=f"{model}-provider", service_tier="default",
+            system_fingerprint="synthetic-fingerprint",
+            choices=[SimpleNamespace(message=SimpleNamespace(
+                content='[{"issues": ["Synthetic failure"], "location_hint": "body"}]'),
+                finish_reason="stop")],
+            usage=SimpleNamespace(prompt_tokens=1000, completion_tokens=200,
+                                  total_tokens=1200, prompt_tokens_details=None,
+                                  completion_tokens_details=SimpleNamespace(reasoning_tokens=150)),
+        )
+
+    def client(**kwargs):
+        """Record the SDK credentials and expose the provider request boundary."""
+        options.append(kwargs)
+        return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+    monkeypatch.setattr("openai.OpenAI", client)
+    assert run_cli(workspace, "--model", model, "--live", "--approve-live") == 0
+    assert options == [{"api_key": "synthetic-openai", "max_retries": 0}]
+    assert len(requests) == len(CATEGORIES)
+    for request in requests:
+        assert request["model"] == model
+        assert request["reasoning_effort"] == "medium"
+        assert request["max_completion_tokens"] == 24192
+        assert set(request) == {"model", "messages", "reasoning_effort", "max_completion_tokens"}
+    run = only_run(workspace)
+    manifest = load(run, "run.json")
+    assert manifest["complete"] is True and manifest["estimated_cost_usd"] == cost
+    raw = load(run, "artifacts/raw-llm-responses.json")
+    for item in raw:
+        result = item["result"]
+        assert result["model"] == f"{model}-provider"
+        assert result["provider"]["response_id"] == "synthetic-gpt"
+        assert result["provider"]["response_model"] == f"{model}-provider"
+        assert result["usage"]["provider_usage"]["completion_tokens_details"] == {"reasoning_tokens": 150}
+        assert result["usage"]["output_tokens"] == 200
+        assert result["request"]["reasoning_effort"] == "medium"
+        assert "thinking" not in result["request"]
+    findings = load(run, "normalized-llm-findings.json")
+    assert findings and all(item["model"] == model for item in findings)
+    edit_review(run, *[{"classification": "llm_eligible"}] * 6)
+    text = report(run)
+    assert model in text and "18000 input tokens" in text and "3600 output tokens" in text
+
+
+def test_run_help_explains_presets_and_provider_credentials(capsys):
+    """Operators can discover request settings and the relevant credentials in help."""
+    with pytest.raises(SystemExit) as error:
+        main(["run", "--help"])
+    assert error.value.code == 0
+    text = capsys.readouterr().out
+    assert all(model in text for model in MODELS)
+    assert "Haiku 4.5" in text and "16,000" in text
+    assert "adaptive" in text and "medium" in text
+    assert "24,192" in text and "temperature" in text and "summaries" in text
+    assert "Chat Completions" in text
+    assert "OPENAI_API_KEY" in text and "ANTHROPIC_API_KEY" in text
 
 def test_review_validation_and_report_metrics(workspace, monkeypatch, capsys):
     """Known decisions yield hand-calculated rates, cross-catches, and exclusions."""
