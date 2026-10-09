@@ -394,22 +394,31 @@ The pipeline skips prompts with empty payloads (e.g., no forms on the page = no 
 
 ### Choose an evaluation model
 
-Each Evaluation run uses one fixed model through Anthropic's direct API.
+Each Evaluation run uses one fixed model through Anthropic Messages or OpenAI
+Chat Completions.
 Choose it with `--model`; omitting the flag selects Haiku 4.5. The evaluator
 accepts only these exact IDs:
 
-| Model              | `--model` value             | Thinking            | Effort  |
-| ------------------ | --------------------------- | ------------------- | ------- |
-| Haiku 4.5, default | `claude-haiku-4-5-20251001` | 16,000-token budget | Omitted |
-| Opus 5.5           | `claude-opus-5-5`           | Adaptive            | Medium  |
-| Sonnet 5.5         | `claude-sonnet-5-5`         | Adaptive            | Medium  |
+| Model | `--model` value | Provider endpoint | Thinking / reasoning | Effort |
+| --- | --- | --- | --- | --- |
+| Haiku 4.5, default | `claude-haiku-4-5-20251001` | Anthropic Messages | 16,000-token budget | Omitted |
+| Opus 5.5 | `claude-opus-5-5` | Anthropic Messages | Adaptive thinking | Medium |
+| Sonnet 5.5 | `claude-sonnet-5-5` | Anthropic Messages | Adaptive thinking | Medium |
+| Haiku 5.5 | `claude-haiku-5-5` | Anthropic Messages | Adaptive thinking | Medium |
+| GPT-6 Luna | `gpt-6-luna` | OpenAI Chat Completions | Reasoning | Medium |
+| GPT-6.1 Sol | `gpt-6.1-sol` | OpenAI Chat Completions | Reasoning | Medium |
 
-For example, add `--model claude-opus-5-5` to the run command below to evaluate
-Opus. Friendly names and aliases are rejected. Thinking settings are fixed
-presets, and all three models use a 24,192-token output cap that includes
-thinking and final text. Adaptive thinking does not reserve a fixed number of
-tokens for final text. Temperature is omitted and summaries are disabled.
-The selected model and settings are saved with each run.
+For example, add `--model gpt-6-luna` to the run command below to evaluate
+GPT-6 Luna. Friendly names and aliases are rejected. Settings are fixed presets,
+and all six models use a 24,192-token output cap that includes reasoning/thinking
+and final text. Adaptive thinking does not reserve a fixed number of tokens for
+final text. Matching effort labels and output caps do not imply equal computation
+between providers. Temperature is omitted and summaries are disabled. The selected
+model, provider, endpoint, and settings are saved with each run.
+
+Preview any preset without either API key by omitting `--live`. The preview shows
+its provider, endpoint, settings, public token rates, and cost guardrail. Live
+requests run sequentially without retries or fallback models.
 
 ### Get a final report with the supplied Human audit
 
@@ -430,9 +439,10 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    if the browser builds the content, save rendered HTML there instead. Use
    `https://pristineai.com/` as its source URL.
 
-2. **Set up live access and choose a limit.** Set `ANTHROPIC_API_KEY` in your
-   environment or the ignored repository-root `.env`. Set `MAX_COST_USD` to a
-   positive amount you approve. The limit is checked before each paid request;
+2. **Set up live access and choose a limit.** Set `OPENAI_API_KEY` for GPT models
+   or `ANTHROPIC_API_KEY` for Claude models in your environment or the ignored
+   repository-root `.env`. Only the selected provider's key is required.
+   Set `MAX_COST_USD` to a positive amount you approve. The limit is checked before each paid request;
    a request in progress can put the final cost above it.
 
 3. **Start a live Evaluation run.** Run this command in a terminal:
@@ -447,8 +457,9 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
      --live
    ```
 
-   The CLI shows the selected model's thinking settings, effort, output token cap,
-   prompt count, token rates, pricing version, snapshot checksum, and limit.
+   The CLI shows the selected model's provider, endpoint, thinking/reasoning settings,
+   effort, output token cap, prompt count, token rates, pricing version, snapshot
+   checksum, and limit.
    The cost guardrail is checked between requests; a request underway can exceed it.
    Type `yes` to approve
    paid requests; `--approve-live` skips the prompt. It copies the snapshot,

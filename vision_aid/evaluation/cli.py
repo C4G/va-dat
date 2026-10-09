@@ -41,9 +41,12 @@ def build_parser() -> argparse.ArgumentParser:
     run = commands.add_parser(
         "run", help="preview or execute an Evaluation run with one selected model",
         description=(
-            "Haiku uses a 16,000-token thinking budget; Opus and Sonnet use "
-            "adaptive thinking with medium effort. All presets omit temperature, "
-            "disable summaries, and cap output at 24,192 tokens including thinking."
+            "Haiku 4.5 uses a 16,000-token thinking budget; Haiku 5.5, Opus 5.5 "
+            "and Sonnet 5.5 use adaptive thinking with medium effort. GPT models "
+            "use Chat Completions with medium reasoning effort. All presets omit "
+            "temperature, disable summaries, and cap output at 24,192 tokens "
+            "including reasoning/thinking. Live GPT execution requires OPENAI_API_KEY; "
+            "live Claude execution requires ANTHROPIC_API_KEY. Previews need no key."
         ),
     )
     run.add_argument(
@@ -166,8 +169,9 @@ def _run(args: argparse.Namespace) -> int:
     write_json(run / "run.json", manifest)
     print(f"Evaluation run: {run}")
     print(
-        f"Model: {request_config.model}; endpoint: Messages; "
-        f"thinking: {configuration['thinking']['type']}; "
+        f"Model: {request_config.model}; provider: {configuration['provider']}; "
+        f"endpoint: {configuration['endpoint']}; "
+        f"thinking: {configuration.get('thinking', {}).get('type', 'none')}; "
         f"effort: {request_config.reasoning_effort or 'omitted'}; "
         f"thinking budget: {request_config.thinking_budget_tokens or 'none'}; "
         f"output cap: {request_config.max_output_tokens}"
@@ -197,9 +201,12 @@ def _run(args: argparse.Namespace) -> int:
         print("Preview complete; no paid requests made.")
         return 0
     load_dotenv(PROJECT_ROOT / ".env")
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    key_name = (
+        "OPENAI_API_KEY" if configuration["provider"] == "openai" else "ANTHROPIC_API_KEY"
+    )
+    api_key = os.getenv(key_name)
     if not api_key:
-        raise ValueError("Live execution requires ANTHROPIC_API_KEY")
+        raise ValueError(f"Live execution requires {key_name}")
     if not args.approve_live and (
         not sys.stdin.isatty()
         or input("Type 'yes' to approve paid execution: ") != "yes"

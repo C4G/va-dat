@@ -31,7 +31,16 @@ MODEL_PRESETS = {
             max_output_tokens=24192,
             temperature=None,
         )
-        for model in ("claude-opus-5-5", "claude-sonnet-5-5")
+        for model in ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5")
+    },
+    **{
+        model: LLMRequestConfig(
+            model=model,
+            reasoning_effort="medium",
+            max_output_tokens=24192,
+            temperature=None,
+        )
+        for model in ("gpt-6-luna", "gpt-6.1-sol")
     },
 }
 USAGE_KEYS = (
@@ -44,11 +53,13 @@ USAGE_KEYS = (
 
 def evaluation_configuration(config: LLMRequestConfig) -> dict[str, Any]:
     """Record the selected preset and evaluation-only request settings."""
+    provider = "openai" if config.model in ("gpt-6-luna", "gpt-6.1-sol") else "anthropic"
+    metadata = config.as_metadata()
     return {
         "model": config.model,
-        "provider": "anthropic",
-        "endpoint": "messages",
-        "thinking": config.as_metadata()["thinking"],
+        "provider": provider,
+        "endpoint": "chat.completions" if provider == "openai" else "messages",
+        **({"thinking": metadata["thinking"]} if "thinking" in metadata else {}),
         "thinking_budget_tokens": config.thinking_budget_tokens,
         "reasoning_effort": config.reasoning_effort,
         "max_output_tokens": config.max_output_tokens,
