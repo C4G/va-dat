@@ -218,7 +218,10 @@ class AuditRequestClient:
         elif self._is_openai:
             import openai
 
-            self._client = openai.OpenAI(api_key=api_key)
+            options: dict[str, Any] = {"api_key": api_key}
+            if max_retries is not None:
+                options["max_retries"] = max_retries
+            self._client = openai.OpenAI(**options)
         elif self._is_gemini:
             from google import genai
 

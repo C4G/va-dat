@@ -405,3 +405,31 @@ def test_evaluation_can_disable_anthropic_sdk_retries(monkeypatch):
         max_retries=0,
     )
     assert options == [{"api_key": "unused", "max_retries": 0}]
+
+
+def test_evaluation_can_disable_openai_sdk_retries(monkeypatch):
+    """An explicit zero disables retries at the OpenAI SDK boundary."""
+    from processing_scripts.llm_client.audit import AuditRequestClient
+
+    options = []
+    monkeypatch.setattr(
+        "openai.OpenAI",
+        lambda **kwargs: options.append(kwargs) or OpenAIFake(None),
+    )
+    AuditRequestClient(
+        "unused",
+        request_config=AuditRequestConfig(model="gpt-6-luna"),
+        max_retries=0,
+    )
+    assert options == [{"api_key": "unused", "max_retries": 0}]
+
+
+def test_unspecified_openai_sdk_retries_preserve_sdk_default(monkeypatch):
+    """Production callers leave retry policy to the OpenAI SDK."""
+    options = []
+    monkeypatch.setattr(
+        "openai.OpenAI",
+        lambda **kwargs: options.append(kwargs) or OpenAIFake(None),
+    )
+    PipelineClient("unused", "gpt-4o")
+    assert options == [{"api_key": "unused"}]
