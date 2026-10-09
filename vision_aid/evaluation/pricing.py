@@ -48,7 +48,7 @@ class PriceSchedule:
         return f"published prices dated {self.data['published_at']}"
 
     def estimate(self, model: str, usage: Mapping[str, int | None]) -> str:
-        """Price reported categories without rounding away tie precision."""
+        """Price one request's disjoint categories at its input-size tier."""
         try:
             rates = self.data["models"][model]
         except KeyError as error:
@@ -61,6 +61,9 @@ class PriceSchedule:
             usage.get("cache_creation_input_tokens", 0) or 0
         )
         output_tokens = Decimal(usage.get("output_tokens", 0) or 0)
+        upper = rates.get("long_context")
+        if upper and input_tokens + cached_tokens + cache_creation_tokens > upper["above_input_tokens"]:
+            rates = upper
         cost = (
             input_tokens * Decimal(rates["input_per_million_usd"])
             + cached_tokens * Decimal(rates["cached_input_per_million_usd"])
