@@ -1,4 +1,4 @@
-"""Evidence records for the fixed homepage evaluation."""
+"""Evidence records for page evaluations against the Human audit."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ class HumanFinding:
     human_finding_id: str
     source_sheet: str
     source_row: int
-    page_scope: Literal["home", "global"]
+    page_scope: Literal["home", "global", "page"]
     source_element: str
     problem: str
     raw_evidence: dict[str, str]

@@ -530,6 +530,40 @@ stops capture immediately. Earlier HTML files remain, but capture writes no
 snapshot mapping until every download succeeds. Start another capture in a
 new directory after addressing the failure.
 
+### Preview a Full evaluation
+
+Prepare every listed page from the saved Benchmark snapshots:
+
+```bash
+uv run visionaid-evaluate run-all \
+  --human-audit "Pristine Accessibility Defect Report.xlsx" \
+  --snapshots .model-evaluation/pristine-snapshots/snapshots.json \
+  --model claude-haiku-5-5 \
+  --max-cost-usd 5
+```
+
+The snapshot mapping must match the supplied Human audit's checksum and every
+listed URL in source order. HTML filenames resolve beside the mapping. The
+preview uses saved HTML without downloading again and needs no model API key.
+It displays all pages, the total prompt count, one fixed model preset, saved
+token prices, and one positive allowance shared across the Full evaluation.
+
+Local Human findings map to pages by the listed target URL in Steps to
+Reproduce, preserving original text and identities. Page names and URLs in
+recommendations do not assign findings. The known `/Contact/` alias maps to
+`/contact/`; other paths retain their case. Missing or ambiguous assignments
+stop preparation. Each page's review contains its local findings and every
+Global finding, including pages with no local findings.
+
+Each invocation creates a fresh `.model-evaluation/full-runs/<run-id>/`
+directory. Its `full.json` records ordered membership and preparation status;
+`human-findings.json` retains unique originals and their page assignments.
+Each child under `pages/` keeps the existing Evaluation run files, including
+its copied snapshot, prompts, pricing, Programmatic findings and review CSV.
+Preview leaves execution incomplete and makes no paid requests. A preparation
+failure stops later pages and retains earlier and partial evidence with its
+stopping reason.
+
 ### How the evaluator reads LLM responses
 
 The evaluator reads each LLM response using va-dat's own parsing and reporting
