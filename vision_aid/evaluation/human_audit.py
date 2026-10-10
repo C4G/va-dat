@@ -1,10 +1,11 @@
-"""Import the known Human audit's Home and Global defect rows."""
+"""Preserve Human findings and select them for one page or every listed page."""
 
 from __future__ import annotations
 
 import hashlib
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import openpyxl
 
@@ -33,8 +34,10 @@ ELIGIBILITY_VALUES = (
 )
 
 
-def import_homepage_human_findings(path: Path, homepage_url: str) -> HumanAudit:
-    """Preserve every applicable source row and its original cell text."""
+def _source_findings(
+    path: Path, *, homepage_only: bool
+) -> tuple[str, tuple[HumanFinding, ...]]:
+    """Read original Human finding evidence with stable source identities."""
     checksum = hashlib.sha256(path.read_bytes()).hexdigest()
     book = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
@@ -51,7 +54,7 @@ def import_homepage_human_findings(path: Path, homepage_url: str) -> HumanAudit:
                 if header
             }
             scope = raw["Page name"].strip().casefold()
-            if scope not in {"home", "global"}:
+            if homepage_only and scope not in {"home", "global"}:
                 continue
             if not raw["Issue Title"].strip():
                 raise ValueError(f"Defect report row {number} has no Issue Title")
@@ -61,7 +64,7 @@ def import_homepage_human_findings(path: Path, homepage_url: str) -> HumanAudit:
                     human_finding_id="human-" + hashlib.sha256(identity).hexdigest()[:16],
                     source_sheet=SHEET,
                     source_row=number,
-                    page_scope=scope,
+                    page_scope=scope if scope in {"home", "global"} else "page",
                     source_element=raw["element name"],
                     problem=raw["Issue Title"],
                     raw_evidence=raw,
@@ -72,9 +75,57 @@ def import_homepage_human_findings(path: Path, homepage_url: str) -> HumanAudit:
             )
     finally:
         book.close()
+    return checksum, tuple(human_findings)
+
+
+def import_homepage_human_findings(path: Path, homepage_url: str) -> HumanAudit:
+    """Preserve the one-page command's Home and Global source selection."""
+    checksum, human_findings = _source_findings(path, homepage_only=True)
     if not human_findings:
         raise ValueError("Human audit has no Home or Global defects")
-    return HumanAudit(path.name, checksum, homepage_url, tuple(human_findings))
+    return HumanAudit(path.name, checksum, homepage_url, human_findings)
+
+
+def import_all_human_findings(path: Path) -> dict[str, HumanAudit]:
+    """Assign local findings by reproduction URL and repeat Globals per page."""
+    urls = list_audit_urls(path)
+    if len(urls) != len(set(urls)):
+        raise ValueError("Human audit URL list contains repeated target URLs")
+    checksum, findings = _source_findings(path, homepage_only=False)
+    if not findings:
+        raise ValueError("Human audit has no Human findings")
+    by_page: dict[str, list[HumanFinding]] = {url: [] for url in urls}
+    for finding in findings:
+        if finding.page_scope == "global":
+            for page_findings in by_page.values():
+                page_findings.append(finding)
+            continue
+        steps = finding.raw_evidence["Steps to Reproduce"]
+        reproduced = {
+            match.rstrip(".,;:)]}")
+            for match in re.findall(r'https?://[^\s<>"\']+', steps)
+        }
+        assigned = set()
+        for url in reproduced:
+            if url in by_page:
+                assigned.add(url)
+                continue
+            parsed = urlsplit(url)
+            # This is the audit's known alias, not general path case folding.
+            if parsed.path == "/Contact/":
+                url = parsed._replace(path="/contact/").geturl()
+            if url in by_page:
+                assigned.add(url)
+        if len(assigned) != 1:
+            raise ValueError(
+                f"Defect report row {finding.source_row} must map to exactly "
+                "one listed target URL in Steps to Reproduce"
+            )
+        by_page[assigned.pop()].append(finding)
+    return {
+        url: HumanAudit(path.name, checksum, url, tuple(page_findings))
+        for url, page_findings in by_page.items()
+    }
 
 
 def list_audit_urls(path: Path) -> tuple[str, ...]:

@@ -3,19 +3,25 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 
-from vision_aid.evaluation.full import capture_snapshots
+from vision_aid.evaluation.full import (
+    capture_snapshots, load_full_inputs, prepare_full_evaluation,
+)
 from vision_aid.evaluation.human_audit import import_homepage_human_findings
 from vision_aid.evaluation.llm_audit import (
     DEFAULT_MODEL,
+    LLMRequestConfig,
     MODEL_PRESETS,
     evaluation_configuration,
     execute,
@@ -73,6 +79,25 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="explicitly approve billable execution without a prompt",
     )
+    run_all = commands.add_parser(
+        "run-all", help="preview every listed page with one shared cost allowance",
+        description=run.description,
+    )
+    run_all.add_argument(
+        "--model", choices=MODEL_PRESETS, default=DEFAULT_MODEL,
+        help=f"fixed model preset (default: {DEFAULT_MODEL})",
+    )
+    run_all.add_argument(
+        "--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT, help="Human audit"
+    )
+    run_all.add_argument(
+        "--snapshots", type=Path, required=True,
+        help="saved snapshots.json mapping from capture; resolves HTML beside it",
+    )
+    run_all.add_argument(
+        "--max-cost-usd", required=True,
+        help="positive total allowance shared across pages; checked between requests",
+    )
     report = commands.add_parser(
         "report", help="score completed run and edited review.csv"
     )
@@ -81,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _new_run_directory() -> Path:
+def _new_run_directory(kind: str = "runs") -> Path:
     """Create a unique private directory under the containing worktree root."""
     current = Path.cwd()
     worktree = next(
@@ -92,7 +117,7 @@ def _new_run_directory() -> Path:
         ),
         current,
     )
-    root = worktree / ".model-evaluation" / "runs"
+    root = worktree / ".model-evaluation" / kind
     root.mkdir(parents=True, exist_ok=True)
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8]
     run = root / run_id
@@ -117,6 +142,43 @@ def _run(args: argparse.Namespace) -> int:
     snapshot_hash = manifest["snapshot_sha256"]
     schedule = PriceSchedule.load(run / "artifacts" / "pricing.json")
     print(f"Evaluation run: {run}")
+    _display_model(
+        request_config, configuration, schedule, len(manifest["prompts"]), limit
+    )
+    print(
+        f"Snapshot SHA-256: {snapshot_hash}; "
+        f"Human findings: {len(human_audit.human_findings)}"
+    )
+    print(f"Review CSV: {run / 'review.csv'}")
+    if not args.live:
+        print("Preview complete; no paid requests made.")
+        return 0
+    load_dotenv(PROJECT_ROOT / ".env")
+    key_name = (
+        "OPENAI_API_KEY" if configuration["provider"] == "openai" else "ANTHROPIC_API_KEY"
+    )
+    api_key = os.getenv(key_name)
+    if not api_key:
+        raise ValueError(f"Live execution requires {key_name}")
+    if not args.approve_live and (
+        not sys.stdin.isatty()
+        or input("Type 'yes' to approve paid execution: ") != "yes"
+    ):
+        print("Live execution declined; no paid requests made.")
+        return 0
+    complete = execute(run, manifest, api_key, request_config)
+    print(f"Run {'complete' if complete else 'incomplete'}: {run}")
+    return 0 if complete else 1
+
+
+def _display_model(
+    request_config: LLMRequestConfig,
+    configuration: dict[str, Any],
+    schedule: PriceSchedule,
+    prompt_count: int,
+    limit: Decimal,
+) -> None:
+    """Display fixed request settings, recorded prices and the shared guardrail."""
     print(
         f"Model: {request_config.model}; provider: {configuration['provider']}; "
         f"endpoint: {configuration['endpoint']}; "
@@ -127,11 +189,7 @@ def _run(args: argparse.Namespace) -> int:
     )
     print(
         "Temperature: omitted; summaries: disabled; "
-        f"prompts: {len(manifest['prompts'])}"
-    )
-    print(
-        f"Snapshot SHA-256: {snapshot_hash}; "
-        f"Human findings: {len(human_audit.human_findings)}"
+        f"prompts: {prompt_count}"
     )
     print(f"Pricing: {schedule.version} ({schedule.identity})")
     rates = schedule.data["models"][request_config.model]
@@ -158,26 +216,30 @@ def _run(args: argparse.Namespace) -> int:
         f"Cost guardrail: ${limit}; checked before each request; "
         "a request underway can exceed the limit"
     )
-    print(f"Review CSV: {run / 'review.csv'}")
-    if not args.live:
-        print("Preview complete; no paid requests made.")
-        return 0
-    load_dotenv(PROJECT_ROOT / ".env")
-    key_name = (
-        "OPENAI_API_KEY" if configuration["provider"] == "openai" else "ANTHROPIC_API_KEY"
+
+
+def _run_all(args: argparse.Namespace) -> int:
+    """Preview all listed pages using saved snapshots and no provider access."""
+    request_config = MODEL_PRESETS[args.model]
+    limit = positive_cost(args.max_cost_usd)
+    audits, snapshots = load_full_inputs(args.human_audit, args.snapshots)
+    run = _new_run_directory("full-runs")
+    print(f"Full evaluation: {run}")
+    manifest = prepare_full_evaluation(run, audits, snapshots, request_config, limit)
+    prompt_count = 0
+    for page in manifest["pages"]:
+        child = run / page["run_dir"]
+        child_manifest = json.loads((child / "run.json").read_text())
+        prompt_count += len(child_manifest["prompts"])
+        print(f"Page: {page['source_url']}; Evaluation run: {child}")
+        print(f"Review CSV: {child / 'review.csv'}")
+    first_child = run / manifest["pages"][0]["run_dir"]
+    schedule = PriceSchedule.load(first_child / "artifacts/pricing.json")
+    _display_model(
+        request_config, manifest["configuration"], schedule, prompt_count, limit
     )
-    api_key = os.getenv(key_name)
-    if not api_key:
-        raise ValueError(f"Live execution requires {key_name}")
-    if not args.approve_live and (
-        not sys.stdin.isatty()
-        or input("Type 'yes' to approve paid execution: ") != "yes"
-    ):
-        print("Live execution declined; no paid requests made.")
-        return 0
-    complete = execute(run, manifest, api_key, request_config)
-    print(f"Run {'complete' if complete else 'incomplete'}: {run}")
-    return 0 if complete else 1
+    print("Preview complete; no paid requests made.")
+    return 0
 
 
 def _report(args: argparse.Namespace) -> int:
@@ -197,6 +259,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             mapping = capture_snapshots(args.human_audit, args.output_dir)
             print(f"Snapshot mapping: {mapping}")
             return 0
+        if args.command == "run-all":
+            return _run_all(args)
         return _run(args) if args.command == "run" else _report(args)
     except (OSError, ValueError, KeyError) as error:
         parser.error(str(error))
