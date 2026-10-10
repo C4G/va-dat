@@ -1,6 +1,6 @@
 # Accessibility Audit Evaluation
 
-This context names the evidence and measures for the homepage accessibility experiment.
+This context names the evidence and measures for accessibility evaluations against the Human audit.
 
 ## Language
 
@@ -12,6 +12,10 @@ _Avoid_: Reference workbook, workbook, ground-truth spreadsheet, generated revie
 One accessibility defect from the Human audit, kept with its original evidence and with the sheet and row it came from. Its `source_element` is the element name the testers wrote, not a precise inferred location.
 _Avoid_: Reference defect, workbook row, expected finding, inferred location.
 
+**Global finding**:
+A Human finding that applies to every page in the Human audit. In a Full evaluation, complete detection on any single page counts once toward the combined results.
+_Avoid_: Homepage-only finding, separate Human finding for each page.
+
 **Benchmark snapshot**:
 The saved HTML of the audited page, identified by its source URL and checksum.
 _Avoid_: Live page.
@@ -19,6 +23,10 @@ _Avoid_: Live page.
 **Evaluation run**:
 One audit with one selected model held fixed throughout, together with its evidence, the human decisions, its completion status, and its report.
 _Avoid_: Execution plan, report bundle.
+
+**Full evaluation**:
+An evaluation of every page listed in the Human audit with one selected model held fixed throughout. It includes results for each page and combined detection rates based on Human finding counts.
+_Avoid_: Site crawl, model comparison.
 
 **LLM**:
 The part of the tool that asks a large language model to judge the page for accessibility problems.
@@ -45,7 +53,7 @@ A reviewer's decision about which part of the tool should be expected to catch a
 _Avoid_: Automatic model score, exclusion without rationale.
 
 **Not testable from the page file**:
-The reader-facing group for Human findings classified `unavailable_evidence` or `ambiguous`. They are left out of every detection rate, and each one is reported with its reason.
+The reader-facing group for Human findings classified `unavailable_evidence` or `ambiguous`. They are left out of the LLM and Programmatic detection rates but remain in the Overall denominator, and each one is reported with its reason.
 _Avoid_: Excluded, unavailable, ambiguous (in reports).
 
 **Match decision**:
