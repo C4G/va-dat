@@ -3,20 +3,15 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
 import os
-import shutil
 import sys
 import uuid
 from collections.abc import Sequence
-from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-from entry_points.run_pipeline import run_pipeline
 from vision_aid.evaluation.human_audit import import_homepage_human_findings
 from vision_aid.evaluation.llm_audit import (
     DEFAULT_MODEL,
@@ -24,11 +19,9 @@ from vision_aid.evaluation.llm_audit import (
     evaluation_configuration,
     execute,
     positive_cost,
-    write_json,
 )
-from vision_aid.evaluation.normalization import normalize_programmatic_findings
-from vision_aid.evaluation.pricing import DEFAULT_SCHEDULE, PriceSchedule
-from vision_aid.evaluation.review import create_review, reviewed_rows, write_report
+from vision_aid.evaluation.page import prepare_page, report_page
+from vision_aid.evaluation.pricing import PriceSchedule
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_HUMAN_AUDIT = PROJECT_ROOT / "Pristine Accessibility Defect Report.xlsx"
@@ -106,67 +99,11 @@ def _run(args: argparse.Namespace) -> int:
         raise ValueError(f"Benchmark HTML not found: {args.html}")
     human_audit = import_homepage_human_findings(args.human_audit, args.source_url)
     run = _new_run_directory()
-    artifacts = run / "artifacts"
-    artifacts.mkdir()
-    shutil.copyfile(args.html, run / "snapshot.html")
-    shutil.copyfile(DEFAULT_SCHEDULE, artifacts / "pricing.json")
-    snapshot_hash = hashlib.sha256((run / "snapshot.html").read_bytes()).hexdigest()
-    write_json(artifacts / "human-findings.json", human_audit.to_dict())
-    production = run_pipeline(
-        html_path=str(run / "snapshot.html"),
-        output_dir=artifacts,
-        api_key=None,
-        model=request_config.model,
-        dry_run=True,
-        include_summaries=False,
-        request_config=request_config,
+    manifest = prepare_page(
+        run, args.html, args.source_url, human_audit, request_config, limit
     )
-    (artifacts / "manifest.json").unlink()
-    raw_path = artifacts / "programmatic_findings.json"
-    raw_programmatic = json.loads(raw_path.read_text())
-    raw_path.rename(artifacts / "raw-programmatic-findings.json")
-    findings = normalize_programmatic_findings(
-        raw_programmatic,
-        run_id=run.name,
-        page_url=args.source_url,
-    )
-    write_json(
-        run / "normalized-programmatic-findings.json",
-        [asdict(item) for item in findings],
-    )
-    create_review(run / "review.csv", list(human_audit.to_dict()["human_findings"]))
-    schedule = PriceSchedule.load(artifacts / "pricing.json")
-    manifest = {
-        "run_id": run.name,
-        "source_url": args.source_url,
-        "human_audit_filename": human_audit.human_audit_filename,
-        "human_audit_sha256": human_audit.human_audit_sha256,
-        "snapshot_sha256": snapshot_hash,
-        "configuration": configuration,
-        "pricing_version": schedule.version,
-        "pricing_sha256": schedule.identity,
-        "max_cost_usd": str(limit),
-        "complete": False,
-        "incomplete_reason": "preview",
-        "estimated_cost_usd": "0",
-        "usage": {
-            key: 0
-            for key in (
-                "input_tokens",
-                "cached_input_tokens",
-                "cache_creation_input_tokens",
-                "output_tokens",
-            )
-        },
-        "format_failures": [],
-        "prompts": [
-            {"name": entry["name"], "checklist": entry["checklist"]}
-            for entry in production["prompts_dry_run"]
-        ],
-        "filters": production["pass1_filters_active"],
-        "skipped_prompts": production["prompts_skipped"],
-    }
-    write_json(run / "run.json", manifest)
+    snapshot_hash = manifest["snapshot_sha256"]
+    schedule = PriceSchedule.load(run / "artifacts" / "pricing.json")
     print(f"Evaluation run: {run}")
     print(
         f"Model: {request_config.model}; provider: {configuration['provider']}; "
@@ -233,37 +170,8 @@ def _run(args: argparse.Namespace) -> int:
 
 def _report(args: argparse.Namespace) -> int:
     """Validate human decisions and report a completed run."""
-    if not args.reviewer.strip():
-        raise ValueError("A reviewer description is required")
     run = args.run_dir.resolve()
-    artifacts = run / "artifacts"
-    manifest = json.loads((run / "run.json").read_text())
-    if manifest["run_id"] != run.name:
-        raise ValueError("Run evidence does not belong to this directory")
-    if not manifest["complete"]:
-        raise ValueError("Incomplete Evaluation runs cannot produce a final report")
-    human_audit = json.loads((artifacts / "human-findings.json").read_text())
-    if human_audit["human_audit_sha256"] != manifest["human_audit_sha256"]:
-        raise ValueError("Human audit identity differs from the run")
-    llm = json.loads((run / "normalized-llm-findings.json").read_text())
-    programmatic_file = run / "normalized-programmatic-findings.json"
-    programmatic = json.loads(programmatic_file.read_text())
-    for kind, collection in (("llm", llm), ("programmatic", programmatic)):
-        if any(
-            item["run_id"] != run.name
-            or item["source"] != kind
-            or item["page_url"] != manifest["source_url"]
-            for item in collection
-        ):
-            raise ValueError(f"{kind.upper() if kind == 'llm' else kind.title()} findings do not belong to this run")
-    rows = reviewed_rows(
-        run / "review.csv", human_audit["human_findings"], llm, programmatic
-    )
-    schedule = PriceSchedule.load(artifacts / "pricing.json")
-    write_report(
-        run / "report.md", manifest, rows, llm, programmatic,
-        args.reviewer, schedule.price_description,
-    )
+    report_page(run, args.reviewer)
     print(f"Markdown report: {run / 'report.md'}")
     return 0
 

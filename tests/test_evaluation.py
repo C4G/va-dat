@@ -594,6 +594,19 @@ def test_historical_reports_keep_saved_prices_and_stored_estimate(workspace, mon
     assert "180000 input tokens" in text and "18000 output tokens" in text
     assert all(path.read_bytes() == saved for path, saved in originals.items())
 
+
+def test_report_describes_the_evaluated_page(workspace, monkeypatch):
+    """A saved page's report identifies its URL without claiming homepage scope."""
+    fake_client(monkeypatch)
+    assert run_cli(workspace, "--source-url", "https://example.test/contact/",
+                   "--live", "--approve-live") == 0
+    run = only_run(workspace)
+    edit_review(run, *[{"classification": "llm_eligible"}] * 6)
+    text = report(run)
+    assert "This evaluation covers the saved page at https://example.test/contact/" in text
+    assert "homepage only" not in text
+
+
 def test_review_validation_and_report_metrics(workspace, monkeypatch, capsys):
     """Known decisions yield hand-calculated rates, cross-catches, and exclusions."""
     fake_client(
