@@ -424,8 +424,8 @@ requests run sequentially without retries or fallback models.
 From the repository root, use the supplied `Pristine Accessibility Defect Report.xlsx`
 (16 Home and Global defects). These steps work after deleting `.model-evaluation/`.
 
-1. **Save a Benchmark snapshot.** The evaluator does not download the page.
-   Create the ignored directory and save the homepage HTML there:
+1. **Save a Benchmark snapshot.** For the one-page workflow,
+   create the ignored directory and save the homepage HTML there:
 
    ```bash
    mkdir -p .model-evaluation
@@ -506,6 +506,29 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    stay in the run artifacts. Not-testable findings are left out of the LLM and
    Programmatic rates but remain in the Overall denominator. Reporting rejects
    incomplete runs, missing classifications, and invalid or reused finding IDs.
+
+### Capture the Human audit's listed pages
+
+Save one Benchmark snapshot for each URL in the Human audit's `URL list` sheet:
+
+```bash
+uv run visionaid-evaluate capture \
+  --human-audit "Pristine Accessibility Defect Report.xlsx" \
+  --output-dir .model-evaluation/pristine-snapshots
+```
+
+The output directory must be new. Capture downloads only the listed URLs in
+source order and follows redirects, retaining each originally listed URL as
+the page identity. It saves separate `page-001.html`, `page-002.html`, and later
+HTML files, then writes `snapshots.json` with the Human audit checksum and
+source URLs mapped to relative HTML filenames. Resolve those filenames beside
+`snapshots.json` when reusing the saved inputs.
+
+Capture needs no model API key or Live-run approval. It saves server HTML and
+does not render JavaScript or discover more pages. An HTTP or network error
+stops capture immediately. Earlier HTML files remain, but capture writes no
+snapshot mapping until every download succeeds. Start another capture in a
+new directory after addressing the failure.
 
 ### How the evaluator reads LLM responses
 

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from vision_aid.evaluation.full import capture_snapshots
 from vision_aid.evaluation.human_audit import import_homepage_human_findings
 from vision_aid.evaluation.llm_audit import (
     DEFAULT_MODEL,
@@ -28,9 +29,20 @@ DEFAULT_HUMAN_AUDIT = PROJECT_ROOT / "Pristine Accessibility Defect Report.xlsx"
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Expose the two supported evaluation operations."""
+    """Expose the supported evaluation operations."""
     parser = argparse.ArgumentParser(prog="visionaid-evaluate")
     commands = parser.add_subparsers(dest="command", required=True)
+    capture = commands.add_parser(
+        "capture", help="download each Human audit URL to a saved Benchmark snapshot",
+        description=(
+            "Download listed URLs in source order, following redirects. "
+            "No model key or approval is required."
+        ),
+    )
+    capture.add_argument("--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT)
+    capture.add_argument(
+        "--output-dir", type=Path, required=True, help="new snapshot directory"
+    )
     run = commands.add_parser(
         "run", help="preview or execute an Evaluation run with one selected model",
         description=(
@@ -181,6 +193,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command == "capture":
+            mapping = capture_snapshots(args.human_audit, args.output_dir)
+            print(f"Snapshot mapping: {mapping}")
+            return 0
         return _run(args) if args.command == "run" else _report(args)
     except (OSError, ValueError, KeyError) as error:
         parser.error(str(error))

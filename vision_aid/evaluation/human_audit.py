@@ -75,3 +75,25 @@ def import_homepage_human_findings(path: Path, homepage_url: str) -> HumanAudit:
     if not human_findings:
         raise ValueError("Human audit has no Home or Global defects")
     return HumanAudit(path.name, checksum, homepage_url, tuple(human_findings))
+
+
+def list_audit_urls(path: Path) -> tuple[str, ...]:
+    """Read the Human audit's explicit target URLs in source order."""
+    book = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        sheet = book["URL list"]
+        rows = sheet.iter_rows(values_only=True)
+        headers = tuple(str(value or "").strip() for value in next(rows))
+        if "URL" not in headers:
+            raise ValueError("Human audit URL list has no URL column")
+        index = headers.index("URL")
+        urls = tuple(
+            str(row[index]).strip()
+            for row in rows
+            if len(row) > index and row[index] is not None and str(row[index]).strip()
+        )
+    finally:
+        book.close()
+    if not urls:
+        raise ValueError("Human audit URL list has no target URLs")
+    return urls
