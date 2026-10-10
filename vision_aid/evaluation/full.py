@@ -13,7 +13,7 @@ import requests
 
 from vision_aid.evaluation.human_audit import import_all_human_findings, list_audit_urls
 from vision_aid.evaluation.llm_audit import (
-    LLMRequestConfig, USAGE_KEYS, evaluation_configuration, write_json,
+    LLMRequestConfig, USAGE_KEYS, evaluation_configuration, execute, write_json,
 )
 from vision_aid.evaluation.page import prepare_page
 from vision_aid.evaluation.schemas import HumanAudit
@@ -150,3 +150,51 @@ def prepare_full_evaluation(
     manifest["incomplete_reason"] = "preview"
     write_json(run / "full.json", manifest)
     return manifest
+
+
+def execute_full_evaluation(
+    run: Path, manifest: dict[str, Any], api_key: str,
+    request_config: LLMRequestConfig,
+) -> bool:
+    """Execute prepared pages sequentially with one remaining cost allowance."""
+    total_cost = Decimal(0)
+    usage = {key: 0 for key in USAGE_KEYS}
+    limit = Decimal(manifest["max_cost_usd"])
+    manifest["incomplete_reason"] = None
+    for number, page in enumerate(manifest["pages"]):
+        remaining = limit - total_cost
+        if remaining <= 0:
+            manifest["incomplete_reason"] = "cost guardrail exhausted before next page"
+            for unfinished in manifest["pages"][number:]:
+                unfinished["status"] = "not_executed"
+            write_json(run / "full.json", manifest)
+            return False
+        child = run / page["run_dir"]
+        child_manifest = json.loads((child / "run.json").read_text())
+        child_manifest["max_cost_usd"] = str(remaining)
+        write_json(child / "run.json", child_manifest)
+        try:
+            complete = execute(child, child_manifest, api_key, request_config)
+        except Exception as error:  # noqa: BLE001
+            # Provider setup can fail before the executor saves a request outcome.
+            child_manifest.update(complete=False, incomplete_reason=str(error))
+            write_json(child / "run.json", child_manifest)
+            complete = False
+        total_cost += Decimal(child_manifest["estimated_cost_usd"])
+        for key in USAGE_KEYS:
+            usage[key] += child_manifest["usage"][key]
+        page.update(status="complete" if complete else "incomplete", complete=complete)
+        manifest.update(estimated_cost_usd=str(total_cost), usage=usage)
+        if not complete:
+            manifest["incomplete_reason"] = (
+                f"page execution failed for {page['source_url']}: "
+                f"{child_manifest['incomplete_reason']}"
+            )
+            for unfinished in manifest["pages"][number + 1:]:
+                unfinished["status"] = "not_executed"
+        write_json(run / "full.json", manifest)
+        if not complete:
+            return False
+    manifest.update(complete=True, incomplete_reason=None)
+    write_json(run / "full.json", manifest)
+    return True

@@ -1,4 +1,4 @@
-"""Run one private fixed-model evaluation, then score a human-edited CSV."""
+"""Prepare and execute fixed-model evaluations, then score human decisions."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from vision_aid.evaluation.full import (
-    capture_snapshots, load_full_inputs, prepare_full_evaluation,
+    capture_snapshots, execute_full_evaluation, load_full_inputs, prepare_full_evaluation,
 )
 from vision_aid.evaluation.human_audit import import_homepage_human_findings
 from vision_aid.evaluation.llm_audit import (
@@ -80,7 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="explicitly approve billable execution without a prompt",
     )
     run_all = commands.add_parser(
-        "run-all", help="preview every listed page with one shared cost allowance",
+        "run-all", help="preview or execute every listed page with one shared allowance",
         description=run.description,
     )
     run_all.add_argument(
@@ -96,7 +96,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_all.add_argument(
         "--max-cost-usd", required=True,
-        help="positive total allowance shared across pages; checked between requests",
+        help=(
+            "positive total allowance shared across pages; checked between requests; "
+            "a request underway can exceed it"
+        ),
+    )
+    run_all.add_argument("--live", action="store_true", help="enable billable execution")
+    run_all.add_argument(
+        "--approve-live", action="store_true",
+        help="explicitly approve all displayed pages without a prompt; requires --live",
     )
     report = commands.add_parser(
         "report", help="score completed run and edited review.csv"
@@ -153,6 +161,16 @@ def _run(args: argparse.Namespace) -> int:
     if not args.live:
         print("Preview complete; no paid requests made.")
         return 0
+    api_key = _approved_api_key(args, configuration)
+    if api_key is None:
+        return 0
+    complete = execute(run, manifest, api_key, request_config)
+    print(f"Run {'complete' if complete else 'incomplete'}: {run}")
+    return 0 if complete else 1
+
+
+def _approved_api_key(args: argparse.Namespace, configuration: dict[str, Any]) -> str | None:
+    """Select the provider's credentials and ask once for the displayed scope."""
     load_dotenv(PROJECT_ROOT / ".env")
     key_name = (
         "OPENAI_API_KEY" if configuration["provider"] == "openai" else "ANTHROPIC_API_KEY"
@@ -165,10 +183,8 @@ def _run(args: argparse.Namespace) -> int:
         or input("Type 'yes' to approve paid execution: ") != "yes"
     ):
         print("Live execution declined; no paid requests made.")
-        return 0
-    complete = execute(run, manifest, api_key, request_config)
-    print(f"Run {'complete' if complete else 'incomplete'}: {run}")
-    return 0 if complete else 1
+        return None
+    return api_key
 
 
 def _display_model(
@@ -219,9 +235,11 @@ def _display_model(
 
 
 def _run_all(args: argparse.Namespace) -> int:
-    """Preview all listed pages using saved snapshots and no provider access."""
+    """Prepare all listed pages and approve the entire scope once."""
     request_config = MODEL_PRESETS[args.model]
     limit = positive_cost(args.max_cost_usd)
+    if args.approve_live and not args.live:
+        raise ValueError("--approve-live requires --live")
     audits, snapshots = load_full_inputs(args.human_audit, args.snapshots)
     run = _new_run_directory("full-runs")
     print(f"Full evaluation: {run}")
@@ -238,8 +256,15 @@ def _run_all(args: argparse.Namespace) -> int:
     _display_model(
         request_config, manifest["configuration"], schedule, prompt_count, limit
     )
-    print("Preview complete; no paid requests made.")
-    return 0
+    if not args.live:
+        print("Preview complete; no paid requests made.")
+        return 0
+    api_key = _approved_api_key(args, manifest["configuration"])
+    if api_key is None:
+        return 0
+    complete = execute_full_evaluation(run, manifest, api_key, request_config)
+    print(f"Full evaluation {'complete' if complete else 'incomplete'}: {run}")
+    return 0 if complete else 1
 
 
 def _report(args: argparse.Namespace) -> int:

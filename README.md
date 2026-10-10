@@ -564,6 +564,45 @@ Preview leaves execution incomplete and makes no paid requests. A preparation
 failure stops later pages and retains earlier and partial evidence with its
 stopping reason.
 
+### Execute a Full evaluation
+
+Add `--live` to the preview command to execute all prepared pages with the
+selected provider's API key:
+
+```bash
+uv run visionaid-evaluate run-all \
+  --human-audit "Pristine Accessibility Defect Report.xlsx" \
+  --snapshots .model-evaluation/pristine-snapshots/snapshots.json \
+  --model claude-haiku-5-5 \
+  --max-cost-usd 5 \
+  --live
+```
+
+Every page is prepared before the CLI displays the full scope and asks for
+one Live-run approval. Type `yes` to approve all listed pages, or add
+`--approve-live` for explicit noninteractive approval. That option requires
+`--live`. Declined approval makes no model requests. GPT models require
+`OPENAI_API_KEY`; Claude models require `ANTHROPIC_API_KEY`.
+
+Pages execute in URL-list order, using the same model preset throughout.
+The allowance covers the entire Full evaluation. Before each page, the CLI
+subtracts prior reported estimated cost and passes the remainder to that
+page's executor, which checks the limit before each request. A request underway
+can exceed the limit. If it completes all remaining work, execution still
+completes; otherwise the CLI starts no further requests once the allowance
+is exhausted. Request failures also stop later work, without retries.
+
+The parent `full.json` saves page completion, stopping reason, estimated cost,
+and reported usage, including usage from failed requests and partial pages.
+Completed and partial child evidence remain available. A completed execution
+still needs human review before final scoring. Completed page runs can use
+the existing `report` command even if a later page fails.
+
+Start a fresh invocation after failure. Each invocation creates new parent
+and child directories and repeats every model request, including pages that
+completed in a previous attempt. It reuses captured HTML without downloading
+again; it does not resume or reuse previous paid outputs.
+
 ### How the evaluator reads LLM responses
 
 The evaluator reads each LLM response using va-dat's own parsing and reporting
