@@ -6,6 +6,7 @@ import csv
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from vision_aid.evaluation.human_audit import ELIGIBILITY_VALUES, HEADERS
 
@@ -130,6 +131,32 @@ def _rate(part: str, caught: int, total: int) -> str:
     return f"{label} detection rate: Of the {total} Human findings the {part} could be expected to detect from the page's HTML, {subject} caught {caught} ({caught / total:.1%})."
 
 
+def detection_counts(rows: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Count validated catches and denominators without averaging page rates.
+
+    Each row represents one Human finding. Cross-catches earn Overall credit,
+    while source rates include only catches by the expected source. Not-testable
+    findings remain in the Overall denominator.
+    """
+    counts = {}
+    for classification, kind in (
+        ("llm_eligible", "llm"), ("programmatic", "programmatic")
+    ):
+        eligible = [
+            row for row in rows
+            if row["decision"]["classification"].strip() == classification
+        ]
+        counts[kind] = {
+            "caught": sum(bool(row["matches"][kind]) for row in eligible),
+            "eligible": len(eligible),
+        }
+    counts["overall"] = {
+        "caught": sum(any(row["matches"].values()) for row in rows),
+        "eligible": len(rows),
+    }
+    return counts
+
+
 def _md(value: object) -> str:
     """Escape inline text for Markdown, including raw HTML, keeping line breaks."""
     text = str(value)
@@ -158,6 +185,12 @@ def write_report(
         "ambiguous": "Not testable",
     }
     covered = [row for row in rows if any(row["matches"].values())]
+    counts = detection_counts(rows)
+    page_scope = (
+        "This evaluation covers the homepage only"
+        if urlsplit(manifest["source_url"]).path in {"", "/"}
+        else f"This evaluation covers the saved page at {_md(manifest['source_url'])}"
+    )
     usage = manifest["usage"]
     tokens = [f"{usage['input_tokens']} input tokens", f"{usage['output_tokens']} output tokens"]
     for key, label in (("cached_input_tokens", "cached input"), ("cache_creation_input_tokens", "cache-creation input")):
@@ -171,7 +204,7 @@ def write_report(
         "The benchmark is the Human audit, an accessibility audit performed by human testers. Each problem they reported is a Human finding.",
         "This API uses LLM checks and Programmatic checks. LLM checks send extracted page content to the model with prompts asking it to identify accessibility problems. Programmatic checks apply fixed rules directly to the page's HTML.",
         "LLM findings are read from each response with the tool's own rules, before its false-positive filter and deduplication.",
-        "The tool saw only saved HTML, not a live browser or screen reader. This evaluation covers the homepage only, including Global findings that apply there.",
+        f"The tool saw only saved HTML, not a live browser or screen reader. {page_scope}, including Global findings that apply there.",
         "A reviewer decided which part should be expected to detect each Human finding. A catch counts only when the matched findings fully cover the whole Human finding. Partial coverage earns no credit.",
         "",
         "## Summary",
@@ -180,14 +213,15 @@ def write_report(
         f"Review decisions by: {_md(reviewer)}",
         "",
     ]
-    for classification, kind, part in (
-        ("llm_eligible", "llm", "LLM"),
-        ("programmatic", "programmatic", "Programmatic checks"),
+    for kind, part in (
+        ("llm", "LLM"),
+        ("programmatic", "Programmatic checks"),
     ):
-        eligible = [row for row in rows if row["decision"]["classification"].strip() == classification]
-        lines.extend([_rate(part, sum(bool(row["matches"][kind]) for row in eligible), len(eligible)), ""])
+        lines.extend([
+            _rate(part, counts[kind]["caught"], counts[kind]["eligible"]), ""
+        ])
     lines.extend([
-        _rate("Overall", len(covered), len(rows)),
+        _rate("Overall", counts["overall"]["caught"], counts["overall"]["eligible"]),
         "",
         f"Estimated run cost: ${Decimal(manifest['estimated_cost_usd']):.2f}, calculated using provider-reported token usage and the {_md(pricing_description)}. Reported totals: {', '.join(tokens)}. The actual bill may differ slightly.",
         "",
