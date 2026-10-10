@@ -218,6 +218,7 @@ def test_live_requires_the_selected_providers_credentials(
     full_workspace, monkeypatch, capsys, model, key,
 ):
     """The other provider's credentials cannot authorize this fixed preset."""
+    monkeypatch.setenv(key, "")
     monkeypatch.setenv("ANTHROPIC_API_KEY" if key == "OPENAI_API_KEY" else "OPENAI_API_KEY",
                        "synthetic-other-provider")
     with pytest.raises(SystemExit) as error:
