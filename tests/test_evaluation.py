@@ -15,8 +15,8 @@ from vision_aid.evaluation import llm_audit
 from vision_aid.evaluation.cli import main
 
 MODELS = (
-    "claude-haiku-4-5-20251001", "claude-opus-5-5", "claude-sonnet-5-5",
-    "claude-haiku-5-5", "gpt-6-luna", "gpt-6.1-sol",
+    "claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5",
+    "gpt-6-luna", "gpt-6.1-sol",
 )
 CATEGORIES = [spec.name for spec in PROMPT_REGISTRY if not spec.is_summary]
 RUN_ROOT = {"review.csv", "snapshot.html", "normalized-programmatic-findings.json",
@@ -209,13 +209,12 @@ def test_preview_preserves_evidence_without_provider_access(workspace, monkeypat
     output = capsys.readouterr().out
     assert f"provider: {provider}; endpoint: {endpoint}" in output
     assert "Cost guardrail: $1" in output
-    if selected != MODELS[0]:
-        assert config["reasoning_effort"] == "medium"
+    assert config["reasoning_effort"] == "medium"
     if selected.startswith("gpt-"):
         assert "thinking" not in config
         assert "thinking: none" in output
     else:
-        assert config["thinking"]["type"] == ("enabled" if selected == MODELS[0] else "adaptive")
+        assert config["thinking"]["type"] == "adaptive"
     assert manifest["complete"] is False and manifest["incomplete_reason"] == "preview"
     assert len(CATEGORIES) == 18
     assert [prompt["name"] for prompt in manifest["prompts"]] == CATEGORIES
@@ -258,10 +257,9 @@ def test_live_run_without_approval_or_with_unsupported_model_buys_nothing(
 
 
 @pytest.mark.parametrize("model,thinking,effort,cost", [
-    (MODELS[0], {"type": "enabled", "budget_tokens": 16000}, None, "0.03915"),
+    (MODELS[0], {"type": "adaptive"}, "medium", "0.003915"),
     (MODELS[1], {"type": "adaptive"}, "medium", "0.1548"),
     (MODELS[2], {"type": "adaptive"}, "medium", "0.0783"),
-    ("claude-haiku-5-5", {"type": "adaptive"}, "medium", "0.003915"),
 ])
 def test_presets_stream_every_category_and_report_saved_prices(
     workspace, monkeypatch, model, thinking, effort, cost,
@@ -395,7 +393,7 @@ def test_run_help_explains_presets_and_provider_credentials(capsys):
     assert error.value.code == 0
     text = capsys.readouterr().out
     assert all(model in text for model in MODELS)
-    assert "Haiku 4.5" in text and "16,000" in text
+    assert "Haiku 5.5 (default)" in text
     assert "adaptive" in text and "medium" in text
     assert "24,192" in text and "temperature" in text and "summaries" in text
     assert "Chat Completions" in text
@@ -560,7 +558,7 @@ def test_stream_failure_retains_observed_tiered_cost_and_partial_usage(workspace
 
 
 def test_historical_reports_keep_saved_prices_and_stored_estimate(workspace, monkeypatch):
-    """Legacy evidence needs no new per-request fields or current schedule rates."""
+    """Saved evidence reports with its original prices and stored estimate."""
     response = {"success": True, "response": '{"issues": []}',
                 "usage": {"input_tokens": 10000, "output_tokens": 1000}}
     fake_client(monkeypatch, *[response] * len(CATEGORIES))
@@ -664,8 +662,8 @@ def test_review_validation_and_report_metrics(workspace, monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("failure,calls,cost,reason", [
-    (True, 2, "0.2002", "synthetic failure"),
-    (False, 1, "0.1001", "cost guardrail exhausted"),
+    (True, 2, "0.02002", "synthetic failure"),
+    (False, 1, "0.01001", "cost guardrail exhausted"),
 ])
 def test_failure_or_exhaustion_stops_and_keeps_partial_evidence(
     workspace, monkeypatch, capsys, failure, calls, cost, reason,

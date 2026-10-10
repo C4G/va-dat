@@ -41,7 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     run = commands.add_parser(
         "run", help="preview or execute an Evaluation run with one selected model",
         description=(
-            "Haiku 4.5 uses a 16,000-token thinking budget; Haiku 5.5, Opus 5.5 "
+            "Haiku 5.5 (default), Opus 5.5 "
             "and Sonnet 5.5 use adaptive thinking with medium effort. GPT models "
             "use Chat Completions with medium reasoning effort. All presets omit "
             "temperature, disable summaries, and cap output at 24,192 tokens "

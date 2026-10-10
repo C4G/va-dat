@@ -15,15 +15,9 @@ from processing_scripts.llm_client.audit import (
 from vision_aid.evaluation.normalization import normalize_prompt_response
 from vision_aid.evaluation.pricing import PriceSchedule
 
-DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_MODEL = "claude-haiku-5-5"
 OPENAI_MODELS = ("gpt-6-luna", "gpt-6.1-sol")
 MODEL_PRESETS = {
-    DEFAULT_MODEL: LLMRequestConfig(
-        model=DEFAULT_MODEL,
-        thinking_budget_tokens=16000,
-        max_output_tokens=24192,
-        temperature=None,
-    ),
     **{
         model: LLMRequestConfig(
             model=model,
@@ -32,7 +26,7 @@ MODEL_PRESETS = {
             max_output_tokens=24192,
             temperature=None,
         )
-        for model in ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5")
+        for model in (DEFAULT_MODEL, "claude-opus-5-5", "claude-sonnet-5-5")
     },
     **{
         model: LLMRequestConfig(

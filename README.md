@@ -396,21 +396,20 @@ The pipeline skips prompts with empty payloads (e.g., no forms on the page = no 
 
 Each Evaluation run uses one fixed model through Anthropic Messages or OpenAI
 Chat Completions.
-Choose it with `--model`; omitting the flag selects Haiku 4.5. The evaluator
+Choose it with `--model`; omitting the flag selects Haiku 5.5. The evaluator
 accepts only these exact IDs:
 
 | Model | `--model` value | Provider endpoint | Thinking / reasoning | Effort |
 | --- | --- | --- | --- | --- |
-| Haiku 4.5, default | `claude-haiku-4-5-20251001` | Anthropic Messages | 16,000-token budget | Omitted |
+| Haiku 5.5, default | `claude-haiku-5-5` | Anthropic Messages | Adaptive thinking | Medium |
 | Opus 5.5 | `claude-opus-5-5` | Anthropic Messages | Adaptive thinking | Medium |
 | Sonnet 5.5 | `claude-sonnet-5-5` | Anthropic Messages | Adaptive thinking | Medium |
-| Haiku 5.5 | `claude-haiku-5-5` | Anthropic Messages | Adaptive thinking | Medium |
 | GPT-6 Luna | `gpt-6-luna` | OpenAI Chat Completions | Reasoning | Medium |
 | GPT-6.1 Sol | `gpt-6.1-sol` | OpenAI Chat Completions | Reasoning | Medium |
 
 For example, add `--model gpt-6-luna` to the run command below to evaluate
 GPT-6 Luna. Friendly names and aliases are rejected. Settings are fixed presets,
-and all six models use a 24,192-token output cap that includes reasoning/thinking
+and all five models use a 24,192-token output cap that includes reasoning/thinking
 and final text. Adaptive thinking does not reserve a fixed number of tokens for
 final text. Matching effort labels and output caps do not imply equal computation
 between providers. Temperature is omitted and summaries are disabled. The selected
