@@ -16,7 +16,8 @@ from typing import Any
 from dotenv import load_dotenv
 
 from vision_aid.evaluation.full import (
-    capture_snapshots, execute_full_evaluation, load_full_inputs, prepare_full_evaluation,
+    capture_snapshots, execute_full_evaluation, load_full_inputs,
+    prepare_full_evaluation, report_full_evaluation,
 )
 from vision_aid.evaluation.human_audit import import_homepage_human_findings
 from vision_aid.evaluation.llm_audit import (
@@ -111,6 +112,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report.add_argument("--run-dir", type=Path, required=True)
     report.add_argument("--reviewer", required=True, help="who made the review decisions")
+    report_all = commands.add_parser(
+        "report-all", help="validate every page review and score unique Human findings",
+        description=(
+            "Final combined reporting requires every listed execution to complete "
+            "and all page reviews to validate. Each original Human finding counts "
+            "once. A Global finding earns source credit through complete detection "
+            "on any single page; testable Global classifications must agree. "
+            "Individual completed page reports remain available after parent failure."
+        ),
+    )
+    report_all.add_argument("--run-dir", type=Path, required=True, help="Full evaluation directory")
+    report_all.add_argument("--reviewer", required=True, help="who made all page review decisions")
     return parser
 
 
@@ -286,6 +299,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.command == "run-all":
             return _run_all(args)
+        if args.command == "report-all":
+            run = args.run_dir.resolve()
+            report_full_evaluation(run, args.reviewer)
+            print(f"Combined Markdown report: {run / 'report.md'}")
+            return 0
         return _run(args) if args.command == "run" else _report(args)
     except (OSError, ValueError, KeyError) as error:
         parser.error(str(error))

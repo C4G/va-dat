@@ -603,6 +603,59 @@ and child directories and repeats every model request, including pages that
 completed in a previous attempt. It reuses captured HTML without downloading
 again; it does not resume or reuse previous paid outputs.
 
+### Review and report a Full evaluation
+
+After every page completes execution, edit each child's `review.csv` under
+`.model-evaluation/full-runs/<run-id>/pages/`. Use the same Eligibility
+classifications, finding ID columns, and full Match decisions as the one-page
+workflow below. Establish eligibility from the Human finding and saved HTML
+independently of what the model caught. Each page includes all Global findings,
+so their evidence and eligibility can be reviewed separately on every page.
+
+Generate the individual page reports and the combined report:
+
+```bash
+uv run visionaid-evaluate report-all \
+  --run-dir .model-evaluation/full-runs/<run-id> \
+  --reviewer "Name and how the page decisions were reviewed"
+```
+
+`report-all` validates every listed execution, child evidence identity, and
+page review before writing final combined rates to the parent's `report.md`.
+The report lists every original Human finding once, identifies the reviewer,
+links page reports, names supporting pages and finding IDs, and totals saved
+estimated cost, provider-reported usage, and Unreadable responses. The supplied
+audit has 86 originals across 17 pages; repeated Globals produce 198 review
+rows, while the combined Overall denominator stays 86.
+
+A Global earns combined credit when one page's selected findings fully cover
+it. Several findings from one source on that page may jointly cover it.
+Partial evidence on different pages never earns combined credit. LLM and
+Programmatic catches may come from different pages, but Overall counts that
+Global once. Repeated catches on several pages also count once.
+
+Global classifications may be `unavailable_evidence` or `ambiguous` on some
+pages. If any page is testable, all testable pages must agree on `llm_eligible`
+or `programmatic`; that original finding enters the corresponding denominator
+once, including when nothing caught it. If every page is not testable, its
+recorded reasons remain in the report, it leaves the LLM and Programmatic
+denominators, and it stays in Overall. Combined rates use pooled finding
+counts, rather than averages of page percentages. A catch by the other source
+counts in Overall but earns no credit in the expected source's rate.
+
+Missing or incomplete execution, invalid reviews, missing evidence, or
+conflicting testable Global classifications withhold final combined rates.
+Correct review decisions and run `report-all` again. Regenerating a report
+removes the previous parent report before validation, so invalid revised
+reviews cannot leave stale combined rates. Available individual reports and
+evidence remain. To report one completed child after a later page failure, use:
+
+```bash
+uv run visionaid-evaluate report \
+  --run-dir .model-evaluation/full-runs/<run-id>/pages/<child-run-id> \
+  --reviewer "Name and how this page was reviewed"
+```
+
 ### How the evaluator reads LLM responses
 
 The evaluator reads each LLM response using va-dat's own parsing and reporting

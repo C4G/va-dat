@@ -123,6 +123,8 @@ def reviewed_rows(
 def _rate(part: str, caught: int, total: int) -> str:
     """Explain each denominator, including when there is nothing to score."""
     if part == "Overall":
+        if total == 0:
+            return "Overall detection rate: No Human findings were imported for this page."
         return f"Overall detection rate: Of all {total} Human findings, either part of the tool caught {caught} ({caught / total:.1%})."
     label = part.removesuffix(" checks")
     if total == 0:
@@ -283,4 +285,79 @@ def write_report(
                     if decision[field].strip():
                         lines.append(f"- {label}: {_md(decision[field])}")
             lines.append("")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def write_combined_report(
+    path: Path,
+    manifest: dict[str, Any],
+    rows: list[dict[str, Any]],
+    page_reviews: list[Any],
+    reviewer: str,
+) -> None:
+    """Describe pooled original findings with every supporting page decision."""
+    counts = detection_counts(rows)
+    usage = manifest["usage"]
+    tokens = [f"{usage['input_tokens']} input tokens", f"{usage['output_tokens']} output tokens"]
+    for key, label in (
+        ("cached_input_tokens", "cached input"),
+        ("cache_creation_input_tokens", "cache-creation input"),
+    ):
+        if usage[key]:
+            tokens.append(f"{usage[key]} {label} tokens")
+    prices = ", ".join(dict.fromkeys(review.schedule.price_description for review in page_reviews))
+    failures = sum(len(review.manifest["format_failures"]) for review in page_reviews)
+    prompts = sum(len(review.manifest["prompts"]) for review in page_reviews)
+    lines = [
+        "# Full accessibility evaluation", "",
+        f"Model: {_md(manifest['configuration']['model'])}. Run ID: {_md(manifest['run_id'])}.",
+        f"Human audit: {_md(manifest['human_audit_filename'])}; SHA-256: {_md(manifest['human_audit_sha256'])}.",
+        f"Review decisions by: {_md(reviewer)}", "",
+        "The tool evaluated only saved HTML for every page listed in the Human audit, with one fixed model. LLM checks use model judgment; Programmatic checks apply fixed rules to HTML.",
+        "Each original Human finding counts once. Non-Global findings use their assigned page. Global findings earn credit through complete detection on any single page, independently for each detection source. Several catches still count once; partial matches across pages are never combined.",
+        "Eligibility is established independently of detection. If any page is testable for a Global, the finding enters that expected source's denominator once; all testable pages must agree on the source. Findings not testable on any page remain in Overall but are excluded from LLM and Programmatic rates. Cross-catches count toward Overall, which counts either source's catch once.",
+        "", "## Summary", "",
+    ]
+    for kind, label in (("llm", "LLM"), ("programmatic", "Programmatic checks"), ("overall", "Overall")):
+        lines.extend([
+            _rate(label, counts[kind]["caught"], counts[kind]["eligible"]).replace(
+                "the page's HTML", "the evaluated pages' HTML"
+            ), "",
+        ])
+    lines.extend([
+        f"Estimated run cost: ${Decimal(manifest['estimated_cost_usd']):.2f}, calculated from provider-reported usage using {_md(prices)}. Reported totals: {', '.join(tokens)}. The actual bill may differ.",
+        f"Unreadable responses: {failures} of {prompts} LLM checks. These responses yield no LLM findings and do not change execution completion.",
+        "", "## Evaluated pages", "",
+    ])
+    for page in manifest["pages"]:
+        lines.append(f"- [{_md(page['source_url'])}]({page['run_dir']}/report.md)")
+    lines.extend(["", "## Original Human findings", ""])
+    expected = {
+        "llm_eligible": "LLM", "programmatic": "Programmatic checks",
+        "unavailable_evidence": "Not testable from the page file",
+        "ambiguous": "Not testable from the page file",
+    }
+    for row in rows:
+        finding = row["human_finding"]
+        classification = row["decision"]["classification"]
+        marks = {kind: "✓" if row["matches"][kind] else "✗" for kind in ("llm", "programmatic")}
+        lines.extend([
+            f"### {_md(finding['problem'])}", "",
+            f"Human finding ID: {_md(finding['human_finding_id'])}. Source: {_md(finding['source_sheet'])}, row {finding['source_row']}; scope: {_md(finding['page_scope'])}; WCAG: {_md(finding['raw_evidence']['WCAG Sc'])}.",
+            f"Expected to be caught by: {expected[classification]}. LLM: {marks['llm']}; Programmatic checks: {marks['programmatic']}.", "",
+        ])
+        for page_row in row["page_reviews"]:
+            decision = page_row["decision"]
+            source_url = _md(page_row["source_url"])
+            lines.append(
+                f"- Page {source_url}: {expected[decision['classification'].strip()]}"
+                + (f". {_md(decision['classification_reason'])}" if decision['classification_reason'].strip() else "")
+            )
+            for kind, label in (("llm", "LLM"), ("programmatic", "Programmatic checks")):
+                identities = page_row["matches"][kind]
+                if identities:
+                    lines.append(f"  - {label} full match: {', '.join(_md(identity) for identity in identities)}. Why this counts: {_md(decision['match_reason'])}")
+            if decision["review_notes"].strip():
+                lines.append(f"  - Review notes: {_md(decision['review_notes'])}")
+        lines.append("")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
