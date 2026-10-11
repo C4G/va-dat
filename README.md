@@ -538,7 +538,7 @@ Prepare every listed page from the saved Benchmark snapshots:
 uv run visionaid-evaluate run-all \
   --human-audit "Pristine Accessibility Defect Report.xlsx" \
   --snapshots .model-evaluation/pristine-snapshots/snapshots.json \
-  --model claude-haiku-5-5 \
+  --model gpt-6-luna \
   --max-cost-usd 5
 ```
 
@@ -573,7 +573,7 @@ selected provider's API key:
 uv run visionaid-evaluate run-all \
   --human-audit "Pristine Accessibility Defect Report.xlsx" \
   --snapshots .model-evaluation/pristine-snapshots/snapshots.json \
-  --model claude-haiku-5-5 \
+  --model gpt-6-luna \
   --max-cost-usd 5 \
   --live
 ```
