@@ -9,6 +9,7 @@ from test_full_preview import URLS, full_workspace, only_full, preview
 
 
 def children(run, manifest):
+    """Load each page's child directory and manifest in evaluation order."""
     return [(run / page["run_dir"], json.loads((run / page["run_dir"] / "run.json").read_text()))
             for page in manifest["pages"]]
 
@@ -22,6 +23,7 @@ def test_declined_full_approval_makes_no_requests_after_showing_all_pages(
     approvals = []
 
     def decline(prompt):
+        """Verify the prepared scope is displayed before declining approval."""
         approvals.append(prompt)
         run, manifest = only_full(full_workspace)
         assert all((child / "review.csv").exists() for child, _ in children(run, manifest))
@@ -49,6 +51,7 @@ def test_one_approval_executes_ordered_pages_with_one_fixed_preset(
     approvals = []
 
     def approve(prompt):
+        """Approve once after every page is prepared and before requests begin."""
         assert not requests
         approvals.append(prompt)
         run, manifest = only_full(full_workspace)
@@ -189,6 +192,7 @@ def test_provider_initialization_failure_records_stopping_reason(full_workspace,
     monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic")
 
     def fail(**options):
+        """Simulate failure while initializing the selected provider."""
         raise ValueError("synthetic provider initialization failure")
 
     monkeypatch.setattr("anthropic.Anthropic", fail)
@@ -255,6 +259,7 @@ def test_unreadable_successful_responses_preserve_execution_completion(
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic")
 
     def create(**options):
+        """Return a successful provider response that yields no readable findings."""
         return SimpleNamespace(
             id="synthetic-unreadable", model="gpt-6-luna",
             choices=[SimpleNamespace(message=SimpleNamespace(content="unreadable"),

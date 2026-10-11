@@ -167,6 +167,21 @@ def _md(value: object) -> str:
     return text.replace("\n", "<br>")
 
 
+def _usage_description(usage: dict[str, int]) -> str:
+    """Describe reported input, output, and nonzero cache token totals."""
+    tokens = [
+        f"{usage['input_tokens']} input tokens",
+        f"{usage['output_tokens']} output tokens",
+    ]
+    for key, label in (
+        ("cached_input_tokens", "cached input"),
+        ("cache_creation_input_tokens", "cache-creation input"),
+    ):
+        if usage[key]:
+            tokens.append(f"{usage[key]} {label} tokens")
+    return ", ".join(tokens)
+
+
 def write_report(
     path: Path,
     manifest: dict[str, Any],
@@ -193,11 +208,6 @@ def write_report(
         if urlsplit(manifest["source_url"]).path in {"", "/"}
         else f"This evaluation covers the saved page at {_md(manifest['source_url'])}"
     )
-    usage = manifest["usage"]
-    tokens = [f"{usage['input_tokens']} input tokens", f"{usage['output_tokens']} output tokens"]
-    for key, label in (("cached_input_tokens", "cached input"), ("cache_creation_input_tokens", "cache-creation input")):
-        if usage[key]:
-            tokens.append(f"{usage[key]} {label} tokens")
     lines = [
         f"# LLM accessibility evaluation: {_md(manifest['source_url'])}",
         "",
@@ -225,7 +235,7 @@ def write_report(
     lines.extend([
         _rate("Overall", counts["overall"]["caught"], counts["overall"]["eligible"]),
         "",
-        f"Estimated run cost: ${Decimal(manifest['estimated_cost_usd']):.2f}, calculated using provider-reported token usage and the {_md(pricing_description)}. Reported totals: {', '.join(tokens)}. The actual bill may differ slightly.",
+        f"Estimated run cost: ${Decimal(manifest['estimated_cost_usd']):.2f}, calculated using provider-reported token usage and the {_md(pricing_description)}. Reported totals: {_usage_description(manifest['usage'])}. The actual bill may differ slightly.",
         "",
     ])
     if manifest["format_failures"]:
@@ -297,14 +307,6 @@ def write_combined_report(
 ) -> None:
     """Describe pooled original findings with every supporting page decision."""
     counts = detection_counts(rows)
-    usage = manifest["usage"]
-    tokens = [f"{usage['input_tokens']} input tokens", f"{usage['output_tokens']} output tokens"]
-    for key, label in (
-        ("cached_input_tokens", "cached input"),
-        ("cache_creation_input_tokens", "cache-creation input"),
-    ):
-        if usage[key]:
-            tokens.append(f"{usage[key]} {label} tokens")
     prices = ", ".join(dict.fromkeys(review.schedule.price_description for review in page_reviews))
     failures = sum(len(review.manifest["format_failures"]) for review in page_reviews)
     prompts = sum(len(review.manifest["prompts"]) for review in page_reviews)
@@ -325,7 +327,7 @@ def write_combined_report(
             ), "",
         ])
     lines.extend([
-        f"Estimated run cost: ${Decimal(manifest['estimated_cost_usd']):.2f}, calculated from provider-reported usage using {_md(prices)}. Reported totals: {', '.join(tokens)}. The actual bill may differ.",
+        f"Estimated run cost: ${Decimal(manifest['estimated_cost_usd']):.2f}, calculated from provider-reported usage using {_md(prices)}. Reported totals: {_usage_description(manifest['usage'])}. The actual bill may differ.",
         f"Unreadable responses: {failures} of {prompts} LLM checks. These responses yield no LLM findings and do not change execution completion.",
         "", "## Evaluated pages", "",
     ])

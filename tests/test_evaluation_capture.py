@@ -24,6 +24,7 @@ def audit(path: Path, *urls: str | None) -> Path:
 
 
 def capture(human_audit: Path, output: Path) -> int:
+    """Invoke capture through the public CLI with the supplied audit and output."""
     return main(["capture", "--human-audit", str(human_audit), "--output-dir", str(output)])
 
 
@@ -37,6 +38,7 @@ def test_capture_saves_only_listed_urls_in_order_and_preserves_redirect_identity
     downloads = []
 
     def get(url, **options):
+        """Record downloads and return separate HTML with a redirected URL."""
         downloads.append((url, options))
         response = requests.Response()
         response.status_code = 200
@@ -80,6 +82,7 @@ def test_capture_stops_after_http_error_and_keeps_saved_evidence(
     downloads = []
 
     def get(url, **options):
+        """Return saved HTML first, then the requested HTTP error."""
         downloads.append(url)
         response = requests.Response()
         response.status_code = 200 if len(downloads) == 1 else status
