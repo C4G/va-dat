@@ -1,24 +1,10 @@
+{% extends 'base.html' %}
 {% from 'evidence.html' import human_evidence, decision_evidence %}
 {% from 'charts.html' import detection_overview, page_comparison %}
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ title }}: {{ manifest.source_url }}</title>
-<style>{% include 'report.css' %}{% include 'charts.css' %}{% include 'print.css' %}</style>
-</head>
-<body>
-<a class="skip" href="#main">Skip to report content</a>
-<header>
-<h1>{{ title }}</h1>
-<p>This evaluation covers the saved page at {{ manifest.source_url }}, including Global findings that apply there.</p>
-<p>Model: {{ manifest.configuration.model }}. Run ID: {{ manifest.run_id }}.</p>
-<p>Review decisions by: {{ reviewer }}</p>
-<button id="print-complete-report" type="button" hidden>Print complete report</button>
-<nav aria-label="Report sections"><a href="#performance">Detection results</a><a href="#human-findings">Human findings</a><a href="#method">How to read this report</a><a href="#provenance">Cost and provenance</a></nav>
-</header>
-<main id="main">
+
+{% block document_title %}{{ title }}: {{ manifest.source_url }}{% endblock %}
+{% block scope %}This evaluation covers the saved page at {{ manifest.source_url }}, including Global findings that apply there.{% endblock %}
+{% block content %}
 <section id="performance" aria-labelledby="performance-title">
 <h2 id="performance-title">Detection results</h2>
 {{ detection_overview(rates) }}
@@ -54,8 +40,4 @@
 {% if unreadable %}<p>{{ unreadable }} of {{ prompts }} LLM checks returned an Unreadable response that the tool would skip: {{ failed_checks }}.</p>{% endif %}
 <dl><dt>Human audit</dt><dd>{{ manifest.human_audit_filename }}</dd><dt>Human audit SHA-256</dt><dd>{{ manifest.human_audit_sha256 }}</dd><dt>Benchmark snapshot SHA-256</dt><dd>{{ manifest.snapshot_sha256 }}</dd><dt>Saved pricing version</dt><dd>{{ pricing_version }}</dd><dt>Saved pricing SHA-256</dt><dd>{{ pricing_identity }}</dd>{% for source in pricing_sources %}<dt>Pricing source address</dt><dd>{{ source }}</dd>{% endfor %}</dl>
 </section>
-</main>
-<script>{% include 'filters.js' %}</script>
-<script>{% include 'print.js' %}</script>
-</body>
-</html>
+{% endblock %}

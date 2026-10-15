@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block document_title %}{% endblock %}</title>
+<style>{% include 'report.css' %}{% include 'charts.css' %}{% include 'print.css' %}</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to report content</a>
+<header>
+<h1>{{ title }}</h1>
+<p>{% block scope %}{% endblock %}</p>
+<p>Model: {{ manifest.configuration.model }}. Run ID: {{ manifest.run_id }}.</p>
+<p>Review decisions by: {{ reviewer }}</p>
+<button id="print-complete-report" type="button" hidden>Print complete report</button>
+<nav aria-label="Report sections"><a href="#performance">Detection results</a><a href="#human-findings">Human findings</a><a href="#method">How to read this report</a><a href="#provenance">Cost and provenance</a></nav>
+</header>
+<main id="main">
+{% block content %}{% endblock %}
+</main>
+<script>{% include 'filters.js' %}</script>
+<script>{% include 'print.js' %}</script>
+</body>
+</html>
