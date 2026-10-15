@@ -168,19 +168,19 @@ def write_full_report(
     reviews: list[PageReview], reviewer: str,
 ) -> None:
     """Render every accepted page decision into the standalone parent."""
-    _write_html(path, "full.html", full_data(manifest, pooled, reviews, reviewer))
+    _write_html(path, "full.html.jinja", full_data(manifest, pooled, reviews, reviewer))
 
 
 def write_page_report(path: Path, review: PageReview, reviewer: str) -> None:
     """Publish a standalone individual Evaluation report."""
-    _write_html(path, "page.html", page_data(review, reviewer))
+    _write_html(path, "page.html.jinja", page_data(review, reviewer))
 
 
 def _write_html(path: Path, template: str, data: dict[str, Any]) -> None:
     """Render completely, then atomically replace the report in its directory."""
     environment = Environment(
         loader=PackageLoader("vision_aid.evaluation", "templates"),
-        autoescape=select_autoescape(("html",)),
+        autoescape=select_autoescape(("html.jinja",)),
         undefined=StrictUndefined,
     )
     try:

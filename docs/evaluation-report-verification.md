@@ -296,3 +296,15 @@ templates.
 The manual assistive-technology and native print-preview checks listed above
 remain outstanding under ticket 06. These automated checks do not establish
 WCAG conformance or accessible PDF output.
+
+## Jinja template suffixes, 2026-10-15
+
+All 12 report template sources now end in `.jinja`, retaining their content
+extensions, such as `base.html.jinja`, `report.css.jinja`, and `filters.js.jinja`.
+Template references, package data, and HTML autoescaping use the new names.
+
+The 144-test suite passed with browser checks enabled, including hostile-evidence
+escaping. Scoped Ruff, lock validation, and whitespace checks passed. A fresh
+wheel contained all 12 renamed sources, and its installed `report` and
+`report-all` commands generated both scopes outside the checkout using a
+disposable saved run. No live provider calls were made.

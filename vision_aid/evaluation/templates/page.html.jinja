@@ -1,6 +1,6 @@
-{% extends 'base.html' %}
-{% from 'evidence.html' import human_evidence, decision_evidence %}
-{% from 'charts.html' import detection_overview, page_comparison %}
+{% extends 'base.html.jinja' %}
+{% from 'evidence.html.jinja' import human_evidence, decision_evidence %}
+{% from 'charts.html.jinja' import detection_overview, page_comparison %}
 
 {% block document_title %}{{ title }}: {{ manifest.source_url }}{% endblock %}
 {% block scope %}This evaluation covers the saved page at {{ manifest.source_url }}, including Global findings that apply there.{% endblock %}
@@ -14,7 +14,7 @@
 <section id="human-findings" aria-labelledby="findings-title">
 <h2 id="findings-title">Human findings</h2>
 <p>Evidence starts collapsed. Open any View evidence control to read the original Human finding and the review decision.</p>
-{% include 'controls.html' %}
+{% include 'controls.html.jinja' %}
 <div class="table-scroll" role="region" aria-label="Human findings table" tabindex="0">
 <table id="findings">
 <caption>Human findings and detection outcomes</caption>
@@ -33,7 +33,7 @@
 </tbody></table></div>
 {% if not rows %}<p>No Human findings were imported for this page.</p>{% endif %}
 </section>
-{% include 'method.html' %}
+{% include 'method.html.jinja' %}
 <section id="provenance" aria-labelledby="provenance-title"><h2 id="provenance-title">Cost and provenance</h2>
 <p>Estimated run cost: ${{ cost }}, calculated using provider-reported token usage and the {{ pricing_description }}. Reported totals: {{ usage_description }}. The actual bill may differ slightly.</p>
 <p>Unreadable responses: {{ unreadable }} of {{ prompts }} LLM checks. These responses yield no LLM findings and do not change execution completion.</p>

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block document_title %}{% endblock %}</title>
-<style>{% include 'report.css' %}{% include 'charts.css' %}{% include 'print.css' %}</style>
+<style>{% include 'report.css.jinja' %}{% include 'charts.css.jinja' %}{% include 'print.css.jinja' %}</style>
 </head>
 <body>
 <a class="skip" href="#main">Skip to report content</a>
@@ -19,7 +19,7 @@
 <main id="main">
 {% block content %}{% endblock %}
 </main>
-<script>{% include 'filters.js' %}</script>
-<script>{% include 'print.js' %}</script>
+<script>{% include 'filters.js.jinja' %}</script>
+<script>{% include 'print.js.jinja' %}</script>
 </body>
 </html>

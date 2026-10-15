@@ -1,6 +1,6 @@
-{% extends 'base.html' %}
-{% from 'evidence.html' import human_evidence, decision_evidence %}
-{% from 'charts.html' import detection_overview, page_comparison %}
+{% extends 'base.html.jinja' %}
+{% from 'evidence.html.jinja' import human_evidence, decision_evidence %}
+{% from 'charts.html.jinja' import detection_overview, page_comparison %}
 
 {% block document_title %}{{ title }}: {{ manifest.run_id }}{% endblock %}
 {% block scope %}This Full evaluation covers the saved HTML for every page listed in the Human audit with one fixed model.{% endblock %}
@@ -16,7 +16,7 @@
 <section id="human-findings" aria-labelledby="findings-title">
 <h2 id="findings-title">Human findings</h2>
 <p>Each original Human finding appears once in source order. Evidence starts collapsed. Open View evidence for the original Human finding and its review decisions. Global findings include every page decision, with independently expandable page evidence.</p>
-{% include 'controls.html' %}
+{% include 'controls.html.jinja' %}
 <div class="table-scroll" role="region" aria-label="Human findings table" tabindex="0">
 <table id="findings">
 <caption>Original Human findings and combined detection outcomes</caption>
@@ -45,7 +45,7 @@
 {% endfor %}
 </tbody></table></div>
 </section>
-{% include 'method.html' %}
+{% include 'method.html.jinja' %}
 <section id="combined-method" aria-labelledby="combined-method-title"><h2 id="combined-method-title">Full evaluation scoring</h2>
 <p>Eligibility is established independently of detection. If any page is testable for a Global finding, the finding enters that expected source's denominator once. All testable pages must agree on the source. Findings not testable on any page remain in Overall and outside the LLM and Programmatic denominators.</p>
 <p>Pages can have different numbers of local and testable findings. Repeated Global findings contribute to each page's results but only once to combined results. Combined rates use original finding counts; page rates must not be added or averaged.</p>
