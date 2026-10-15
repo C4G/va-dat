@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 from decimal import Decimal
+from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -183,8 +184,20 @@ def _write_html(path: Path, template: str, data: dict[str, Any]) -> None:
         autoescape=select_autoescape(("html.jinja",)),
         undefined=StrictUndefined,
     )
+    # Only trusted package assets bypass escaping; review data stays escaped.
+    assets = files("vision_aid.evaluation")
+    styles = "".join(
+        assets.joinpath("css", name).read_text(encoding="utf-8")
+        for name in ("report.css", "charts.css", "print.css")
+    )
+    scripts = {
+        name: assets.joinpath("js", f"{name}.js").read_text(encoding="utf-8")
+        for name in ("filters", "print")
+    }
     try:
-        content = environment.get_template(template).render(**data)
+        content = environment.get_template(template).render(
+            **data, styles=styles, scripts=scripts,
+        )
     except TemplateError as error:
         raise ValueError(f"Cannot render complete report: {error}") from error
     temporary = None

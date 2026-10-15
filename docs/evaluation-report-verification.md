@@ -308,3 +308,18 @@ escaping. Scoped Ruff, lock validation, and whitespace checks passed. A fresh
 wheel contained all 12 renamed sources, and its installed `report` and
 `report-all` commands generated both scopes outside the checkout using a
 disposable saved run. No live provider calls were made.
+
+## Static asset separation, 2026-10-15
+
+The seven HTML templates retain `.html.jinja` names under `templates/`. The
+two static JavaScript files now use `.js` under `js/`, and the three static
+stylesheets use `.css` under `css/`. Python reads these trusted package assets
+as literal text and embeds them in the report; Jinja no longer processes them
+as templates. Review and model text remain HTML-escaped.
+
+All 144 tests passed with browser checks enabled, including search, filtering,
+printing, offline reading, and hostile-evidence escaping. Scoped Ruff and
+whitespace checks passed. A fresh wheel contained seven HTML templates, two
+JavaScript assets, and three CSS assets in their separate folders. Its installed
+`report` and `report-all` commands generated both scopes outside the checkout
+from a disposable saved run, with no live provider calls.
