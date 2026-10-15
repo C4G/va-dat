@@ -661,6 +661,17 @@ def test_review_validation_and_report_metrics(workspace, monkeypatch, capsys):
     assert "they caught 1 (50.0%)" in text
     assert "Of all 6 Human findings, either part of the tool caught 3 (50.0%)" in text
     document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
+    chart = document.find("figure", attrs={"aria-labelledby": "detection-chart-title"})
+    assert chart is not None
+    assert "LLM: 1 caught / 2 eligible; 50.0%" in chart.get_text(" ", strip=True)
+    table = document.find("caption", string="Exact detection overview data").parent
+    assert [[cell.get_text(" ", strip=True) for cell in row.find_all(["th", "td"])]
+            for row in table.tbody.find_all("tr")] == [
+        ["LLM", "1", "2", "50.0%", "Human findings expected to be detected by the LLM"],
+        ["Programmatic", "1", "2", "50.0%", "Human findings expected to be detected by Programmatic checks"],
+        ["Overall", "3", "6", "50.0%", "All imported Human findings, including findings Not testable from the page file"],
+    ]
+    assert document.find("caption", string="Exact page LLM detection data") is None
     rows = document.select("#findings tbody > tr")
     assert [cell.get_text(" ", strip=True) for cell in rows[2].find_all(["th", "td"], recursive=False)[:5]] == [
         "Skipped heading", "1.3.1", "Programmatic checks", "Caught", "Not caught",
@@ -904,4 +915,11 @@ def test_report_with_no_human_findings_has_no_false_zero_rates(workspace, monkey
     assert "No Human findings were expected to be detected by the Programmatic checks" in text
     assert "(0.0%)" not in text
     document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
+    table = document.find("caption", string="Exact detection overview data").parent
+    assert [row.find_all("td")[2].get_text(strip=True) for row in table.tbody.find_all("tr")] == [
+        "Not defined: no imported Human findings" if index == 2 else "Not defined: no eligible Human findings"
+        for index in range(3)
+    ]
+    chart = document.find("figure", attrs={"aria-labelledby": "detection-chart-title"})
+    assert "0.0%" not in chart.get_text(" ", strip=True)
     assert not document.select("#findings tbody tr")

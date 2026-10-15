@@ -1,0 +1,10 @@
+.detection-chart { margin: 1rem 0; }
+.chart-bars { list-style: none; padding: 0; }
+.chart-bars li { margin-block: 1rem; padding: .75rem; border: 1px solid #687f93; overflow-wrap: anywhere; }
+.chart-bars .chart-primary { border: 3px solid #164e88; }
+.chart-primary .chart-value { font-size: 1.2rem; }
+.chart-value { margin: 0 0 .5rem; }
+.chart-track { width: 100%; height: 1.4rem; background: #edf2f6; border: 1px solid #687f93; }
+.chart-fill { display: block; height: 100%; background: #164e88; }
+@media (forced-colors: active) { .chart-fill { background: Highlight; } }
+@media print { .chart-track, .chart-fill { print-color-adjust: exact; } .chart-bars li { break-inside: avoid; } }
