@@ -27,18 +27,19 @@
 <section id="human-findings" aria-labelledby="findings-title">
 <h2 id="findings-title">Human findings</h2>
 <p>Evidence starts collapsed. Open any View evidence control to read the original Human finding and the review decision.</p>
+{% include 'controls.html' %}
 <div class="table-scroll" role="region" aria-label="Human findings table" tabindex="0">
 <table id="findings">
 <caption>Human findings and detection outcomes</caption>
 <thead><tr><th scope="col">Issue title</th><th scope="col">WCAG</th><th scope="col">Expected source</th><th scope="col">LLM</th><th scope="col">Programmatic checks</th><th scope="col">Evidence</th></tr></thead>
 <tbody>
 {% for row in rows %}
-<tr>
+<tr data-expected="{{ row.expected }}" data-llm="{{ row.llm_outcome }}" data-programmatic="{{ row.programmatic_outcome }}">
 <th scope="row">{{ row.human.problem }}</th><td>{{ row.human.raw_evidence['WCAG Sc'] }}</td><td>{{ row.expected }}</td><td>{{ row.llm_outcome }}</td><td>{{ row.programmatic_outcome }}</td>
-<td><details><summary>View evidence: {{ row.human.problem }}</summary>
+<td><p data-selected-page-result hidden></p><div data-search-matches></div><details><summary>View evidence: {{ row.human.problem }}</summary>
 <div class="evidence">
-{{ human_evidence(row) }}
-{{ decision_evidence(row) }}
+<div data-evidence-location="Original Human finding">{{ human_evidence(row) }}</div>
+<div data-evidence-location="Review and tool evidence on {{ manifest.source_url }}">{{ decision_evidence(row) }}</div>
 </div></details></td>
 </tr>
 {% endfor %}
@@ -53,5 +54,6 @@
 <dl><dt>Human audit</dt><dd>{{ manifest.human_audit_filename }}</dd><dt>Human audit SHA-256</dt><dd>{{ manifest.human_audit_sha256 }}</dd><dt>Benchmark snapshot SHA-256</dt><dd>{{ manifest.snapshot_sha256 }}</dd><dt>Saved pricing version</dt><dd>{{ pricing_version }}</dd><dt>Saved pricing SHA-256</dt><dd>{{ pricing_identity }}</dd>{% for source in pricing_sources %}<dt>Pricing source address</dt><dd>{{ source }}</dd>{% endfor %}</dl>
 </section>
 </main>
+<script>{% include 'filters.js' %}</script>
 </body>
 </html>

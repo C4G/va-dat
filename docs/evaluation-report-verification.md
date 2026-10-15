@@ -135,3 +135,58 @@ first native disclosure in both scopes.
 These checks do not replace actual screen-reader reading, manual keyboard
 inspection or actual browser zoom. Those checks remain outstanding under the
 assistive-technology verification ticket, and no WCAG conformance claim is made.
+
+## Search, filters and disclosures, 2026-10-15
+
+Both report commands now embed search, source-aware outcome filters, clear and
+visible-evidence expand/collapse controls. Full reports also filter by page.
+These controls use only evidence already embedded in the document. Detection
+results and charts continue to describe the complete run.
+
+- After merging the chart work, the complete suite passed with 143 tests,
+  including three browser tests. Ruff for `vision_aid/evaluation` and `tests`,
+  and `git diff --check`, passed.
+- The browser tests generate reports through the public `report-all` CLI using
+  synthetic saved reviews and replayed provider responses. They copy parent and
+  child HTML into a directory without run evidence, then open the files offline.
+  They cover initially hidden Human and tool evidence and rationale, matching
+  page/excerpt controls, independently opened page matches, combined versus
+  selected-page Global outcomes, cross-catches, eligible source misses,
+  not-testable results, combined page/outcome/text filters, empty results,
+  clearing, stable complete-run results, live counts, preserved filter focus,
+  visible-only expand/collapse and native disclosures with JavaScript disabled.
+- A wheel built with `uv build --wheel` includes `controls.html` and `filters.js`.
+  A fresh environment at `/tmp/va-dat-ticket04-installed` invoked both commands
+  from `/tmp`. The same three browser checks passed against the installed
+  package's copied standalone outputs at
+  `/tmp/va-dat-ticket04-installed-standalone/`.
+- The saved 17-page evaluation regenerated from a separate disposable copy at
+  `/tmp/va-dat-ticket04-runs/20261011T015629-880f3e7c`. Its parent was copied alone
+  to `/tmp/va-dat-ticket04-standalone/report.html`. No saved reviews changed and
+  no live provider calls were made.
+- Chromium 153.0.8010.12 with networking disabled made no HTTP requests for the
+  saved parent or installed-package synthetic parent and child. All three
+  documents stayed within a 320 CSS-pixel viewport, with the findings tables
+  retaining their scroll regions. Native disclosures opened by keyboard with
+  JavaScript disabled. axe-core 4.14.0 reported no violations or incomplete
+  checks against WCAG 2 A/AA and 2.1/2.2 AA tags, both initially and after
+  searching, selecting a page where available, and expanding visible evidence.
+
+To repeat the committed browser checks, install Playwright in a local Node
+module directory and provide a compatible Chromium executable, then run:
+
+```sh
+REPORT_BROWSER_MODULES=/path/to/node_modules \
+REPORT_BROWSER_EXECUTABLE=/path/to/chromium \
+uv run pytest tests/test_report_interactions.py -q
+```
+
+The tests skip when these environment variables or Node are absent. They require
+no browser test service or runtime network connection. In environments with
+non-system browser libraries, also set `LD_LIBRARY_PATH` to those libraries.
+
+These are automated browser checks. Manual keyboard inspection, actual browser
+zoom and screen-reader verification remain outstanding, including spoken filter
+count announcements. The stakeholder's assistive technology setup remains
+unknown. Complete printing is the next implementation ticket; these results do
+not establish WCAG conformance.

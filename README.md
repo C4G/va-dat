@@ -760,6 +760,18 @@ evaluation `report-all` command adds `report.html` at the parent and each child
 run root. Reports can regenerate from saved reviewed evidence without model calls;
 both commands require explicit reviewer attribution.
 
+Reports embed all evidence, styling and controls for offline use. Search includes
+collapsed Human and matched tool evidence, recorded explanations, rationale and
+notes. Each matching excerpt has a Show match control that opens its evidence
+panel. Full reports can filter by page; selected-page outcomes appear beside the
+combined outcomes without changing the complete-run detection results.
+
+The LLM and Programmatic missed filters include only findings eligible for that
+source. Caught filters include cross-catches by that source. Clear filters restores
+all original findings. Expand all visible evidence and Collapse all visible
+evidence affect the filtered rows and their visible page panels. With JavaScript
+disabled, all findings and native evidence disclosures remain available.
+
 New runs and reporting use only this layout. Existing run directories remain
 untouched and require manual reorganization before the updated `report` command
 can read them. Move their supporting files into `artifacts/`, including the

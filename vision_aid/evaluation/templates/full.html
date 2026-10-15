@@ -29,29 +29,30 @@
 <section id="human-findings" aria-labelledby="findings-title">
 <h2 id="findings-title">Human findings</h2>
 <p>Each original Human finding appears once in source order. Evidence starts collapsed. Open View evidence for the original Human finding and its review decisions. Global findings include every page decision, with independently expandable page evidence.</p>
+{% include 'controls.html' %}
 <div class="table-scroll" role="region" aria-label="Human findings table" tabindex="0">
 <table id="findings">
 <caption>Original Human findings and combined detection outcomes</caption>
 <thead><tr><th scope="col">Issue title</th><th scope="col">WCAG</th><th scope="col">Scope</th><th scope="col">Expected source</th><th scope="col">LLM</th><th scope="col">Programmatic checks</th><th scope="col">Evidence</th></tr></thead>
 <tbody>
 {% for row in rows %}
-<tr>
+<tr data-expected="{{ row.expected }}" data-llm="{{ row.llm_outcome }}" data-programmatic="{{ row.programmatic_outcome }}">
 <th scope="row">{{ row.human.problem }}</th><td>{{ row.human.raw_evidence['WCAG Sc'] }}</td><td>{% if row.human.page_scope == 'global' %}Global{% else %}Page-local{% endif %}</td><td>{{ row.expected }}</td><td>{{ row.llm_outcome }}</td><td>{{ row.programmatic_outcome }}</td>
-<td><details><summary>View evidence: {{ row.human.problem }}</summary><div class="evidence">
-{{ human_evidence(row) }}
+<td><p data-selected-page-result hidden></p><div data-search-matches></div><details><summary>View evidence: {{ row.human.problem }}</summary><div class="evidence">
+<div data-evidence-location="Original Human finding">{{ human_evidence(row) }}</div>
 {% if row.human.page_scope == 'global' %}
 <h3>Combined result</h3>
 <p>Expected source: {{ row.expected }}. Combined LLM: {{ row.llm_outcome }}. Combined Programmatic checks: {{ row.programmatic_outcome }}. Any complete catch on one page earns combined credit once for that source; partial evidence across pages earns none.</p>
 <div class="table-scroll" role="region" aria-label="Page decisions for {{ row.human.problem }}" tabindex="0">
 <table><caption>Every page decision for {{ row.human.problem }}</caption><thead><tr><th scope="col">Page</th><th scope="col">Expected source</th><th scope="col">LLM</th><th scope="col">Programmatic checks</th></tr></thead><tbody>
-{% for page in row.pages %}<tr><th scope="row">{{ page.source_url }}</th><td>{{ page.expected }}</td><td>{{ page.llm_outcome }}</td><td>{{ page.programmatic_outcome }}</td></tr>{% endfor %}
+{% for page in row.pages %}<tr data-page-table-row="{{ page.source_url }}"><th scope="row">{{ page.source_url }}</th><td>{{ page.expected }}</td><td>{{ page.llm_outcome }}</td><td>{{ page.programmatic_outcome }}</td></tr>{% endfor %}
 </tbody></table></div>
-{% for page in row.pages %}<details><summary>View page evidence: {{ page.source_url }} for {{ row.human.problem }}</summary>
+{% for page in row.pages %}<details data-page-decision data-page="{{ page.source_url }}" data-expected="{{ page.expected }}" data-llm="{{ page.llm_outcome }}" data-programmatic="{{ page.programmatic_outcome }}"><summary>View page evidence: {{ page.source_url }} for {{ row.human.problem }}</summary>
 <p>Page: {{ page.source_url }}; run {{ page.run_id }}. LLM: {{ page.llm_outcome }}. Programmatic checks: {{ page.programmatic_outcome }}.</p>
-{{ decision_evidence(page) }}
+<div data-evidence-location="Review and tool evidence on {{ page.source_url }}">{{ decision_evidence(page) }}</div>
 </details>{% endfor %}
 {% else %}
-{% for page in row.pages %}<p>Assigned page: {{ page.source_url }}; run {{ page.run_id }}.</p>{{ decision_evidence(page) }}{% endfor %}
+{% for page in row.pages %}<div data-page-decision data-page="{{ page.source_url }}" data-expected="{{ page.expected }}" data-llm="{{ page.llm_outcome }}" data-programmatic="{{ page.programmatic_outcome }}"><p>Assigned page: {{ page.source_url }}; run {{ page.run_id }}.</p><div data-evidence-location="Review and tool evidence on {{ page.source_url }}">{{ decision_evidence(page) }}</div></div>{% endfor %}
 {% endif %}
 </div></details></td></tr>
 {% endfor %}
@@ -72,5 +73,6 @@
 <dl>{% for page in pages %}<dt>{{ page.manifest.source_url }}</dt><dd>Run: {{ page.manifest.run_id }}; Benchmark snapshot SHA-256: {{ page.manifest.snapshot_sha256 }}. Unreadable responses: {{ page.unreadable }} of {{ page.prompts }} LLM checks{% if page.unreadable %}; {{ page.failed_checks }}{% endif %}.</dd>{% endfor %}</dl>
 </section>
 </main>
+<script>{% include 'filters.js' %}</script>
 </body>
 </html>

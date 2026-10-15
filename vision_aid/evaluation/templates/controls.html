@@ -1,0 +1,28 @@
+<div id="finding-controls" hidden>
+<fieldset>
+<legend>Find matching evidence</legend>
+<p id="filter-help">Search includes collapsed Human and tool evidence, review explanations and rationale. Complete-run detection results stay unchanged; the count below describes the filtered findings table.</p>
+<label for="finding-search">Search findings and evidence</label>
+<input id="finding-search" type="search" aria-describedby="filter-help" autocomplete="off">
+{% if full is defined %}
+<label for="finding-page">Page</label>
+<select id="finding-page"><option value="">All pages (combined results)</option>{% for page in pages %}<option value="{{ page.manifest.source_url }}">{{ page.manifest.source_url }}</option>{% endfor %}</select>
+{% endif %}
+<label for="finding-outcome">Detection outcome</label>
+<select id="finding-outcome">
+<option value="all">All outcomes</option>
+<option value="llm-caught">LLM caught (any eligibility)</option>
+<option value="llm-missed">LLM missed (LLM eligible)</option>
+<option value="programmatic-caught">Programmatic caught (any eligibility)</option>
+<option value="programmatic-missed">Programmatic missed (Programmatic eligible)</option>
+<option value="overall-caught">Caught by either source</option>
+<option value="overall-missed">Not caught by either source</option>
+<option value="not-testable">Not testable from the page file</option>
+</select>
+<p>Source misses include only findings eligible for that source. Source catches include cross-catches. A selected page uses its own decisions; combined results remain in the overview columns.</p>
+<button id="clear-filters" type="button">Clear filters</button>
+<button id="expand-visible" type="button">Expand all visible evidence</button>
+<button id="collapse-visible" type="button">Collapse all visible evidence</button>
+</fieldset>
+<p id="finding-count" role="status" aria-live="polite" aria-atomic="true"></p>
+</div>

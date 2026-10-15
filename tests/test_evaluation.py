@@ -870,7 +870,7 @@ def test_report_embeds_canonical_and_complete_matching_evidence(workspace, monke
     text = evidence.get_text(" ", strip=True)
     assert "Editable evidence replacement" not in text and "Edited title" not in text
     assert "Vague link\nfor everyone" in text and "Unclear link" in text
-    assert hostile in text and not document.select("script, img, [onerror]")
+    assert hostile in text and not document.select("header script, #findings script, img, [onerror]")
     assert "Synthetic checklist 42" in text
     assert all(item["finding_id"] in text for item in findings[:2])
     assert "Together they fully cover the link" in text and "Footer" in text
