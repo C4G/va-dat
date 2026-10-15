@@ -28,6 +28,9 @@ _Avoid_: Execution plan, report bundle.
 An evaluation of every page listed in the Human audit with one selected model held fixed throughout. It includes results for each page and combined detection rates based on Human finding counts.
 _Avoid_: Site crawl, model comparison.
 
+**Evaluation report**:
+The reader-facing account of an Evaluation run or a Full evaluation, explaining its detection rates and the evidence for its Match decisions. A Full evaluation's report includes the supporting page-level decisions for every original Human finding.
+
 **LLM**:
 The part of the tool that asks a large language model to judge the page for accessibility problems.
 _Avoid_: Audit model, AI audit.
