@@ -36,8 +36,8 @@
 {% macro page_comparison(pages) %}
 <figure class="detection-chart" aria-labelledby="page-chart-title">
 <figcaption><h3 id="page-chart-title">LLM detection by page</h3>
-<p>Pages appear in Human audit order. Each bar uses a 0% to 100% scale and the page's LLM-eligible findings. Pages can have different numbers of local and testable findings. Repeated Global findings contribute to each page's results but only once to combined results. Combined rates use original finding counts; page rates must not be added or averaged. This comparison is not a controlled ranking of pages or model quality.</p>
-<p>No bar is drawn where no Human findings were eligible for the LLM.</p></figcaption>
+<p>Repeated Global findings contribute to each page's results but only once to combined results.</p>
+</figcaption>
 <ul class="chart-bars">{% for page in pages %}{{ rate_bar(page.manifest.source_url, page.rates[0]) }}{% endfor %}</ul>
 </figure>
 {% endmacro %}
