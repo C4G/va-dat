@@ -16,7 +16,6 @@
      lets long Global decisions split naturally across page boundaries. */
   #findings, #findings > tbody, #findings > tbody > tr,
   #findings > tbody > tr > th, #findings > tbody > tr > td { display: block; width: 100%; }
-  #findings > caption { display: block; width: 100%; }
   #findings > thead { display: none; }
   #findings > tbody > tr[hidden] { display: none !important; }
   #findings > tbody > tr { margin-block: 1.5rem; border-top: 2px solid #687f93; break-inside: auto; }

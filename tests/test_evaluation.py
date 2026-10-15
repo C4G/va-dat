@@ -860,7 +860,10 @@ def test_single_page_report_is_standalone_html(workspace, monkeypatch, capsys):
     assert performance.select_one('.run-cost .cost-value')
     assert not document.select('#provenance, a[href="#provenance"]')
     table = document.find("table", attrs={"id": "findings"})
-    assert table.caption and len(table.tbody.find_all("tr", recursive=False)) == 6
+    assert table.caption is None
+    assert table['aria-labelledby'] == 'findings-title'
+    assert document.select_one('#findings-title').get_text() == 'Tool Findings and Human Finding Matches'
+    assert len(table.tbody.find_all("tr", recursive=False)) == 6
     assert [row.th.get_text(strip=True) for row in table.tbody.find_all("tr", recursive=False)] == [
         "Unclear link", "Missing destination", "Skipped heading", "Hidden menu", "Unclear claim", "No captions",
     ]
@@ -868,7 +871,7 @@ def test_single_page_report_is_standalone_html(workspace, monkeypatch, capsys):
     assert len(disclosures) == 12 and all(not item.has_attr("open") for item in disclosures)
     page_panels = table.select('details[data-page-decision]')
     assert len(page_panels) == 6
-    assert all("View Page Decisions:" in item.summary.get_text() for item in page_panels)
+    assert all("View page decisions:" in item.summary.get_text() for item in page_panels)
     assert all(item.find_parent('details') is not None for item in page_panels)
     assert "Vague link\nfor everyone" in document.get_text()
 

@@ -415,7 +415,7 @@ def test_global_evidence_includes_every_page_without_deeper_disclosures(complete
         assert len(page_panels) == len(manifest["pages"])
         assert all(not panel.find("details") for panel in page_panels)
         assert all(not panel.has_attr("name") for panel in page_panels)
-        assert all("View Page Decisions:" in panel.summary.get_text() for panel in page_panels)
+        assert all("View page decisions:" in panel.summary.get_text() for panel in page_panels)
         compact = outer.find("table")
         assert len(compact.select("tbody > tr")) == len(manifest["pages"])
         assert [tr.find("th").get_text(strip=True) for tr in compact.select("tbody > tr")] == [
@@ -428,7 +428,7 @@ def test_global_evidence_includes_every_page_without_deeper_disclosures(complete
     panel = local.select_one('details[data-page-decision]')
     assert panel.find_parent('details') is local.find('details')
     assert panel['data-page'] == URLS[0]
-    assert f"View Page Decisions: {URLS[0]}" in panel.summary.get_text()
+    assert f"View page decisions: {URLS[0]}" in panel.summary.get_text()
     assert "Complete first issue" in panel.get_text()
     assert not document.select('details[open]')
 

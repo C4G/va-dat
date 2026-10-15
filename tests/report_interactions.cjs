@@ -73,7 +73,7 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
       if (behavior === 'disclosures') {
         await page.getByLabel('Detection outcome', {exact: true}).selectOption({label: 'Programmatic caught (any eligibility)'});
         if (filename === fullFile) await page.getByLabel('Page', {exact: true}).selectOption({label: 'https://example.test/'});
-        const expand = page.getByRole('button', {name: 'Expand all visible evidence', exact: true});
+        const expand = page.getByRole('button', {name: 'Expand all dropdowns', exact: true});
         await expand.focus();
         await page.keyboard.press('Enter');
         assert.equal(await expand.evaluate(e => document.activeElement === e), true);
@@ -81,7 +81,7 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
         // Clearing expands neither the formerly hidden rows nor other page panels.
         await page.getByRole('button', {name: 'Clear filters', exact: true}).click();
         assert.equal(await rows.locator('details[open]').count(), 2);
-        await page.getByRole('button', {name: 'Collapse all visible evidence', exact: true}).click();
+        await page.getByRole('button', {name: 'Collapse all dropdowns', exact: true}).click();
         assert.equal(await rows.locator('details[open]').count(), 0);
         const local = rows.filter({has: page.getByRole('rowheader', {name: 'First local', exact: true})});
         await local.locator('summary').first().click();
@@ -144,8 +144,7 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
           assert.equal(await page.locator('[data-selected-page-result]:visible').count(), 0);
           const evidenceWidth = await rows.nth(0).locator('.evidence').evaluate(e => e.getBoundingClientRect().width);
           assert.ok(evidenceWidth > 600, `Print evidence uses the page width: ${evidenceWidth}`);
-          const captionWidth = await page.locator('#findings > caption').evaluate(e => e.getBoundingClientRect().width);
-          assert.ok(captionWidth >= evidenceWidth * .9, `Print caption uses the page width: ${captionWidth}`);
+          assert.equal(await page.locator('#findings > caption').count(), 0);
           if (result === 'completed') {
             const pdf = path.join(path.dirname(filename), `${path.basename(filename)}.pdf`);
             await page.pdf({path: pdf, format: 'A4', printBackground: true});

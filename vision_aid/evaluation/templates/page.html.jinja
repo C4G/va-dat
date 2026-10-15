@@ -10,12 +10,12 @@
 {{ detection_overview(rates) }}
 </section>
 <section id="human-findings" aria-labelledby="findings-title">
-<h2 id="findings-title">Human findings</h2>
-<p>Open View details to read the original Human finding, then View Page Decisions to read the review decision and matched tool findings. Details and page decisions start collapsed.</p>
+<h2 id="findings-title">Tool Findings and Human Finding Matches</h2>
+<p>Open View details to read the original Human finding, then View page decisions to read the review decision and matched tool findings. Details and page decisions start collapsed.</p>
+<div class="findings-panel">
 {% include 'controls.html.jinja' %}
-<div class="table-scroll" role="region" aria-label="Human findings table" tabindex="0">
-<table id="findings">
-<caption>Human findings and detection outcomes</caption>
+<div class="table-scroll" role="region" aria-labelledby="findings-title" tabindex="0">
+<table id="findings" aria-labelledby="findings-title">
 <thead><tr><th scope="col">Issue title</th><th scope="col">WCAG</th><th scope="col">Expected source</th><th scope="col">LLM</th><th scope="col">Programmatic checks</th><th scope="col">Details</th></tr></thead>
 <tbody>
 {% for row in rows %}
@@ -29,6 +29,7 @@
 </tr>
 {% endfor %}
 </tbody></table></div>
+</div>
 {% if not rows %}<p>No Human findings were imported for this page.</p>{% endif %}
 </section>
 {% include 'method.html.jinja' %}
