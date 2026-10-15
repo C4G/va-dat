@@ -9,12 +9,12 @@
 <body>
 <a class="skip" href="#main">Skip to report content</a>
 <header>
-<h1>{{ title }}</h1>
-<p>{% block scope %}{% endblock %}</p>
-<p>Model: {{ manifest.configuration.model }}. Run ID: {{ manifest.run_id }}.</p>
+<h1>{{ title }}: {{ model_name }}</h1>
+{% block scope %}{% endblock %}
+<p>Run ID: {{ manifest.run_id }}.</p>
 <p>Review decisions by: {{ reviewer }}</p>
 <button id="print-complete-report" type="button" hidden>Print complete report</button>
-<nav aria-label="Report sections"><a href="#performance">Detection results</a><a href="#human-findings">Human findings</a><a href="#method">How to read this report</a><a href="#provenance">Cost and provenance</a></nav>
+<nav aria-label="Report sections"><a href="#performance">Cost and detection results</a><a href="#human-findings">Human findings</a><a href="#method">How to read this report</a></nav>
 </header>
 <main id="main">
 {% block content %}{% endblock %}

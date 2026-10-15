@@ -123,32 +123,33 @@ def test_combined_report_pools_original_findings_and_any_page_globals(completed_
     assert report_all(run) == 0
     document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
     text = document.get_text(" ", strip=True)
-    assert "LLM detection rate: Of the 4" in text and "caught 2 (50.0%)" in text
-    assert "Programmatic detection rate: Of the 3" in text and "caught 1 (33.3%)" in text
-    assert "Overall detection rate: Of all 8 Human findings" in text and "caught 5 (62.5%)" in text
-    overview = document.find("caption", string="Exact detection overview data").parent
-    assert [[cell.get_text(" ", strip=True) for cell in row.find_all(["th", "td"])[:4]]
-            for row in overview.tbody.find_all("tr")] == [
-        ["LLM", "2", "4", "50.0%"],
-        ["Programmatic", "1", "3", "33.3%"],
-        ["Overall", "5", "8", "62.5%"],
+    overview = document.find("figure", attrs={"aria-labelledby": "detection-chart-title"})
+    assert [item.get_text(" ", strip=True) for item in overview.select(".chart-value")] == [
+        "LLM: 2 caught / 4 eligible; 50.0%",
+        "Programmatic: 1 caught / 3 eligible; 33.3%",
+        "Overall: 5 caught / 8 eligible; 62.5%",
     ]
-    comparison = document.find("caption", string="Exact page LLM detection data")
-    assert comparison is not None
-    assert [[cell.get_text(" ", strip=True) for cell in row.find_all(["th", "td"])]
-            for row in comparison.parent.tbody.find_all("tr")] == [
-        [URLS[0], "1", "3", "33.3%"],
-        [URLS[1], "1", "3", "33.3%"],
-        [URLS[2], "1", "2", "50.0%"],
+    comparison = document.find("figure", attrs={"aria-labelledby": "page-chart-title"})
+    assert [item.get_text(" ", strip=True) for item in comparison.select(".chart-value")] == [
+        f"{URLS[0]}: 1 caught / 3 eligible; 33.3%",
+        f"{URLS[1]}: 1 caught / 3 eligible; 33.3%",
+        f"{URLS[2]}: 1 caught / 2 eligible; 50.0%",
     ]
+    assert not document.select(".detection-chart table")
+    assert "Each original Human finding counts once." not in text
     assert "Repeated Global findings contribute to each page's results" in text
     assert "page rates must not be added or averaged" in text
     assert "not a controlled ranking of pages or model quality" in text
     assert "Review decisions by: Combined reviewer" in text
-    assert "Estimated run cost: $0.00" in text
-    assert "1000 input tokens" in text and "100 output tokens" in text
-    assert "published prices captured on 2026-10-09" in text
-    assert "Unreadable responses: 0" in text
+    assert document.select_one('#performance .performance-heading .cost-value').get_text(" ", strip=True) == "$0.000150 USD"
+    assert [node.get_text() for node in document.select('.token-usage dd')] == [
+        f"{manifest['usage']['input_tokens']:,}", f"{manifest['usage']['output_tokens']:,}",
+    ]
+    assert len(document.select('.model-pricing table')) == 1
+    tiers = document.select('.model-pricing tbody tr')
+    assert [cell.get_text() for cell in tiers[0].select('td')] == ['$0.10', '$0.50']
+    assert [cell.get_text() for cell in tiers[1].select('td')] == ['$0.20', '$0.75']
+    assert not document.select('#provenance, a[href="#provenance"]')
     originals = json.loads((run / "human-findings.json").read_text())
     overview = document.select("#findings > tbody > tr")
     assert [row.find("th").get_text(strip=True) for row in overview] == [
@@ -175,8 +176,8 @@ def test_combined_report_pools_original_findings_and_any_page_globals(completed_
                         assert finding["problem"] in text
                         assert finding["prompt"] in text
                         assert finding["run_id"] in text
-    assert "complete detection on any single page" in text
-    assert "partial matches across pages" in text
+    assert "complete detection on any single page" not in text
+    assert "partial matches across pages" not in text
     assert not document.select("[open]")
     assert not document.select("script[src], link[rel=stylesheet], iframe")
 
@@ -252,15 +253,12 @@ def test_empty_page_without_globals_still_has_a_report(full_workspace, monkeypat
     assert report_all(run) == 0
     empty = run / manifest["pages"][2]["run_dir"]
     text = BeautifulSoup((empty / "report.html").read_text(), "html.parser").get_text(" ", strip=True)
-    assert "Overall detection rate: No Human findings were imported for this page" in text
-    assert "Overall detection rate: Of all 3 Human findings" in BeautifulSoup((run / "report.html").read_text(), "html.parser").get_text(" ", strip=True)
+    assert "Overall: 0 caught / 0 eligible; Not defined: no imported Human findings" in text
     parent = BeautifulSoup((run / "report.html").read_text(), "html.parser")
-    comparison = parent.find("caption", string="Exact page LLM detection data").parent
-    assert [[cell.get_text(" ", strip=True) for cell in row.find_all(["th", "td"])]
-            for row in comparison.tbody.find_all("tr")] == [
-        [URLS[0], "0", "0", "Not defined: no eligible Human findings"],
-        [URLS[1], "0", "0", "Not defined: no eligible Human findings"],
-        [URLS[2], "0", "0", "Not defined: no eligible Human findings"],
+    assert "Overall: 0 caught / 3 eligible; 0.0%" in parent.get_text(" ", strip=True)
+    comparison = parent.find("figure", attrs={"aria-labelledby": "page-chart-title"})
+    assert [item.get_text(" ", strip=True) for item in comparison.select(".chart-value")] == [
+        f"{url}: 0 caught / 0 eligible; Not defined: no eligible Human findings" for url in URLS
     ]
 
 
@@ -334,10 +332,9 @@ def test_no_eligible_sources_retain_all_originals_in_overall(completed_review):
         save_review(child, rows)
     assert report_all(run) == 0
     text = BeautifulSoup((run / "report.html").read_text(), "html.parser").get_text(" ", strip=True)
-    assert "LLM detection rate: No Human findings were expected" in text
-    assert "Programmatic detection rate: No Human findings were expected" in text
-    assert "Overall detection rate: Of all 8 Human findings" in text
-    assert "caught 0 (0.0%)" in text
+    assert "LLM: 0 caught / 0 eligible; Not defined: no eligible Human findings" in text
+    assert "Programmatic: 0 caught / 0 eligible; Not defined: no eligible Human findings" in text
+    assert "Overall: 0 caught / 8 eligible; 0.0%" in text
 
 
 def test_completed_child_report_survives_later_parent_failure(full_workspace, monkeypatch, capsys):
@@ -363,7 +360,7 @@ def test_reviewer_description_is_required(completed_review, capsys):
     assert "reviewer description" in refused_report(run, capsys, reviewer=" ")
 
 
-def test_combined_report_summarizes_unreadable_responses(full_workspace, monkeypatch):
+def test_combined_report_keeps_unreadable_response_evidence(full_workspace, monkeypatch):
     """Successful Unreadable responses remain complete and are counted across pages."""
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic")
 
@@ -386,7 +383,11 @@ def test_combined_report_summarizes_unreadable_responses(full_workspace, monkeyp
             row.update(classification="llm_eligible", classification_reason="HTML evidence")
         save_review(child, rows)
     assert report_all(run) == 0
-    assert "Unreadable responses: 6 of 6 LLM checks" in BeautifulSoup((run / "report.html").read_text(), "html.parser").get_text(" ", strip=True)
+    assert sum(len(json.loads((child / "run.json").read_text())["format_failures"])
+               for child, _ in children(run, manifest)) == 6
+    document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
+    assert not document.select('#provenance')
+    assert document.select_one('#performance .cost-value')
 
 
 def test_report_all_help_explains_review_completion(capsys):
@@ -400,7 +401,7 @@ def test_report_all_help_explains_review_completion(capsys):
 
 
 def test_global_evidence_includes_every_page_without_deeper_disclosures(completed_review):
-    """Global evidence exposes misses and not-testable decisions in two levels."""
+    """Global and page-local evidence use two disclosure levels."""
     run, manifest = completed_review
     assert report_all(run) == 0
     document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
@@ -413,7 +414,7 @@ def test_global_evidence_includes_every_page_without_deeper_disclosures(complete
         assert len(page_panels) == len(manifest["pages"])
         assert all(not panel.find("details") for panel in page_panels)
         assert all(not panel.has_attr("name") for panel in page_panels)
-        assert all("View page evidence:" in panel.summary.get_text() for panel in page_panels)
+        assert all("View Page Decisions:" in panel.summary.get_text() for panel in page_panels)
         compact = outer.find("table")
         assert len(compact.select("tbody > tr")) == len(manifest["pages"])
         assert [tr.find("th").get_text(strip=True) for tr in compact.select("tbody > tr")] == [
@@ -422,7 +423,13 @@ def test_global_evidence_includes_every_page_without_deeper_disclosures(complete
     assert "Not testable from the page file" in not_testable
     assert "Not caught" in not_testable
     local = next(row for row in rows if row.find("th").get_text(strip=True) == "First local")
-    assert len(local.find_all("details")) == 1
+    assert len(local.find_all("details")) == 2
+    panel = local.select_one('details[data-page-decision]')
+    assert panel.find_parent('details') is local.find('details')
+    assert panel['data-page'] == URLS[0]
+    assert f"View Page Decisions: {URLS[0]}" in panel.summary.get_text()
+    assert "Complete first issue" in panel.get_text()
+    assert not document.select('details[open]')
 
 
 def test_successful_full_regeneration_replaces_only_its_generated_markdown(completed_review, capsys):
@@ -441,12 +448,12 @@ def test_successful_full_regeneration_replaces_only_its_generated_markdown(compl
     assert (historical / "report.md").read_text() == "historical result"
 
 
-def test_missing_parent_rendering_field_withholds_parent_and_preserves_children(completed_review, capsys):
-    """Required provenance cannot silently disappear from a published parent."""
+def test_unused_parent_display_metadata_is_optional(completed_review):
+    """Reports do not require metadata from the removed provenance section."""
     run, manifest = completed_review
     assert report_all(run) == 0
     del manifest["human_audit_filename"]
     save_json(run / "full.json", manifest)
-    assert "Cannot render complete report" in refused_report(run, capsys)
+    assert report_all(run) == 0
     assert all((run / page["run_dir"] / "report.html").exists() for page in manifest["pages"])
     assert not list(run.glob(".report.html.*.tmp"))

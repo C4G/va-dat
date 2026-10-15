@@ -1,31 +1,27 @@
 {% extends 'base.html.jinja' %}
-{% from 'evidence.html.jinja' import human_evidence, decision_evidence %}
-{% from 'charts.html.jinja' import detection_overview, page_comparison %}
+{% from 'evidence.html.jinja' import human_evidence, page_evidence %}
+{% from 'charts.html.jinja' import performance_header, detection_overview, page_comparison %}
 
-{% block document_title %}{{ title }}: {{ manifest.run_id }}{% endblock %}
-{% block scope %}This Full evaluation covers the saved HTML for every page listed in the Human audit with one fixed model.{% endblock %}
+{% block document_title %}{{ title }}: {{ model_name }}; {{ manifest.run_id }}{% endblock %}
 {% block content %}
 <section id="performance" aria-labelledby="performance-title">
-<h2 id="performance-title">Detection results</h2>
+{{ performance_header(cost, token_usage, model_prices) }}
 {{ detection_overview(rates) }}
-{% for rate in rates %}<p>{{ rate.description }}</p>{% endfor %}
-<p>The LLM and Programmatic detection rates count only catches by the expected part. A catch by the other part counts toward the Overall detection rate, which counts each original Human finding once.</p>
-<p>Each original Human finding counts once. Page-local findings use their assigned page. Global findings earn credit through complete detection on any single page, independently for each detection source. Several catches still count once; partial matches across pages are never combined.</p>
 {{ page_comparison(pages) }}
 </section>
 <section id="human-findings" aria-labelledby="findings-title">
 <h2 id="findings-title">Human findings</h2>
-<p>Each original Human finding appears once in source order. Evidence starts collapsed. Open View evidence for the original Human finding and its review decisions. Global findings include every page decision, with independently expandable page evidence.</p>
+<p>Each original Human finding appears once in source order. Open View details to read the original Human finding, then View Page Decisions to read the review decision and matched tool findings. Global findings include a separate page decisions dropdown for every page. Details and page decisions start collapsed.</p>
 {% include 'controls.html.jinja' %}
 <div class="table-scroll" role="region" aria-label="Human findings table" tabindex="0">
 <table id="findings">
 <caption>Original Human findings and combined detection outcomes</caption>
-<thead><tr><th scope="col">Issue title</th><th scope="col">WCAG</th><th scope="col">Scope</th><th scope="col">Expected source</th><th scope="col">LLM</th><th scope="col">Programmatic checks</th><th scope="col">Evidence</th></tr></thead>
+<thead><tr><th scope="col">Issue title</th><th scope="col">WCAG</th><th scope="col">Scope</th><th scope="col">Expected source</th><th scope="col">LLM</th><th scope="col">Programmatic checks</th><th scope="col">Details</th></tr></thead>
 <tbody>
 {% for row in rows %}
 <tr data-expected="{{ row.expected }}" data-llm="{{ row.llm_outcome }}" data-programmatic="{{ row.programmatic_outcome }}">
 <th scope="row">{{ row.human.problem }}</th><td data-print-label="WCAG">{{ row.human.raw_evidence['WCAG Sc'] }}</td><td data-print-label="Scope">{% if row.human.page_scope == 'global' %}Global{% else %}Page-local{% endif %}</td><td data-print-label="Expected source">{{ row.expected }}</td><td data-print-label="LLM">{{ row.llm_outcome }}</td><td data-print-label="Programmatic checks">{{ row.programmatic_outcome }}</td>
-<td><p data-selected-page-result hidden></p><div data-search-matches></div><details><summary>View evidence: {{ row.human.problem }}</summary><div class="evidence">
+<td><p data-selected-page-result hidden></p><div data-search-matches></div><details><summary>View details</summary><div class="evidence">
 <div data-evidence-location="Original Human finding">{{ human_evidence(row) }}</div>
 {% if row.human.page_scope == 'global' %}
 <h3>Combined result</h3>
@@ -34,13 +30,8 @@
 <table><caption>Every page decision for {{ row.human.problem }}</caption><thead><tr><th scope="col">Page</th><th scope="col">Expected source</th><th scope="col">LLM</th><th scope="col">Programmatic checks</th></tr></thead><tbody>
 {% for page in row.pages %}<tr data-page-table-row="{{ page.source_url }}"><th scope="row">{{ page.source_url }}</th><td>{{ page.expected }}</td><td>{{ page.llm_outcome }}</td><td>{{ page.programmatic_outcome }}</td></tr>{% endfor %}
 </tbody></table></div>
-{% for page in row.pages %}<details data-page-decision data-page="{{ page.source_url }}" data-expected="{{ page.expected }}" data-llm="{{ page.llm_outcome }}" data-programmatic="{{ page.programmatic_outcome }}"><summary>View page evidence: {{ page.source_url }} for {{ row.human.problem }}</summary>
-<p>Page: {{ page.source_url }}; run {{ page.run_id }}. LLM: {{ page.llm_outcome }}. Programmatic checks: {{ page.programmatic_outcome }}.</p>
-<div data-evidence-location="Review and tool evidence on {{ page.source_url }}">{{ decision_evidence(page) }}</div>
-</details>{% endfor %}
-{% else %}
-{% for page in row.pages %}<div data-page-decision data-page="{{ page.source_url }}" data-expected="{{ page.expected }}" data-llm="{{ page.llm_outcome }}" data-programmatic="{{ page.programmatic_outcome }}"><p>Assigned page: {{ page.source_url }}; run {{ page.run_id }}.</p><div data-evidence-location="Review and tool evidence on {{ page.source_url }}">{{ decision_evidence(page) }}</div></div>{% endfor %}
 {% endif %}
+{% for page in row.pages %}{{ page_evidence(page) }}{% endfor %}
 </div></details></td></tr>
 {% endfor %}
 </tbody></table></div>
@@ -49,14 +40,5 @@
 <section id="combined-method" aria-labelledby="combined-method-title"><h2 id="combined-method-title">Full evaluation scoring</h2>
 <p>Eligibility is established independently of detection. If any page is testable for a Global finding, the finding enters that expected source's denominator once. All testable pages must agree on the source. Findings not testable on any page remain in Overall and outside the LLM and Programmatic denominators.</p>
 <p>Pages can have different numbers of local and testable findings. Repeated Global findings contribute to each page's results but only once to combined results. Combined rates use original finding counts; page rates must not be added or averaged.</p>
-</section>
-<section id="provenance" aria-labelledby="provenance-title"><h2 id="provenance-title">Cost and provenance</h2>
-<p>Estimated run cost: ${{ cost }}, calculated using authoritative saved page totals, provider-reported token usage and the {{ pricing_description }}. Reported totals: {{ usage_description }}. The actual bill may differ slightly.</p>
-<p>Unreadable responses: {{ unreadable }} of {{ prompts }} LLM checks. These responses yield no LLM findings and do not change execution completion.</p>
-<dl><dt>Human audit</dt><dd>{{ manifest.human_audit_filename }}</dd><dt>Human audit SHA-256</dt><dd>{{ manifest.human_audit_sha256 }}</dd>
-{% for schedule in pricing_schedules %}<dt>Saved pricing version</dt><dd>{{ schedule.version }}</dd><dt>Saved pricing SHA-256</dt><dd>{{ schedule.identity }}</dd>{% for source in schedule.sources %}<dt>Pricing source address</dt><dd>{{ source }}</dd>{% endfor %}{% endfor %}
-</dl>
-<h3>Evaluated pages in source order</h3>
-<dl>{% for page in pages %}<dt>{{ page.manifest.source_url }}</dt><dd>Run: {{ page.manifest.run_id }}; Benchmark snapshot SHA-256: {{ page.manifest.snapshot_sha256 }}. Unreadable responses: {{ page.unreadable }} of {{ page.prompts }} LLM checks{% if page.unreadable %}; {{ page.failed_checks }}{% endif %}.</dd>{% endfor %}</dl>
 </section>
 {% endblock %}

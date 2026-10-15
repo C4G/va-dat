@@ -4,6 +4,7 @@ import csv
 import hashlib
 import json
 from contextlib import nullcontext
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -326,14 +327,29 @@ def test_presets_stream_every_category_and_report_saved_prices(
     edit_review(run, *[{"classification": "llm_eligible"}] * 6)
     text = report(run)
     assert model in text and run.name in text
-    assert "published prices captured on 2026-10-09" in text
-    assert "18000 input tokens" in text and "3600 output tokens" in text
-    assert "9000 cached input tokens" in text and "1800 cache-creation input tokens" in text
+    assert f"Estimated run cost: ${Decimal(cost):.6f} USD" in text
+    document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
+    usage = document.select_one('.token-usage')
+    assert [node.get_text() for node in usage.select('dd')] == ["18,000", "3,600", "9,000", "1,800"]
+    pricing = document.select_one('.model-pricing')
+    prices = load(run, "artifacts/pricing.json")["models"][model]
+    first_tier = pricing.select_one('tbody tr')
+    assert [cell.get_text() for cell in first_tier.select('td')] == [
+        '$' + prices[key] for key in (
+            'input_per_million_usd', 'output_per_million_usd',
+            'cached_input_per_million_usd', 'cache_creation_input_per_million_usd',
+        )
+    ]
+    if 'long_context' in prices:
+        assert pricing.select('tbody tr')[1].th.get_text() == f"Over {prices['long_context']['above_input_tokens']:,}"
 
 
-@pytest.mark.parametrize("model,cost", [("gpt-6-luna", "0.0036"), ("gpt-6.1-sol", "0.072")])
+@pytest.mark.parametrize("model,cost,display_name", [
+    ("gpt-6-luna", "0.0036", "GPT-6 Luna"),
+    ("gpt-6.1-sol", "0.072", "GPT-6.1 Sol"),
+])
 def test_gpt_presets_use_openai_key_and_save_response_identity(
-    workspace, monkeypatch, model, cost,
+    workspace, monkeypatch, model, cost, display_name,
 ):
     """GPT requests use the selected preset and preserve provider evidence for review."""
     requests, options = [], []
@@ -386,7 +402,10 @@ def test_gpt_presets_use_openai_key_and_save_response_identity(
     assert findings and all(item["model"] == model for item in findings)
     edit_review(run, *[{"classification": "llm_eligible"}] * 6)
     text = report(run)
-    assert model in text and "18000 input tokens" in text and "3600 output tokens" in text
+    assert display_name in text and f"Estimated run cost: ${Decimal(cost):.6f} USD" in text
+    document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
+    assert document.h1.get_text() == f"LLM Accessibility Evaluation: {display_name}"
+    assert display_name in document.select_one('.model-pricing').get_text()
 
 
 def test_run_help_explains_presets_and_provider_credentials(capsys):
@@ -593,9 +612,13 @@ def test_historical_reports_keep_saved_prices_and_stored_estimate(workspace, mon
                  run / "artifacts/raw-llm-responses.json")}
     text = report(run)
     assert "Estimated run cost: $5.40" in text
-    assert "published prices dated 2025-10-01" in text
-    assert "https://platform.claude.com/docs/en/about-claude/pricing" in text
-    assert "180000 input tokens" in text and "18000 output tokens" in text
+    document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
+    assert document.select_one('#performance .performance-heading .cost-value').get_text(" ", strip=True) == "$5.400000 USD"
+    pricing = document.select_one('.model-pricing')
+    assert 'Published prices dated 2025-10-01' in pricing.get_text()
+    assert [cell.get_text() for cell in pricing.select('tbody tr td')] == ['$20', '$100']
+    assert [node.get_text() for node in document.select('.token-usage dd')] == ['180,000', '18,000']
+    assert not document.select('#provenance, a[href="#provenance"]')
     assert all(path.read_bytes() == saved for path, saved in originals.items())
 
 
@@ -607,7 +630,9 @@ def test_report_describes_the_evaluated_page(workspace, monkeypatch):
     run = only_run(workspace)
     edit_review(run, *[{"classification": "llm_eligible"}] * 6)
     text = report(run)
-    assert "This evaluation covers the saved page at https://example.test/contact/" in text
+    document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
+    assert "https://example.test/contact/" in document.header.get_text()
+    assert document.h1.get_text() == f"LLM Accessibility Evaluation: {load(run, 'run.json')['configuration']['model']}"
     assert "homepage only" not in text
 
 
@@ -656,22 +681,17 @@ def test_review_validation_and_report_metrics(workspace, monkeypatch, capsys):
     assert "cannot claim coverage" in refused(run, capsys)
     edit_review(run, *decisions)
     text = report(run)
-    assert ("Of the 2 Human findings the LLM could be expected to detect from the "
-            "page's HTML, it caught 1 (50.0%)") in text
-    assert "they caught 1 (50.0%)" in text
-    assert "Of all 6 Human findings, either part of the tool caught 3 (50.0%)" in text
     document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
     chart = document.find("figure", attrs={"aria-labelledby": "detection-chart-title"})
     assert chart is not None
-    assert "LLM: 1 caught / 2 eligible; 50.0%" in chart.get_text(" ", strip=True)
-    table = document.find("caption", string="Exact detection overview data").parent
-    assert [[cell.get_text(" ", strip=True) for cell in row.find_all(["th", "td"])]
-            for row in table.tbody.find_all("tr")] == [
-        ["LLM", "1", "2", "50.0%", "Human findings expected to be detected by the LLM"],
-        ["Programmatic", "1", "2", "50.0%", "Human findings expected to be detected by Programmatic checks"],
-        ["Overall", "3", "6", "50.0%", "All imported Human findings, including findings Not testable from the page file"],
+    assert [item.get_text(" ", strip=True) for item in chart.select(".chart-value")] == [
+        "LLM: 1 caught / 2 eligible; 50.0%",
+        "Programmatic: 1 caught / 2 eligible; 50.0%",
+        "Overall: 3 caught / 6 eligible; 50.0%",
     ]
-    assert document.find("caption", string="Exact page LLM detection data") is None
+    assert not document.select(".detection-chart table")
+    assert "Bar length shows" not in text
+    assert "LLM detection rate: Of" not in text
     rows = document.select("#findings tbody > tr")
     assert [cell.get_text(" ", strip=True) for cell in rows[2].find_all(["th", "td"], recursive=False)[:5]] == [
         "Skipped heading", "1.3.1", "Programmatic checks", "Caught", "Not caught",
@@ -680,16 +700,13 @@ def test_review_validation_and_report_metrics(workspace, monkeypatch, capsys):
     assert "No full finding" in rows[5].details.get_text()
     assert "Needs a browser" in rows[3].details.get_text()
     assert "Needs judgment" in rows[4].details.get_text()
-    assert ("1 of 18 LLM checks returned an Unreadable response that the tool "
-            "would skip: page title check.") in text
+    assert load(run, "run.json")["format_failures"] == ["page_title"]
     assert llm[0] in text and llm[1] in text and programmatic in text
     assert llm[2] not in text
     edit_review(run, *[{"classification": "ambiguous", "llm_finding_id": "",
                         "programmatic_finding_id": "", "match_reason": ""}] * 6)
     text = report(run)
-    assert "No Human findings were expected to be detected by the LLM" in text
-    assert "No Human findings were expected to be detected by the Programmatic checks" in text
-    assert "Of all 6 Human findings, either part of the tool caught 0 (0.0%)" in text
+    assert "Overall: 0 caught / 6 eligible; 0.0%" in text
 
 
 @pytest.mark.parametrize("failure,calls,cost,reason", [
@@ -838,19 +855,27 @@ def test_single_page_report_is_standalone_html(workspace, monkeypatch, capsys):
     assert document.title and document.h1
     assert document.select_one('a[href="#main"]') and document.main["id"] == "main"
     assert document.style and not document.select("script[src], link[rel=stylesheet], img[src]")
+    performance = document.select_one('#performance')
+    assert performance.find('div', recursive=False)['class'] == ['performance-heading']
+    assert performance.select_one('.run-cost .cost-value')
+    assert not document.select('#provenance, a[href="#provenance"]')
     table = document.find("table", attrs={"id": "findings"})
     assert table.caption and len(table.tbody.find_all("tr", recursive=False)) == 6
     assert [row.th.get_text(strip=True) for row in table.tbody.find_all("tr", recursive=False)] == [
         "Unclear link", "Missing destination", "Skipped heading", "Hidden menu", "Unclear claim", "No captions",
     ]
     disclosures = table.find_all("details")
-    assert len(disclosures) == 6 and all(not item.has_attr("open") for item in disclosures)
-    assert all("View evidence" in item.summary.get_text() for item in disclosures)
+    assert len(disclosures) == 12 and all(not item.has_attr("open") for item in disclosures)
+    page_panels = table.select('details[data-page-decision]')
+    assert len(page_panels) == 6
+    assert all("View Page Decisions:" in item.summary.get_text() for item in page_panels)
+    assert all(item.find_parent('details') is not None for item in page_panels)
     assert "Vague link\nfor everyone" in document.get_text()
 
 
-def test_report_embeds_canonical_and_complete_matching_evidence(workspace, monkeypatch):
-    """Editable evidence cannot replace originals, and joint matches retain check provenance."""
+@pytest.mark.parametrize("match_count", [1, 2])
+def test_report_embeds_canonical_and_complete_matching_evidence(workspace, monkeypatch, match_count):
+    """Single and joint matches retain originals, provenance and escaped evidence."""
     fake_client(monkeypatch)
     assert run_cli(workspace, "--live", "--approve-live") == 0
     run = only_run(workspace)
@@ -859,7 +884,7 @@ def test_report_embeds_canonical_and_complete_matching_evidence(workspace, monke
     findings[0].update(problem=hostile, element="<a href='x'>", location="Footer", checklist="Synthetic checklist 42")
     (run / "normalized-llm-findings.json").write_text(json.dumps(findings))
     edit_review(run, {
-        "classification": "llm_eligible", "llm_finding_id": ";".join(item["finding_id"] for item in findings[:2]),
+        "classification": "llm_eligible", "llm_finding_id": ";".join(item["finding_id"] for item in findings[:match_count]),
         "match_reason": "Together they fully cover the link", "review_notes": hostile,
         "actual result": "Editable evidence replacement", "Issue Title": "Edited title",
     }, *[{"classification": "ambiguous"}] * 5)
@@ -872,23 +897,21 @@ def test_report_embeds_canonical_and_complete_matching_evidence(workspace, monke
     assert "Vague link\nfor everyone" in text and "Unclear link" in text
     assert hostile in text and not document.select("header script, #findings script, img, [onerror]")
     assert "Synthetic checklist 42" in text
-    assert all(item["finding_id"] in text for item in findings[:2])
+    assert all(item["finding_id"] in text for item in findings[:match_count])
     assert "Together they fully cover the link" in text and "Footer" in text
     assert "<a href='x'>" in text and findings[0]["page_url"] in text
+    matches = evidence.select('.matched')
+    assert len(matches) == match_count
 
 
-@pytest.mark.parametrize("missing", ["human_audit_filename", "configuration.model"])
-def test_report_requires_complete_rendering_data(workspace, monkeypatch, capsys, missing):
+def test_report_requires_complete_rendering_data(workspace, monkeypatch, capsys):
     """Absent required fields cannot publish HTML or discard a legacy report."""
     fake_client(monkeypatch)
     assert run_cli(workspace, "--live", "--approve-live") == 0
     run = only_run(workspace)
     edit_review(run, *[{"classification": "llm_eligible"}] * 6)
     manifest = load(run, "run.json")
-    if missing == "configuration.model":
-        del manifest["configuration"]["model"]
-    else:
-        del manifest[missing]
+    del manifest["configuration"]["model"]
     (run / "run.json").write_text(json.dumps(manifest))
     legacy = run / "report.md"
     legacy.write_text("Previous report")
@@ -911,12 +934,9 @@ def test_report_with_no_human_findings_has_no_false_zero_rates(workspace, monkey
         csv.writer(stream).writerow(header)
     text = report(run)
     assert "No Human findings were imported for this page" in text
-    assert "No Human findings were expected to be detected by the LLM" in text
-    assert "No Human findings were expected to be detected by the Programmatic checks" in text
     assert "(0.0%)" not in text
     document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
-    table = document.find("caption", string="Exact detection overview data").parent
-    assert [row.find_all("td")[2].get_text(strip=True) for row in table.tbody.find_all("tr")] == [
+    assert [item.get_text(strip=True) for item in document.select(".chart-percentage")] == [
         "Not defined: no imported Human findings" if index == 2 else "Not defined: no eligible Human findings"
         for index in range(3)
     ]

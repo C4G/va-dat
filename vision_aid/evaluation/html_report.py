@@ -17,10 +17,11 @@ from jinja2 import (
     select_autoescape,
 )
 
-from vision_aid.evaluation.review import _rate, _usage_description, detection_counts
+from vision_aid.evaluation.review import detection_counts
 
 if TYPE_CHECKING:
     from vision_aid.evaluation.page import PageReview
+    from vision_aid.evaluation.pricing import PriceSchedule
 
 EXPECTED = {
     "llm_eligible": "LLM",
@@ -30,22 +31,67 @@ EXPECTED = {
 }
 
 
-def _chart_rates(counts: dict[str, dict[str, int]], *, full: bool = False) -> list[dict[str, Any]]:
+def _display_model(model: str) -> str:
+    """Use uppercase GPT in report labels while preserving saved model IDs."""
+    return "GPT-" + model[4:].replace("-", " ").title() if model.startswith("gpt-") else model
+
+
+def _cost_details(manifest: dict[str, Any], schedules: list[PriceSchedule]) -> dict[str, Any]:
+    """Present saved usage and model prices without recalculating the run cost."""
+    usage = manifest["usage"]
+    model = manifest["configuration"].get("model")
+    if model is None:
+        raise ValueError("Cannot render complete report: model is missing")
+    token_usage = [
+        {"label": label, "count": f"{usage[key]:,}"}
+        for key, label in (
+            ("input_tokens", "Input tokens"),
+            ("output_tokens", "Output tokens"),
+            ("cached_input_tokens", "Cached input tokens"),
+            ("cache_creation_input_tokens", "Cache-write input tokens"),
+        )
+        if key in {"input_tokens", "output_tokens"} or usage[key]
+    ]
+    model_prices = []
+    seen = set()
+    for schedule in schedules:
+        if schedule.identity in seen:
+            continue
+        seen.add(schedule.identity)
+        rates = schedule.data["models"][model]
+        upper = rates.get("long_context")
+        tiers = [{"label": "All requests", "rates": rates}]
+        if upper:
+            threshold = f"{upper['above_input_tokens']:,}"
+            tiers = [
+                {"label": f"Up to {threshold}", "rates": rates},
+                {"label": f"Over {threshold}", "rates": upper},
+            ]
+        model_prices.append({
+            "model": _display_model(model), "description": schedule.price_description,
+            "tiers": tiers,
+            "show_cache_read": bool(usage["cached_input_tokens"]),
+            "show_cache_write": bool(usage["cache_creation_input_tokens"]),
+        })
+    return {
+        "cost": f"{Decimal(manifest['estimated_cost_usd']):.6f}",
+        "model_name": _display_model(model),
+        "token_usage": token_usage, "model_prices": model_prices,
+    }
+
+
+def _chart_rates(counts: dict[str, dict[str, int]]) -> list[dict[str, Any]]:
     """Prepare chart labels and widths from the existing deterministic counts."""
     rates = []
-    for kind, label, denominator in (
-        ("llm", "LLM", "Human findings expected to be detected by the LLM"),
-        ("programmatic", "Programmatic checks", "Human findings expected to be detected by Programmatic checks"),
-        ("overall", "Overall", "All imported Human findings, including findings Not testable from the page file"),
+    for kind, label in (
+        ("llm", "LLM"),
+        ("programmatic", "Programmatic"),
+        ("overall", "Overall"),
     ):
         caught, eligible = counts[kind]["caught"], counts[kind]["eligible"]
         percentage = f"{caught / eligible * 100:.1f}" if eligible else None
-        description = _rate(label, caught, eligible)
-        if full:
-            description = description.replace("the page's HTML", "the evaluated pages' HTML")
         rates.append({
-            "label": label.removesuffix(" checks"), **counts[kind],
-            "description": description, "denominator": denominator,
+            "label": label, **counts[kind],
             "bar_percent": percentage,
             "percentage": percentage + "%" if percentage is not None else (
                 "Not defined: no imported Human findings" if kind == "overall"
@@ -79,8 +125,6 @@ def page_data(review: PageReview, reviewer: str) -> dict[str, Any]:
                         "check_id": finding["prompt"],
                         "checklist": finding["checklist"],
                         "problem": finding["problem"],
-                        "page_url": finding["page_url"],
-                        "run_id": finding["run_id"],
                         "element": finding["element"],
                         "location": finding["location"],
                     }
@@ -89,6 +133,8 @@ def page_data(review: PageReview, reviewer: str) -> dict[str, Any]:
             {
                 "human": human,
                 "decision": decision,
+                "source_url": manifest["source_url"],
+                "run_id": manifest["run_id"],
                 "expected": EXPECTED[classification],
                 "llm_outcome": "Caught" if row["matches"]["llm"] else "Not caught",
                 "programmatic_outcome": "Caught"
@@ -99,27 +145,12 @@ def page_data(review: PageReview, reviewer: str) -> dict[str, Any]:
         )
     rates = _chart_rates(counts)
     return {
-        "title": "LLM accessibility evaluation",
+        "title": "LLM Accessibility Evaluation",
         "manifest": manifest,
         "reviewer": reviewer,
         "rows": rows,
         "rates": rates,
-        "cost": f"{Decimal(manifest['estimated_cost_usd']):.2f}",
-        "pricing_description": review.schedule.price_description,
-        "pricing_identity": review.schedule.identity,
-        "pricing_version": review.schedule.version,
-        "pricing_sources": review.schedule.data.get(
-            "sources",
-            [review.schedule.data["source"]]
-            if "source" in review.schedule.data
-            else [],
-        ),
-        "usage_description": _usage_description(manifest["usage"]),
-        "unreadable": len(manifest["format_failures"]),
-        "prompts": len(manifest["prompts"]),
-        "failed_checks": ", ".join(
-            name.replace("_", " ") + " check" for name in manifest["format_failures"]
-        ),
+        **_cost_details(manifest, [review.schedule]),
     }
 
 
@@ -147,20 +178,10 @@ def full_data(
             "pages": grouped[row["human_finding"]["human_finding_id"]],
         })
     return {
-        "title": "Full accessibility evaluation", "full": True,
+        "title": "Full Accessibility Evaluation", "full": True,
         "manifest": manifest, "reviewer": reviewer, "rows": rows, "pages": pages,
-        "rates": _chart_rates(counts, full=True),
-        "cost": f"{Decimal(manifest['estimated_cost_usd']):.2f}",
-        "pricing_description": ", ".join(dict.fromkeys(page["pricing_description"] for page in pages)),
-        "pricing_schedules": list({
-            page["pricing_identity"]: {
-                "version": page["pricing_version"], "identity": page["pricing_identity"],
-                "sources": page["pricing_sources"],
-            } for page in pages
-        }.values()),
-        "usage_description": _usage_description(manifest["usage"]),
-        "unreadable": sum(page["unreadable"] for page in pages),
-        "prompts": sum(page["prompts"] for page in pages),
+        "rates": _chart_rates(counts),
+        **_cost_details(manifest, [review.schedule for review in reviews]),
     }
 
 

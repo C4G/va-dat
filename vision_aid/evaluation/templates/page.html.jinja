@@ -1,32 +1,30 @@
 {% extends 'base.html.jinja' %}
-{% from 'evidence.html.jinja' import human_evidence, decision_evidence %}
-{% from 'charts.html.jinja' import detection_overview, page_comparison %}
+{% from 'evidence.html.jinja' import human_evidence, page_evidence %}
+{% from 'charts.html.jinja' import performance_header, detection_overview, page_comparison %}
 
-{% block document_title %}{{ title }}: {{ manifest.source_url }}{% endblock %}
-{% block scope %}This evaluation covers the saved page at {{ manifest.source_url }}, including Global findings that apply there.{% endblock %}
+{% block document_title %}{{ title }}: {{ model_name }}; {{ manifest.source_url }}{% endblock %}
+{% block scope %}<p>{{ manifest.source_url }}</p>{% endblock %}
 {% block content %}
 <section id="performance" aria-labelledby="performance-title">
-<h2 id="performance-title">Detection results</h2>
+{{ performance_header(cost, token_usage, model_prices) }}
 {{ detection_overview(rates) }}
-{% for rate in rates %}<p>{{ rate.description }}</p>{% endfor %}
-<p>The LLM and Programmatic detection rates count only catches by the expected part. A catch by the other part counts toward the Overall detection rate, which counts each Human finding once out of all imported Human findings.</p>
 </section>
 <section id="human-findings" aria-labelledby="findings-title">
 <h2 id="findings-title">Human findings</h2>
-<p>Evidence starts collapsed. Open any View evidence control to read the original Human finding and the review decision.</p>
+<p>Open View details to read the original Human finding, then View Page Decisions to read the review decision and matched tool findings. Details and page decisions start collapsed.</p>
 {% include 'controls.html.jinja' %}
 <div class="table-scroll" role="region" aria-label="Human findings table" tabindex="0">
 <table id="findings">
 <caption>Human findings and detection outcomes</caption>
-<thead><tr><th scope="col">Issue title</th><th scope="col">WCAG</th><th scope="col">Expected source</th><th scope="col">LLM</th><th scope="col">Programmatic checks</th><th scope="col">Evidence</th></tr></thead>
+<thead><tr><th scope="col">Issue title</th><th scope="col">WCAG</th><th scope="col">Expected source</th><th scope="col">LLM</th><th scope="col">Programmatic checks</th><th scope="col">Details</th></tr></thead>
 <tbody>
 {% for row in rows %}
 <tr data-expected="{{ row.expected }}" data-llm="{{ row.llm_outcome }}" data-programmatic="{{ row.programmatic_outcome }}">
 <th scope="row">{{ row.human.problem }}</th><td data-print-label="WCAG">{{ row.human.raw_evidence['WCAG Sc'] }}</td><td data-print-label="Expected source">{{ row.expected }}</td><td data-print-label="LLM">{{ row.llm_outcome }}</td><td data-print-label="Programmatic checks">{{ row.programmatic_outcome }}</td>
-<td><p data-selected-page-result hidden></p><div data-search-matches></div><details><summary>View evidence: {{ row.human.problem }}</summary>
+<td><p data-selected-page-result hidden></p><div data-search-matches></div><details><summary>View details</summary>
 <div class="evidence">
 <div data-evidence-location="Original Human finding">{{ human_evidence(row) }}</div>
-<div data-evidence-location="Review and tool evidence on {{ manifest.source_url }}">{{ decision_evidence(row) }}</div>
+{{ page_evidence(row) }}
 </div></details></td>
 </tr>
 {% endfor %}
@@ -34,10 +32,4 @@
 {% if not rows %}<p>No Human findings were imported for this page.</p>{% endif %}
 </section>
 {% include 'method.html.jinja' %}
-<section id="provenance" aria-labelledby="provenance-title"><h2 id="provenance-title">Cost and provenance</h2>
-<p>Estimated run cost: ${{ cost }}, calculated using provider-reported token usage and the {{ pricing_description }}. Reported totals: {{ usage_description }}. The actual bill may differ slightly.</p>
-<p>Unreadable responses: {{ unreadable }} of {{ prompts }} LLM checks. These responses yield no LLM findings and do not change execution completion.</p>
-{% if unreadable %}<p>{{ unreadable }} of {{ prompts }} LLM checks returned an Unreadable response that the tool would skip: {{ failed_checks }}.</p>{% endif %}
-<dl><dt>Human audit</dt><dd>{{ manifest.human_audit_filename }}</dd><dt>Human audit SHA-256</dt><dd>{{ manifest.human_audit_sha256 }}</dd><dt>Benchmark snapshot SHA-256</dt><dd>{{ manifest.snapshot_sha256 }}</dd><dt>Saved pricing version</dt><dd>{{ pricing_version }}</dd><dt>Saved pricing SHA-256</dt><dd>{{ pricing_identity }}</dd>{% for source in pricing_sources %}<dt>Pricing source address</dt><dd>{{ source }}</dd>{% endfor %}</dl>
-</section>
 {% endblock %}

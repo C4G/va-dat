@@ -4,7 +4,13 @@
 {% for label, value in row.human.raw_evidence.items() %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
 {% endmacro %}
 {% macro decision_evidence(row) %}
-<h3>Review decision</h3>
-<dl><dt>Eligibility classification</dt><dd>{{ row.expected }}</dd><dt>Recorded explanation</dt><dd>{{ row.decision.classification_reason }}</dd><dt>Matching rationale</dt><dd>{{ row.decision.match_reason }}</dd><dt>Review notes</dt><dd>{{ row.decision.review_notes }}</dd></dl>
-{% for finding in row.matched %}<div class="matched"><h3>{{ finding.source }} matching evidence</h3><p>{{ finding.source }} ({{ finding.check }}): {{ finding.problem }}</p><dl><dt>Finding ID</dt><dd>{{ finding.id }}</dd><dt>Check</dt><dd>{{ finding.check_id }}; {{ finding.checklist }}</dd><dt>Page provenance</dt><dd>{{ finding.page_url }}; run {{ finding.run_id }}</dd><dt>Element</dt><dd>{{ finding.element }}</dd><dt>Location</dt><dd>{{ finding.location }}</dd></dl></div>{% endfor %}
+<h3>{{ row.source_url }}</h3>
+<p>Run ID: {{ row.run_id }}</p>
+<dl><dt>Eligibility classification</dt><dd>{{ row.expected }}</dd><dt>Recorded explanation</dt><dd>{{ row.decision.classification_reason }}</dd><dt>Matching rationale</dt><dd>{{ row.decision.match_reason }}</dd><dt>VA-DAT Matched Findings</dt><dd>{{ row.decision.review_notes }}</dd></dl>
+{% for finding in row.matched %}<div class="matched"><h3>{{ 'LLM Finding' if finding.source == 'LLM' else 'Programmatic Finding' }}</h3><p>{{ finding.source }} ({{ finding.check }}): {{ finding.problem }}</p><dl><dt>Finding ID</dt><dd>{{ finding.id }}</dd><dt>Check</dt><dd>{{ finding.check_id }}; {{ finding.checklist }}</dd>{% if finding.source == 'LLM' %}<dt>Element</dt><dd>{{ finding.element }}</dd>{% endif %}<dt>Location</dt><dd>{{ finding.location }}</dd></dl></div>{% endfor %}
+{% endmacro %}
+{% macro page_evidence(row) %}
+<details data-page-decision data-page="{{ row.source_url }}" data-expected="{{ row.expected }}" data-llm="{{ row.llm_outcome }}" data-programmatic="{{ row.programmatic_outcome }}"><summary>View Page Decisions: {{ row.source_url }}</summary>
+<div data-evidence-location="Review and tool evidence on {{ row.source_url }}">{{ decision_evidence(row) }}</div>
+</details>
 {% endmacro %}
