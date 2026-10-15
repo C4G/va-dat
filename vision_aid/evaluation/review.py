@@ -1,12 +1,10 @@
-"""One editable CSV for human decisions and one deterministic Markdown report."""
+"""Validate editable Human review decisions and calculate deterministic counts."""
 
 from __future__ import annotations
 
 import csv
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 from vision_aid.evaluation.human_audit import ELIGIBILITY_VALUES, HEADERS
 
@@ -159,14 +157,6 @@ def detection_counts(rows: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
     return counts
 
 
-def _md(value: object) -> str:
-    """Escape inline text for Markdown, including raw HTML, keeping line breaks."""
-    text = str(value)
-    for character in "\\`*_[]|<>":
-        text = text.replace(character, "\\" + character)
-    return text.replace("\n", "<br>")
-
-
 def _usage_description(usage: dict[str, int]) -> str:
     """Describe reported input, output, and nonzero cache token totals."""
     tokens = [
@@ -180,186 +170,3 @@ def _usage_description(usage: dict[str, int]) -> str:
         if usage[key]:
             tokens.append(f"{usage[key]} {label} tokens")
     return ", ".join(tokens)
-
-
-def write_report(
-    path: Path,
-    manifest: dict[str, Any],
-    rows: list[dict[str, Any]],
-    llm: list[dict[str, Any]],
-    programmatic: list[dict[str, Any]],
-    reviewer: str,
-    pricing_description: str,
-) -> None:
-    """Explain the review's catches, misses, and scoring in source order."""
-    if not manifest["complete"]:
-        raise ValueError("Incomplete Evaluation runs cannot produce a final report")
-    findings = {item["finding_id"]: item for item in llm + programmatic}
-    expected = {
-        "llm_eligible": "LLM",
-        "programmatic": "Programmatic checks",
-        "unavailable_evidence": "Not testable",
-        "ambiguous": "Not testable",
-    }
-    covered = [row for row in rows if any(row["matches"].values())]
-    counts = detection_counts(rows)
-    page_scope = (
-        "This evaluation covers the homepage only"
-        if urlsplit(manifest["source_url"]).path in {"", "/"}
-        else f"This evaluation covers the saved page at {_md(manifest['source_url'])}"
-    )
-    lines = [
-        f"# LLM accessibility evaluation: {_md(manifest['source_url'])}",
-        "",
-        "## How to read this report",
-        "",
-        "The benchmark is the Human audit, an accessibility audit performed by human testers. Each problem they reported is a Human finding.",
-        "This API uses LLM checks and Programmatic checks. LLM checks send extracted page content to the model with prompts asking it to identify accessibility problems. Programmatic checks apply fixed rules directly to the page's HTML.",
-        "LLM findings are read from each response with the tool's own rules, before its false-positive filter and deduplication.",
-        f"The tool saw only saved HTML, not a live browser or screen reader. {page_scope}, including Global findings that apply there.",
-        "A reviewer decided which part should be expected to detect each Human finding. A catch counts only when the matched findings fully cover the whole Human finding. Partial coverage earns no credit.",
-        "",
-        "## Summary",
-        "",
-        f"Model: {_md(manifest['configuration']['model'])}. Run ID: {_md(manifest['run_id'])}.",
-        f"Review decisions by: {_md(reviewer)}",
-        "",
-    ]
-    for kind, part in (
-        ("llm", "LLM"),
-        ("programmatic", "Programmatic checks"),
-    ):
-        lines.extend([
-            _rate(part, counts[kind]["caught"], counts[kind]["eligible"]), ""
-        ])
-    lines.extend([
-        _rate("Overall", counts["overall"]["caught"], counts["overall"]["eligible"]),
-        "",
-        f"Estimated run cost: ${Decimal(manifest['estimated_cost_usd']):.2f}, calculated using provider-reported token usage and the {_md(pricing_description)}. Reported totals: {_usage_description(manifest['usage'])}. The actual bill may differ slightly.",
-        "",
-    ])
-    if manifest["format_failures"]:
-        checks = ", ".join(_md(name.replace("_", " ") + " check") for name in manifest["format_failures"])
-        lines.extend([f"{len(manifest['format_failures'])} of {len(manifest['prompts'])} LLM checks returned an Unreadable response that the tool would skip: {checks}.", ""])
-    lines.extend([
-        "## Human findings", "",
-        "| Issue Title | WCAG | Expected to be caught by | LLM | Programmatic checks |",
-        "| --- | --- | --- | --- | --- |",
-    ])
-    for row in rows:
-        human = row["human_finding"]
-        marks = ["✓" if row["matches"][kind] else "✗" for kind in ("llm", "programmatic")]
-        lines.append(f"| {_md(human['problem'])} | {_md(human['raw_evidence']['WCAG Sc'])} | {expected[row['decision']['classification'].strip()]} | {' | '.join(marks)} |")
-    lines.extend([
-        "",
-        "The LLM and Programmatic detection rates count only catches by the expected part. A catch by the other part still gets a ✓ and counts toward the Overall detection rate, which counts each Human finding once out of all imported Human findings.",
-    ])
-    groups = {
-        "What each part of the tool caught": covered,
-        "Missed": [
-            row for row in rows
-            if expected[row["decision"]["classification"].strip()] != "Not testable"
-            and not any(row["matches"].values())
-        ],
-        "Not testable from the page file": [
-            row for row in rows
-            if expected[row["decision"]["classification"].strip()] == "Not testable"
-        ],
-    }
-    for heading, group in groups.items():
-        lines.extend(["", f"## {heading}", ""])
-        if heading == "Not testable from the page file":
-            lines.extend(["These Human findings cannot be judged from the saved HTML or are too unclear to judge. They are left out of the LLM and Programmatic detection rates but remain in the Overall denominator.", ""])
-        for row in group:
-            decision = row["decision"]
-            matches = row["matches"]
-            lines.extend([f"### {_md(row['human_finding']['problem'])}", ""])
-            for kind in ("llm", "programmatic"):
-                for identity in matches[kind]:
-                    finding = findings[identity]
-                    check = finding["prompt"].replace("_", " ") + " check"
-                    if finding.get("screen_only"):
-                        check += "; shown on screen only, not in the tool's CSV report"
-                    label = (
-                        f"LLM ({check})"
-                        if kind == "llm" else f"Programmatic check {finding['prompt']}"
-                    )
-                    lines.extend([f"- {_md(label)}: {_md(finding['problem'])}", "", f"  - Why this counts: {_md(decision['match_reason'])}"])
-            if heading == "Not testable from the page file":
-                lines.append(_md(decision["classification_reason"]))
-            elif not any(matches.values()):
-                for field, label in (
-                    ("classification_reason", "Why it was expected to be caught"),
-                    ("review_notes", "Why it was missed"),
-                ):
-                    if decision[field].strip():
-                        lines.append(f"- {label}: {_md(decision[field])}")
-            lines.append("")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def write_combined_report(
-    path: Path,
-    manifest: dict[str, Any],
-    rows: list[dict[str, Any]],
-    page_reviews: list[Any],
-    reviewer: str,
-) -> None:
-    """Describe pooled original findings with every supporting page decision."""
-    counts = detection_counts(rows)
-    prices = ", ".join(dict.fromkeys(review.schedule.price_description for review in page_reviews))
-    failures = sum(len(review.manifest["format_failures"]) for review in page_reviews)
-    prompts = sum(len(review.manifest["prompts"]) for review in page_reviews)
-    lines = [
-        "# Full accessibility evaluation", "",
-        f"Model: {_md(manifest['configuration']['model'])}. Run ID: {_md(manifest['run_id'])}.",
-        f"Human audit: {_md(manifest['human_audit_filename'])}; SHA-256: {_md(manifest['human_audit_sha256'])}.",
-        f"Review decisions by: {_md(reviewer)}", "",
-        "The tool evaluated only saved HTML for every page listed in the Human audit, with one fixed model. LLM checks use model judgment; Programmatic checks apply fixed rules to HTML.",
-        "Each original Human finding counts once. Non-Global findings use their assigned page. Global findings earn credit through complete detection on any single page, independently for each detection source. Several catches still count once; partial matches across pages are never combined.",
-        "Eligibility is established independently of detection. If any page is testable for a Global, the finding enters that expected source's denominator once; all testable pages must agree on the source. Findings not testable on any page remain in Overall but are excluded from LLM and Programmatic rates. Cross-catches count toward Overall, which counts either source's catch once.",
-        "", "## Summary", "",
-    ]
-    for kind, label in (("llm", "LLM"), ("programmatic", "Programmatic checks"), ("overall", "Overall")):
-        lines.extend([
-            _rate(label, counts[kind]["caught"], counts[kind]["eligible"]).replace(
-                "the page's HTML", "the evaluated pages' HTML"
-            ), "",
-        ])
-    lines.extend([
-        f"Estimated run cost: ${Decimal(manifest['estimated_cost_usd']):.2f}, calculated from provider-reported usage using {_md(prices)}. Reported totals: {_usage_description(manifest['usage'])}. The actual bill may differ.",
-        f"Unreadable responses: {failures} of {prompts} LLM checks. These responses yield no LLM findings and do not change execution completion.",
-        "", "## Evaluated pages", "",
-    ])
-    for page in manifest["pages"]:
-        lines.append(f"- [{_md(page['source_url'])}]({page['run_dir']}/report.md)")
-    lines.extend(["", "## Original Human findings", ""])
-    expected = {
-        "llm_eligible": "LLM", "programmatic": "Programmatic checks",
-        "unavailable_evidence": "Not testable from the page file",
-        "ambiguous": "Not testable from the page file",
-    }
-    for row in rows:
-        finding = row["human_finding"]
-        classification = row["decision"]["classification"]
-        marks = {kind: "✓" if row["matches"][kind] else "✗" for kind in ("llm", "programmatic")}
-        lines.extend([
-            f"### {_md(finding['problem'])}", "",
-            f"Human finding ID: {_md(finding['human_finding_id'])}. Source: {_md(finding['source_sheet'])}, row {finding['source_row']}; scope: {_md(finding['page_scope'])}; WCAG: {_md(finding['raw_evidence']['WCAG Sc'])}.",
-            f"Expected to be caught by: {expected[classification]}. LLM: {marks['llm']}; Programmatic checks: {marks['programmatic']}.", "",
-        ])
-        for page_row in row["page_reviews"]:
-            decision = page_row["decision"]
-            source_url = _md(page_row["source_url"])
-            lines.append(
-                f"- Page {source_url}: {expected[decision['classification'].strip()]}"
-                + (f". {_md(decision['classification_reason'])}" if decision['classification_reason'].strip() else "")
-            )
-            for kind, label in (("llm", "LLM"), ("programmatic", "Programmatic checks")):
-                identities = page_row["matches"][kind]
-                if identities:
-                    lines.append(f"  - {label} full match: {', '.join(_md(identity) for identity in identities)}. Why this counts: {_md(decision['match_reason'])}")
-            if decision["review_notes"].strip():
-                lines.append(f"  - Review notes: {_md(decision['review_notes'])}")
-        lines.append("")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")

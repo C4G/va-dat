@@ -305,7 +305,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "report-all":
             run = args.run_dir.resolve()
             report_full_evaluation(run, args.reviewer)
-            print(f"Combined Markdown report: {run / 'report.md'}")
+            print(f"Combined HTML report: {run / 'report.html'}")
             return 0
         return _run(args) if args.command == "run" else _report(args)
     except (OSError, ValueError, KeyError) as error:

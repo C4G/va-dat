@@ -1,3 +1,4 @@
+{% from 'evidence.html' import human_evidence, decision_evidence %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -34,25 +35,15 @@
 <th scope="row">{{ row.human.problem }}</th><td>{{ row.human.raw_evidence['WCAG Sc'] }}</td><td>{{ row.expected }}</td><td>{{ row.llm_outcome }}</td><td>{{ row.programmatic_outcome }}</td>
 <td><details><summary>View evidence: {{ row.human.problem }}</summary>
 <div class="evidence">
-<h3>Original Human finding</h3>
-<dl><dt>Human finding ID</dt><dd>{{ row.human.human_finding_id }}</dd><dt>Source</dt><dd>{{ row.human.source_sheet }}, row {{ row.human.source_row }}; scope: {{ row.human.page_scope }}; element: {{ row.human.source_element }}</dd>
-{% for label, value in row.human.raw_evidence.items() %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
-<h3>Review decision</h3>
-<dl><dt>Eligibility classification</dt><dd>{{ row.expected }}</dd><dt>Recorded explanation</dt><dd>{{ row.decision.classification_reason }}</dd><dt>Matching rationale</dt><dd>{{ row.decision.match_reason }}</dd><dt>Review notes</dt><dd>{{ row.decision.review_notes }}</dd></dl>
-{% for finding in row.matched %}<div class="matched"><h3>{{ finding.source }} matching evidence</h3><p>{{ finding.source }} ({{ finding.check }}): {{ finding.problem }}</p><dl><dt>Finding ID</dt><dd>{{ finding.id }}</dd><dt>Check</dt><dd>{{ finding.check_id }}; {{ finding.checklist }}</dd><dt>Page provenance</dt><dd>{{ finding.page_url }}; run {{ finding.run_id }}</dd><dt>Element</dt><dd>{{ finding.element }}</dd><dt>Location</dt><dd>{{ finding.location }}</dd></dl></div>{% endfor %}
+{{ human_evidence(row) }}
+{{ decision_evidence(row) }}
 </div></details></td>
 </tr>
 {% endfor %}
 </tbody></table></div>
 {% if not rows %}<p>No Human findings were imported for this page.</p>{% endif %}
 </section>
-<section id="method" aria-labelledby="method-title"><h2 id="method-title">How to read this report</h2>
-<p>The benchmark is the Human audit, an accessibility audit performed by human testers. Each problem they reported is a Human finding.</p>
-<p>LLM checks send extracted page content to the model with prompts asking it to identify accessibility problems. Programmatic checks apply fixed rules directly to the page's HTML.</p>
-<p>LLM findings are read from each response with the tool's own rules, before its false-positive filter and deduplication.</p>
-<p>The tool saw only saved HTML, not a live browser or screen reader. A reviewer decided which part should be expected to detect each Human finding. A catch counts only when the matched findings fully cover the whole Human finding. Partial coverage earns no credit.</p>
-<p>Not testable from the page file: These Human findings cannot be judged from the saved HTML or are too unclear to judge. They are left out of the LLM and Programmatic detection rates but remain in the Overall denominator. Their recorded explanations appear in the evidence.</p>
-</section>
+{% include 'method.html' %}
 <section id="provenance" aria-labelledby="provenance-title"><h2 id="provenance-title">Cost and provenance</h2>
 <p>Estimated run cost: ${{ cost }}, calculated using provider-reported token usage and the {{ pricing_description }}. Reported totals: {{ usage_description }}. The actual bill may differ slightly.</p>
 <p>Unreadable responses: {{ unreadable }} of {{ prompts }} LLM checks. These responses yield no LLM findings and do not change execution completion.</p>

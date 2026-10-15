@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import openpyxl
 import pytest
+from bs4 import BeautifulSoup
 from test_evaluation import recording_provider_usage
 from test_full_execution import children
 from test_full_preview import URLS, full_workspace, only_full, preview
@@ -50,6 +51,7 @@ def refused_report(run, capsys, reviewer="Combined reviewer"):
         report_all(run, reviewer)
     assert error.value.code == 2
     assert not (run / "report.md").exists()
+    assert not (run / "report.html").exists()
     return capsys.readouterr().err
 
 
@@ -119,7 +121,8 @@ def test_combined_report_pools_original_findings_and_any_page_globals(completed_
     """Eight originals score 2/4 LLM, 1/3 Programmatic and 5/8 Overall."""
     run, manifest = completed_review
     assert report_all(run) == 0
-    text = (run / "report.md").read_text()
+    document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
+    text = document.get_text(" ", strip=True)
     assert "LLM detection rate: Of the 4" in text and "caught 2 (50.0%)" in text
     assert "Programmatic detection rate: Of the 3" in text and "caught 1 (33.3%)" in text
     assert "Overall detection rate: Of all 8 Human findings" in text and "caught 5 (62.5%)" in text
@@ -129,22 +132,35 @@ def test_combined_report_pools_original_findings_and_any_page_globals(completed_
     assert "published prices captured on 2026-10-09" in text
     assert "Unreadable responses: 0" in text
     originals = json.loads((run / "human-findings.json").read_text())
+    overview = document.select("#findings > tbody > tr")
+    assert [row.find("th").get_text(strip=True) for row in overview] == [
+        item["problem"] for item in originals["human_findings"]]
     for finding in originals["human_findings"]:
         assert text.count(finding["human_finding_id"]) == 1
     assert "Not testable on page 1" in text and "Not testable on page 2" in text
     assert "Partial evidence only on page 1" in text
     for page in manifest["pages"]:
         child = run / page["run_dir"]
-        assert (child / "report.md").is_file()
-        assert f"]({page['run_dir']}/report.md)" in text
+        assert (child / "report.html").is_file()
         assert page["source_url"] in text
+        tool_findings = {
+            item["finding_id"]: item
+            for kind in ("llm", "programmatic")
+            for item in json.loads((child / f"normalized-{kind}-findings.json").read_text())
+        }
         for row in review_rows(child):
             for kind in ("llm", "programmatic"):
                 for identity in row[f"{kind}_finding_id"].split(";"):
                     if identity:
+                        finding = tool_findings[identity]
                         assert identity in text
+                        assert finding["problem"] in text
+                        assert finding["prompt"] in text
+                        assert finding["run_id"] in text
     assert "complete detection on any single page" in text
     assert "partial matches across pages" in text
+    assert not document.select("[open]")
+    assert not document.select("script[src], link[rel=stylesheet], iframe")
 
 
 @pytest.mark.parametrize("problem", [
@@ -217,21 +233,22 @@ def test_empty_page_without_globals_still_has_a_report(full_workspace, monkeypat
         save_review(child, rows)
     assert report_all(run) == 0
     empty = run / manifest["pages"][2]["run_dir"]
-    text = (empty / "report.md").read_text()
+    text = BeautifulSoup((empty / "report.html").read_text(), "html.parser").get_text(" ", strip=True)
     assert "Overall detection rate: No Human findings were imported for this page" in text
-    assert "Overall detection rate: Of all 3 Human findings" in (run / "report.md").read_text()
+    assert "Overall detection rate: Of all 3 Human findings" in BeautifulSoup((run / "report.html").read_text(), "html.parser").get_text(" ", strip=True)
 
 
 def test_invalid_revised_review_withholds_stale_combined_rates(completed_review, capsys):
     """A report regenerated after an invalid edit must not leave earlier rates."""
     run, manifest = completed_review
     assert report_all(run) == 0
+    (run / "report.md").write_text("superseded Markdown")
     first = run / manifest["pages"][0]["run_dir"]
     rows = review_rows(first)
     rows[0]["classification"] = ""
     save_review(first, rows)
     assert "invalid classification" in refused_report(run, capsys)
-    assert (first / "report.md").exists()
+    assert (first / "report.html").exists()
 
 
 @pytest.mark.parametrize("title", ["Shared defect", "Eligible uncaught"])
@@ -289,7 +306,7 @@ def test_no_eligible_sources_retain_all_originals_in_overall(completed_review):
                        llm_finding_id="", programmatic_finding_id="", match_reason="")
         save_review(child, rows)
     assert report_all(run) == 0
-    text = (run / "report.md").read_text()
+    text = BeautifulSoup((run / "report.html").read_text(), "html.parser").get_text(" ", strip=True)
     assert "LLM detection rate: No Human findings were expected" in text
     assert "Programmatic detection rate: No Human findings were expected" in text
     assert "Overall detection rate: Of all 8 Human findings" in text
@@ -342,7 +359,7 @@ def test_combined_report_summarizes_unreadable_responses(full_workspace, monkeyp
             row.update(classification="llm_eligible", classification_reason="HTML evidence")
         save_review(child, rows)
     assert report_all(run) == 0
-    assert "Unreadable responses: 6 of 6 LLM checks" in (run / "report.md").read_text()
+    assert "Unreadable responses: 6 of 6 LLM checks" in BeautifulSoup((run / "report.html").read_text(), "html.parser").get_text(" ", strip=True)
 
 
 def test_report_all_help_explains_review_completion(capsys):
@@ -353,3 +370,56 @@ def test_report_all_help_explains_review_completion(capsys):
     text = " ".join(capsys.readouterr().out.split())
     assert "every listed execution" in text and "all page reviews" in text
     assert "Global" in text and "once" in text
+
+
+def test_global_evidence_includes_every_page_without_deeper_disclosures(completed_review):
+    """Global evidence exposes misses and not-testable decisions in two levels."""
+    run, manifest = completed_review
+    assert report_all(run) == 0
+    document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
+    rows = document.select("#findings > tbody > tr")
+    globals_ = [row for row in rows if row.find("th").get_text(strip=True).startswith("Shared")]
+    assert len(globals_) == 2
+    for row in globals_:
+        outer = row.find("details")
+        page_panels = outer.find_all("details")
+        assert len(page_panels) == len(manifest["pages"])
+        assert all(not panel.find("details") for panel in page_panels)
+        assert all(not panel.has_attr("name") for panel in page_panels)
+        assert all("View page evidence:" in panel.summary.get_text() for panel in page_panels)
+        compact = outer.find("table")
+        assert len(compact.select("tbody > tr")) == len(manifest["pages"])
+        assert [tr.find("th").get_text(strip=True) for tr in compact.select("tbody > tr")] == [
+            page["source_url"] for page in manifest["pages"]]
+    not_testable = globals_[1].get_text(" ", strip=True)
+    assert "Not testable from the page file" in not_testable
+    assert "Not caught" in not_testable
+    local = next(row for row in rows if row.find("th").get_text(strip=True) == "First local")
+    assert len(local.find_all("details")) == 1
+
+
+def test_successful_full_regeneration_replaces_only_its_generated_markdown(completed_review, capsys):
+    """HTML replaces regenerated Markdown without sweeping historical outputs."""
+    run, manifest = completed_review
+    (run / "report.md").write_text("old combined result")
+    historical = run.parent / "historical-run"
+    historical.mkdir()
+    (historical / "report.md").write_text("historical result")
+    for page in manifest["pages"]:
+        (run / page["run_dir"] / "report.md").write_text("old page result")
+    assert report_all(run) == 0
+    assert f"Combined HTML report: {run / 'report.html'}" in capsys.readouterr().out
+    assert not (run / "report.md").exists()
+    assert all(not (run / page["run_dir"] / "report.md").exists() for page in manifest["pages"])
+    assert (historical / "report.md").read_text() == "historical result"
+
+
+def test_missing_parent_rendering_field_withholds_parent_and_preserves_children(completed_review, capsys):
+    """Required provenance cannot silently disappear from a published parent."""
+    run, manifest = completed_review
+    assert report_all(run) == 0
+    del manifest["human_audit_filename"]
+    save_json(run / "full.json", manifest)
+    assert "Cannot render complete report" in refused_report(run, capsys)
+    assert all((run / page["run_dir"] / "report.html").exists() for page in manifest["pages"])
+    assert not list(run.glob(".report.html.*.tmp"))

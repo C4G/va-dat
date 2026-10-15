@@ -1,0 +1,73 @@
+{% from 'evidence.html' import human_evidence, decision_evidence %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}: {{ manifest.run_id }}</title>
+<style>{% include 'report.css' %}</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to report content</a>
+<header>
+<h1>{{ title }}</h1>
+<p>This Full evaluation covers the saved HTML for every page listed in the Human audit with one fixed model.</p>
+<p>Model: {{ manifest.configuration.model }}. Run ID: {{ manifest.run_id }}.</p>
+<p>Review decisions by: {{ reviewer }}</p>
+<nav aria-label="Report sections"><a href="#performance">Detection results</a><a href="#human-findings">Human findings</a><a href="#method">How to read this report</a><a href="#provenance">Cost and provenance</a></nav>
+</header>
+<main id="main">
+<section id="performance" aria-labelledby="performance-title">
+<h2 id="performance-title">Detection results</h2>
+{% for rate in rates %}<p>{{ rate.description }}</p>{% endfor %}
+<p>The LLM and Programmatic detection rates count only catches by the expected part. A catch by the other part counts toward the Overall detection rate, which counts each original Human finding once.</p>
+<p>Each original Human finding counts once. Page-local findings use their assigned page. Global findings earn credit through complete detection on any single page, independently for each detection source. Several catches still count once; partial matches across pages are never combined.</p>
+</section>
+<section id="human-findings" aria-labelledby="findings-title">
+<h2 id="findings-title">Human findings</h2>
+<p>Each original Human finding appears once in source order. Evidence starts collapsed. Open View evidence for the original Human finding and its review decisions. Global findings include every page decision, with independently expandable page evidence.</p>
+<div class="table-scroll" role="region" aria-label="Human findings table" tabindex="0">
+<table id="findings">
+<caption>Original Human findings and combined detection outcomes</caption>
+<thead><tr><th scope="col">Issue title</th><th scope="col">WCAG</th><th scope="col">Scope</th><th scope="col">Expected source</th><th scope="col">LLM</th><th scope="col">Programmatic checks</th><th scope="col">Evidence</th></tr></thead>
+<tbody>
+{% for row in rows %}
+<tr>
+<th scope="row">{{ row.human.problem }}</th><td>{{ row.human.raw_evidence['WCAG Sc'] }}</td><td>{% if row.human.page_scope == 'global' %}Global{% else %}Page-local{% endif %}</td><td>{{ row.expected }}</td><td>{{ row.llm_outcome }}</td><td>{{ row.programmatic_outcome }}</td>
+<td><details><summary>View evidence: {{ row.human.problem }}</summary><div class="evidence">
+{{ human_evidence(row) }}
+{% if row.human.page_scope == 'global' %}
+<h3>Combined result</h3>
+<p>Expected source: {{ row.expected }}. Combined LLM: {{ row.llm_outcome }}. Combined Programmatic checks: {{ row.programmatic_outcome }}. Any complete catch on one page earns combined credit once for that source; partial evidence across pages earns none.</p>
+<div class="table-scroll" role="region" aria-label="Page decisions for {{ row.human.problem }}" tabindex="0">
+<table><caption>Every page decision for {{ row.human.problem }}</caption><thead><tr><th scope="col">Page</th><th scope="col">Expected source</th><th scope="col">LLM</th><th scope="col">Programmatic checks</th></tr></thead><tbody>
+{% for page in row.pages %}<tr><th scope="row">{{ page.source_url }}</th><td>{{ page.expected }}</td><td>{{ page.llm_outcome }}</td><td>{{ page.programmatic_outcome }}</td></tr>{% endfor %}
+</tbody></table></div>
+{% for page in row.pages %}<details><summary>View page evidence: {{ page.source_url }} for {{ row.human.problem }}</summary>
+<p>Page: {{ page.source_url }}; run {{ page.run_id }}. LLM: {{ page.llm_outcome }}. Programmatic checks: {{ page.programmatic_outcome }}.</p>
+{{ decision_evidence(page) }}
+</details>{% endfor %}
+{% else %}
+{% for page in row.pages %}<p>Assigned page: {{ page.source_url }}; run {{ page.run_id }}.</p>{{ decision_evidence(page) }}{% endfor %}
+{% endif %}
+</div></details></td></tr>
+{% endfor %}
+</tbody></table></div>
+</section>
+{% include 'method.html' %}
+<section id="combined-method" aria-labelledby="combined-method-title"><h2 id="combined-method-title">Full evaluation scoring</h2>
+<p>Eligibility is established independently of detection. If any page is testable for a Global finding, the finding enters that expected source's denominator once. All testable pages must agree on the source. Findings not testable on any page remain in Overall and outside the LLM and Programmatic denominators.</p>
+<p>Pages can have different numbers of local and testable findings. Repeated Global findings contribute to each page's results but only once to combined results. Combined rates use original finding counts; page rates must not be added or averaged.</p>
+</section>
+<section id="provenance" aria-labelledby="provenance-title"><h2 id="provenance-title">Cost and provenance</h2>
+<p>Estimated run cost: ${{ cost }}, calculated using authoritative saved page totals, provider-reported token usage and the {{ pricing_description }}. Reported totals: {{ usage_description }}. The actual bill may differ slightly.</p>
+<p>Unreadable responses: {{ unreadable }} of {{ prompts }} LLM checks. These responses yield no LLM findings and do not change execution completion.</p>
+<dl><dt>Human audit</dt><dd>{{ manifest.human_audit_filename }}</dd><dt>Human audit SHA-256</dt><dd>{{ manifest.human_audit_sha256 }}</dd>
+{% for schedule in pricing_schedules %}<dt>Saved pricing version</dt><dd>{{ schedule.version }}</dd><dt>Saved pricing SHA-256</dt><dd>{{ schedule.identity }}</dd>{% for source in schedule.sources %}<dt>Pricing source address</dt><dd>{{ source }}</dd>{% endfor %}{% endfor %}
+</dl>
+<h3>Evaluated pages in source order</h3>
+<dl>{% for page in pages %}<dt>{{ page.manifest.source_url }}</dt><dd>Run: {{ page.manifest.run_id }}; Benchmark snapshot SHA-256: {{ page.manifest.snapshot_sha256 }}. Unreadable responses: {{ page.unreadable }} of {{ page.prompts }} LLM checks{% if page.unreadable %}; {{ page.failed_checks }}{% endif %}.</dd>{% endfor %}</dl>
+</section>
+</main>
+</body>
+</html>

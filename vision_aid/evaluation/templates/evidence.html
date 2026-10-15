@@ -1,0 +1,10 @@
+{% macro human_evidence(row) %}
+<h3>Original Human finding</h3>
+<dl><dt>Human finding ID</dt><dd>{{ row.human.human_finding_id }}</dd><dt>Source</dt><dd>{{ row.human.source_sheet }}, row {{ row.human.source_row }}; scope: {{ row.human.page_scope }}; element: {{ row.human.source_element }}</dd>
+{% for label, value in row.human.raw_evidence.items() %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
+{% endmacro %}
+{% macro decision_evidence(row) %}
+<h3>Review decision</h3>
+<dl><dt>Eligibility classification</dt><dd>{{ row.expected }}</dd><dt>Recorded explanation</dt><dd>{{ row.decision.classification_reason }}</dd><dt>Matching rationale</dt><dd>{{ row.decision.match_reason }}</dd><dt>Review notes</dt><dd>{{ row.decision.review_notes }}</dd></dl>
+{% for finding in row.matched %}<div class="matched"><h3>{{ finding.source }} matching evidence</h3><p>{{ finding.source }} ({{ finding.check }}): {{ finding.problem }}</p><dl><dt>Finding ID</dt><dd>{{ finding.id }}</dd><dt>Check</dt><dd>{{ finding.check_id }}; {{ finding.checklist }}</dd><dt>Page provenance</dt><dd>{{ finding.page_url }}; run {{ finding.run_id }}</dd><dt>Element</dt><dd>{{ finding.element }}</dd><dt>Location</dt><dd>{{ finding.location }}</dd></dl></div>{% endfor %}
+{% endmacro %}
