@@ -68,8 +68,10 @@ remain authoritative.
   `/tmp/va-dat-html-verification/20261011T015629-880f3e7c` with attribution to
   its original saved reviewer decisions. It retains 86 originals and 198 page
   decisions. Combined counts remain 28/62 LLM, 18/18 Programmatic, and 46/86
-  Overall. The parent contains 86 finding disclosures and 119 Global page
-  disclosures, all initially collapsed.
+  Overall. Independent inspection resolved all 187 matched ID occurrences to
+  readable problem text and confirmed all 86 original IDs and titles. The parent
+  contains 86 finding disclosures and 119 Global page disclosures, all initially
+  collapsed.
 - `uv build --wheel` packaged the page, Full, shared evidence and method
   templates and embedded CSS. A fresh environment at
   `/tmp/va-dat-ticket02-installed` generated both scopes from `/tmp`, outside
