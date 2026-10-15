@@ -1,6 +1,7 @@
 /* Browser checks observe CLI-generated documents, never a template/helper API. */
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const {execFileSync} = require('node:child_process');
 const {pathToFileURL} = require('node:url');
 const {chromium} = require(path.join(process.env.REPORT_BROWSER_MODULES, 'playwright'));
 const [behavior, fullFile, pageFile] = process.argv.slice(2);
@@ -118,14 +119,89 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
           assert.equal(await global.locator('details details[open]').count(), 3);
         }
       }
+      if (behavior === 'print') {
+        const print = page.getByRole('button', {name: 'Print complete report', exact: true});
+        assert.equal(await print.count(), 1);
+        // Preserve an uneven mixture of independently opened nested disclosures.
+        await rows.nth(0).locator('summary').first().click();
+        if (filename === fullFile) {
+          const shared = rows.filter({has: page.getByRole('rowheader', {name: 'Shared defect', exact: true})});
+          await shared.locator('summary').first().click();
+          await shared.locator('details details > summary').nth(0).click();
+          await shared.locator('details details > summary').nth(2).click();
+          await page.getByLabel('Page', {exact: true}).selectOption({label: 'https://example.test/'});
+        }
+        await page.getByLabel('Detection outcome', {exact: true}).selectOption({label: 'LLM missed (LLM eligible)'});
+        await page.getByLabel('Search findings and evidence').fill('Complete Global on home');
+        // Ordinary printing follows the current reading state.
+        await page.emulateMedia({media: 'print'});
+        assert.equal(await rows.filter({visible: true}).count(), 1);
+        await page.emulateMedia({media: 'screen'});
+        const originalEvidence = await page.locator('main').textContent();
+        const savedState = () => page.evaluate(() => ({
+          hidden: [...document.querySelectorAll('#findings tr, [data-page-decision]')].map(e => e.hidden),
+          open: [...document.querySelectorAll('details')].map(e => e.open),
+          values: [...document.querySelectorAll('input, select')].map(e => e.value),
+          status: document.getElementById('finding-count').textContent,
+          focused: document.activeElement.id,
+        }));
+        // Headless Chromium cannot operate native preview or distinguish its
+        // completion/cancellation. Simulate those browser lifecycle notifications
+        // and separately inspect a real Chromium PDF before restoring the state.
+        await page.evaluate(() => {window.print = () => window.dispatchEvent(new Event('beforeprint'));});
+        for (const result of ['completed', 'cancelled']) {
+          await print.focus();
+          const before = await savedState();
+          await page.keyboard.press('Enter');
+          assert.equal(await rows.filter({visible: true}).count(), filename === fullFile ? 8 : 7);
+          assert.equal(await page.locator('#findings > tbody > tr[hidden], [data-page-decision][hidden], [data-page-table-row][hidden]').count(), 0);
+          assert.equal(await page.locator('details:not([open])').count(), 0);
+          await page.emulateMedia({media: 'print'});
+          assert.equal(await print.isVisible(), false);
+          assert.equal(await page.locator('#finding-controls').isVisible(), false);
+          assert.equal(await page.locator('[data-search-matches]:visible, [data-selected-page-result]:visible').count(), 0);
+          const evidenceWidth = await rows.nth(0).locator('.evidence').evaluate(e => e.getBoundingClientRect().width);
+          assert.ok(evidenceWidth > 600, `Print evidence uses the page width: ${evidenceWidth}`);
+          const captionWidth = await page.locator('#findings > caption').evaluate(e => e.getBoundingClientRect().width);
+          assert.ok(captionWidth >= evidenceWidth * .9, `Print caption uses the page width: ${captionWidth}`);
+          if (result === 'completed') {
+            const pdf = path.join(path.dirname(filename), `${path.basename(filename)}.pdf`);
+            await page.pdf({path: pdf, format: 'A4', printBackground: true});
+            const text = execFileSync('pdftotext', ['-layout', pdf, '-'], {encoding: 'utf8'}).replace(/\s+/g, ' ');
+            for (const expected of ['Original Human finding', 'Matching rationale', 'Long evidence begins.', 'Long evidence ends.',
+              'Complete Global on home', 'Original evidence', 'Detection overview', 'Exact detection overview data',
+              'Review decisions by: Combined reviewer', 'Saved pricing version', 'How to read this report']) {
+              assert.ok(text.includes(expected), `PDF includes ${expected}`);
+            }
+            if (filename === fullFile) {
+              assert.ok(text.includes('Complete Global on another page'));
+              assert.ok(text.includes('Exact page LLM detection data'));
+              assert.ok(text.includes('Every page decision for Shared defect'));
+            }
+            const identities = await page.locator('dt').filter({hasText: /^Finding ID$/}).evaluateAll(elements =>
+              elements.map(e => e.nextElementSibling.textContent.trim()));
+            for (const identity of identities) assert.ok(text.includes(identity), `PDF includes matched finding ${identity}`);
+            const evidence = await page.locator('#findings dd, #findings .matched > p').allTextContents();
+            const compactText = text.replace(/\s+/g, '');
+            for (const value of evidence) {
+              assert.ok(compactText.includes(value.replace(/\s+/g, '')), `PDF includes saved evidence: ${value.slice(0, 100)}`);
+            }
+          }
+          await page.emulateMedia({media: 'screen'});
+          await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+          assert.deepEqual(await savedState(), before, `${result} restores reading state`);
+          assert.equal(await page.locator('main').textContent(), originalEvidence);
+        }
+      }
       assert.deepEqual(requests, []);
       assert.deepEqual(errors, []);
       await context.close();
-      if (behavior === 'disclosures') {
+      if (behavior === 'disclosures' || behavior === 'print') {
         const nojs = await browser.newContext({offline: true, javaScriptEnabled: false});
         const plain = await nojs.newPage();
         await plain.goto(pathToFileURL(filename).href);
         assert.equal(await plain.getByLabel('Search findings and evidence').isVisible(), false);
+        assert.equal(await plain.getByRole('button', {name: 'Print complete report', exact: true}).isVisible(), false);
         assert.equal(await plain.locator('#findings > tbody > tr:visible').count(), filename === fullFile ? 8 : 7);
         const global = plain.locator('#findings > tbody > tr').filter({has: plain.getByRole('rowheader', {name: 'Shared defect', exact: true})});
         await global.locator('summary').first().focus();
@@ -137,6 +213,15 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
             await plain.keyboard.press('Enter');
           }
           assert.equal(await global.locator('details[open]').count(), 3);
+        }
+        if (behavior === 'print') {
+          const pdf = path.join(path.dirname(filename), `${path.basename(filename)}-nojs.pdf`);
+          await plain.pdf({path: pdf, format: 'A4'});
+          const text = execFileSync('pdftotext', ['-layout', pdf, '-'], {encoding: 'utf8'}).replace(/\s+/g, ' ');
+          for (const expected of ['Shared defect', 'Eligibility classification', 'Complete Global on home',
+            'Detection overview', 'Exact detection overview data', 'Saved pricing version']) {
+            assert.ok(text.includes(expected), `Basic no-JavaScript PDF includes ${expected}`);
+          }
         }
         await nojs.close();
       }

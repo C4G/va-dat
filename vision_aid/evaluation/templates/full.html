@@ -6,7 +6,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ title }}: {{ manifest.run_id }}</title>
-<style>{% include 'report.css' %}{% include 'charts.css' %}</style>
+<style>{% include 'report.css' %}{% include 'charts.css' %}{% include 'print.css' %}</style>
 </head>
 <body>
 <a class="skip" href="#main">Skip to report content</a>
@@ -15,6 +15,7 @@
 <p>This Full evaluation covers the saved HTML for every page listed in the Human audit with one fixed model.</p>
 <p>Model: {{ manifest.configuration.model }}. Run ID: {{ manifest.run_id }}.</p>
 <p>Review decisions by: {{ reviewer }}</p>
+<button id="print-complete-report" type="button" hidden>Print complete report</button>
 <nav aria-label="Report sections"><a href="#performance">Detection results</a><a href="#human-findings">Human findings</a><a href="#method">How to read this report</a><a href="#provenance">Cost and provenance</a></nav>
 </header>
 <main id="main">
@@ -37,7 +38,7 @@
 <tbody>
 {% for row in rows %}
 <tr data-expected="{{ row.expected }}" data-llm="{{ row.llm_outcome }}" data-programmatic="{{ row.programmatic_outcome }}">
-<th scope="row">{{ row.human.problem }}</th><td>{{ row.human.raw_evidence['WCAG Sc'] }}</td><td>{% if row.human.page_scope == 'global' %}Global{% else %}Page-local{% endif %}</td><td>{{ row.expected }}</td><td>{{ row.llm_outcome }}</td><td>{{ row.programmatic_outcome }}</td>
+<th scope="row">{{ row.human.problem }}</th><td data-print-label="WCAG">{{ row.human.raw_evidence['WCAG Sc'] }}</td><td data-print-label="Scope">{% if row.human.page_scope == 'global' %}Global{% else %}Page-local{% endif %}</td><td data-print-label="Expected source">{{ row.expected }}</td><td data-print-label="LLM">{{ row.llm_outcome }}</td><td data-print-label="Programmatic checks">{{ row.programmatic_outcome }}</td>
 <td><p data-selected-page-result hidden></p><div data-search-matches></div><details><summary>View evidence: {{ row.human.problem }}</summary><div class="evidence">
 <div data-evidence-location="Original Human finding">{{ human_evidence(row) }}</div>
 {% if row.human.page_scope == 'global' %}
@@ -74,5 +75,6 @@
 </section>
 </main>
 <script>{% include 'filters.js' %}</script>
+<script>{% include 'print.js' %}</script>
 </body>
 </html>
