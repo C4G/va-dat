@@ -18,6 +18,9 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
       page.on('pageerror', error => errors.push(error.message));
       await page.goto(pathToFileURL(filename).href);
       const rows = page.locator('#findings > tbody > tr');
+      assert.equal(await page.locator('#finding-controls').isVisible(), true);
+      assert.equal(await page.locator('input[type=search], #finding-search, [data-search-matches]').count(), 0);
+      assert.equal(await page.locator('#finding-controls legend').textContent(), 'Filter findings');
       const cost = page.locator('#performance .run-cost');
       assert.equal(await cost.isVisible(), true);
       assert.match(await cost.textContent(), /Estimated run cost:\$0\.\d{6} USD/);
@@ -29,38 +32,6 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 320));
       await page.setViewportSize({width: 1280, height: 900});
       const visibleTitles = () => page.locator('#findings > tbody > tr:visible > th').allTextContents();
-      if (behavior === 'search') {
-        assert.equal(await rows.locator('details[open]').count(), 0);
-        const search = page.getByLabel('Search findings and evidence');
-        await search.fill('Complete Global on home');
-        assert.deepEqual(await visibleTitles(), ['Shared defect']);
-        assert.equal(await search.evaluate(e => document.activeElement === e), true);
-        const match = page.getByRole('button', {name: /Show match in.*Complete Global on home/});
-        assert.equal(await match.count(), 1);
-        assert.match(await match.textContent(), /https:\/\/example.test\//);
-        await match.click();
-        const global = rows.filter({has: page.getByRole('rowheader', {name: 'Shared defect', exact: true})});
-        assert.equal(await global.locator('details[open]').count(), 2);
-        if (filename === fullFile) {
-          await search.fill('Complete Global on another page');
-          const pageMatches = page.getByRole('button', {name: /Show match in.*Complete Global on another page/});
-          assert.equal(await pageMatches.count(), 2);
-          await pageMatches.nth(0).click();
-          await pageMatches.nth(1).click();
-          assert.equal(await global.locator('details details[open]').count(), 3);
-        }
-        await search.fill('Synthetic failure');
-        assert.deepEqual(await visibleTitles(), filename === fullFile ? ['First local', 'Second local', 'Shared defect'] : ['First local', 'Second local']);
-        assert.ok(await page.getByRole('button', {name: /Show match in.*Synthetic failure/}).count());
-        await search.fill('Original evidence');
-        assert.equal(await rows.filter({visible: true}).count(), filename === fullFile ? 5 : 4);
-        assert.ok(await page.getByRole('button', {name: /Show match in Original Human finding/}).count());
-        await search.fill('does-not-appear-in-any-evidence');
-        assert.equal(await rows.filter({visible: true}).count(), 0);
-        assert.match(await page.getByRole('status').textContent(), /No matching findings/);
-        await page.getByRole('button', {name: 'Clear filters', exact: true}).click();
-        assert.equal(await rows.filter({visible: true}).count(), filename === fullFile ? 8 : 7);
-      }
       if (behavior === 'filters') {
         const performance = await page.locator('#performance').textContent();
         const outcome = page.getByLabel('Detection outcome', {exact: true});
@@ -85,11 +56,6 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
           const selected = shared.getByText(/Selected page:/);
           assert.match(await selected.textContent(), /https:\/\/example.test\/.*LLM: Not caught.*Programmatic checks: Caught/);
           assert.match(await shared.locator(':scope > td').nth(3).textContent(), /Caught/);
-          await page.getByLabel('Search findings and evidence').fill('Complete Global on another page');
-          assert.deepEqual(await visibleTitles(), []);
-          await page.getByLabel('Search findings and evidence').fill('Complete Global on home');
-          assert.deepEqual(await visibleTitles(), ['Shared defect']);
-          await page.getByLabel('Search findings and evidence').fill('');
           await pageFilter.selectOption({label: 'https://example.test/contact/'});
           assert.deepEqual(await visibleTitles(), ['Contact local', 'Partial across pages']);
           await outcome.selectOption({label: 'Programmatic missed (Programmatic eligible)'});
@@ -105,8 +71,7 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
         assert.equal(await page.getByRole('button', {name: 'Clear filters', exact: true}).evaluate(e => document.activeElement === e), true);
       }
       if (behavior === 'disclosures') {
-        const search = page.getByLabel('Search findings and evidence');
-        await search.fill('Shared defect');
+        await page.getByLabel('Detection outcome', {exact: true}).selectOption({label: 'Programmatic caught (any eligibility)'});
         if (filename === fullFile) await page.getByLabel('Page', {exact: true}).selectOption({label: 'https://example.test/'});
         const expand = page.getByRole('button', {name: 'Expand all visible evidence', exact: true});
         await expand.focus();
@@ -150,10 +115,9 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
           await page.getByLabel('Page', {exact: true}).selectOption({label: 'https://example.test/'});
         }
         await page.getByLabel('Detection outcome', {exact: true}).selectOption({label: 'LLM missed (LLM eligible)'});
-        await page.getByLabel('Search findings and evidence').fill('Complete Global on home');
         // Ordinary printing follows the current reading state.
         await page.emulateMedia({media: 'print'});
-        assert.equal(await rows.filter({visible: true}).count(), 1);
+        assert.equal(await rows.filter({visible: true}).count(), 2);
         await page.emulateMedia({media: 'screen'});
         const originalEvidence = await page.locator('main').textContent();
         const savedState = () => page.evaluate(() => ({
@@ -177,7 +141,7 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
           await page.emulateMedia({media: 'print'});
           assert.equal(await print.isVisible(), false);
           assert.equal(await page.locator('#finding-controls').isVisible(), false);
-          assert.equal(await page.locator('[data-search-matches]:visible, [data-selected-page-result]:visible').count(), 0);
+          assert.equal(await page.locator('[data-selected-page-result]:visible').count(), 0);
           const evidenceWidth = await rows.nth(0).locator('.evidence').evaluate(e => e.getBoundingClientRect().width);
           assert.ok(evidenceWidth > 600, `Print evidence uses the page width: ${evidenceWidth}`);
           const captionWidth = await page.locator('#findings > caption').evaluate(e => e.getBoundingClientRect().width);
@@ -218,7 +182,7 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
         const nojs = await browser.newContext({offline: true, javaScriptEnabled: false});
         const plain = await nojs.newPage();
         await plain.goto(pathToFileURL(filename).href);
-        assert.equal(await plain.getByLabel('Search findings and evidence').isVisible(), false);
+        assert.equal(await plain.locator('#finding-controls').isVisible(), false);
         assert.equal(await plain.getByRole('button', {name: 'Print complete report', exact: true}).isVisible(), false);
         assert.equal(await plain.locator('#findings > tbody > tr:visible').count(), filename === fullFile ? 8 : 7);
         const global = plain.locator('#findings > tbody > tr').filter({has: plain.getByRole('rowheader', {name: 'Shared defect', exact: true})});

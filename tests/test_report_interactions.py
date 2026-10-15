@@ -22,7 +22,7 @@ from test_full_report import (
 __all__ = ["completed_review", "full_workspace"]
 
 
-@pytest.mark.parametrize("behavior", ["search", "filters", "disclosures", "print"])
+@pytest.mark.parametrize("behavior", ["filters", "disclosures", "print"])
 def test_offline_report_interactions(completed_review, tmp_path, behavior):
     """Users can investigate saved evidence without resources beside the HTML."""
     modules = os.environ.get("REPORT_BROWSER_MODULES")

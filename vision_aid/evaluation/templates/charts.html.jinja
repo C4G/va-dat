@@ -30,6 +30,7 @@
 <figure class="detection-chart" aria-labelledby="detection-chart-title">
 <figcaption><h3 id="detection-chart-title">Detection overview</h3></figcaption>
 <ul class="chart-bars">{% for rate in rates %}{{ rate_bar(rate.label, rate, loop.first) }}{% endfor %}</ul>
+<p>Overall includes all Human findings, including those the tool cannot detect from the saved HTML and those too ambiguous to evaluate. These findings are left out of the LLM and Programmatic eligible counts, so the Overall count can exceed their combined total.</p>
 </figure>
 {% endmacro %}
 

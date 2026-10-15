@@ -3,7 +3,7 @@
 @media print {
   body { max-width: none; padding: 0; color: #000; font-size: 11pt; line-height: 1.4; }
   .skip, nav, #print-complete-report, #finding-controls,
-  [data-search-matches], [data-selected-page-result] { display: none !important; }
+  [data-selected-page-result] { display: none !important; }
   .table-scroll { overflow: visible; }
   table { table-layout: fixed; }
   thead { display: table-header-group; }

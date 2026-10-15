@@ -26,7 +26,6 @@ dd { margin: 0 0 .8rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 #finding-controls fieldset { border: 1px solid #8a99a6; padding: 1rem; }
 #finding-controls label { display: block; font-weight: 650; margin-top: .8rem; }
-#finding-controls input, #finding-controls select { display: block; width: 100%; max-width: 42rem; font: inherit; padding: .5rem; color: inherit; background: #fff; border: 1px solid #687f93; }
-#finding-controls button, [data-search-matches] button { font: inherit; color: #164e88; background: #edf2f6; border: 1px solid #687f93; border-radius: .2rem; padding: .5rem .75rem; margin: .5rem .5rem .5rem 0; cursor: pointer; }
-[data-search-matches] button { text-align: left; overflow-wrap: anywhere; max-width: 100%; }
+#finding-controls select { display: block; width: 100%; max-width: 42rem; font: inherit; padding: .5rem; color: inherit; background: #fff; border: 1px solid #687f93; }
+#finding-controls button { font: inherit; color: #164e88; background: #edf2f6; border: 1px solid #687f93; border-radius: .2rem; padding: .5rem .75rem; margin: .5rem .5rem .5rem 0; cursor: pointer; }
 [data-selected-page-result] { border-left: 3px solid #687f93; padding-left: .7rem; }

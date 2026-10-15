@@ -11,6 +11,6 @@
 {% endmacro %}
 {% macro page_evidence(row) %}
 <details data-page-decision data-page="{{ row.source_url }}" data-expected="{{ row.expected }}" data-llm="{{ row.llm_outcome }}" data-programmatic="{{ row.programmatic_outcome }}"><summary>View Page Decisions: {{ row.source_url }}</summary>
-<div data-evidence-location="Review and tool evidence on {{ row.source_url }}">{{ decision_evidence(row) }}</div>
+{{ decision_evidence(row) }}
 </details>
 {% endmacro %}
