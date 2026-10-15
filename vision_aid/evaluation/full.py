@@ -11,6 +11,7 @@ from typing import Any
 
 import requests
 
+from vision_aid.evaluation.html_report import write_full_report, write_page_report
 from vision_aid.evaluation.human_audit import import_all_human_findings, list_audit_urls
 from vision_aid.evaluation.llm_audit import (
     USAGE_KEYS,
@@ -20,7 +21,6 @@ from vision_aid.evaluation.llm_audit import (
     write_json,
 )
 from vision_aid.evaluation.page import PageReview, prepare_page, validated_page_review
-from vision_aid.evaluation.review import write_combined_report, write_report
 from vision_aid.evaluation.schemas import HumanAudit
 
 
@@ -333,15 +333,14 @@ def report_full_evaluation(run: Path, reviewer: str) -> None:
         raise ValueError("A reviewer description is required")
     run = run.resolve()
     # Regeneration cannot leave a previous final report beside invalid decisions.
+    (run / "report.html").unlink(missing_ok=True)
     (run / "report.md").unlink(missing_ok=True)
     manifest = json.loads((run / "full.json").read_text())
     original = json.loads((run / "human-findings.json").read_text())
     reviews = _validated_full_reviews(run, manifest, original)
     rows = _pooled_rows(original["human_findings"], manifest["pages"], reviews)
     for page, review in zip(manifest["pages"], reviews, strict=True):
-        write_report(
-            run / page["run_dir"] / "report.md", review.manifest,
-            review.rows, review.llm, review.programmatic, reviewer,
-            review.schedule.price_description,
-        )
-    write_combined_report(run / "report.md", manifest, rows, reviews, reviewer)
+        child = run / page["run_dir"]
+        write_page_report(child / "report.html", review, reviewer)
+        (child / "report.md").unlink(missing_ok=True)
+    write_full_report(run / "report.html", manifest, rows, reviews, reviewer)

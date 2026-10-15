@@ -64,6 +64,7 @@ def test_one_approval_executes_ordered_pages_with_one_fixed_preset(
     assert preview(full_workspace, "--live", "--model", model) == 0
     run, manifest = only_full(full_workspace)
     saved = children(run, manifest)
+    assert not (run / "report.html").exists()
     assert len(approvals) == 1 and manifest["complete"]
     assert manifest["incomplete_reason"] is None
     assert len(requests) == sum(len(child["prompts"]) for _, child in saved) > 0
@@ -73,6 +74,7 @@ def test_one_approval_executes_ordered_pages_with_one_fixed_preset(
         assert child_manifest["complete"]
         assert child_manifest["configuration"] == manifest["configuration"]
         assert not (child / "report.md").exists()
+        assert not (child / "report.html").exists()
         assert (child / "artifacts/raw-llm-responses.json").exists()
         for finding in json.loads((child / "normalized-llm-findings.json").read_text()):
             assert finding["page_url"] == child_manifest["source_url"]

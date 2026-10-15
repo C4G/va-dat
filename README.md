@@ -634,10 +634,15 @@ uv run visionaid-evaluate report-all \
 ```
 
 `report-all` validates every listed execution, child evidence identity, and
-page review before writing final combined rates to the parent's `report.md`.
-The report lists every original Human finding once, identifies the reviewer,
-links page reports, names supporting pages and finding IDs, and totals saved
-estimated cost, provider-reported usage, and Unreadable responses. The supplied
+page review before writing final combined rates to the parent's `report.html`.
+Open that file in a browser. It is a self-contained offline document with every
+original Human finding once, the reviewer attribution, and embedded readable
+matching evidence. Global findings show a compact table of every page's decision,
+including misses and findings Not testable from the page file. Open the independent
+page evidence controls to compare the matches, check identities, rationale, and
+notes for several pages. The parent needs no child reports or neighboring files.
+The command also generates each child's `report.html` and totals saved estimated
+cost, provider-reported usage, and Unreadable responses. The supplied
 audit has 86 originals across 17 pages; repeated Globals produce 198 review
 rows, while the combined Overall denominator stays 86.
 
@@ -659,9 +664,12 @@ counts in Overall but earns no credit in the expected source's rate.
 Missing or incomplete execution, invalid reviews, missing evidence, or
 conflicting testable Global classifications withhold final combined rates.
 Correct review decisions and run `report-all` again. Regenerating a report
-removes the previous parent report before validation, so invalid revised
-reviews cannot leave stale combined rates. Available individual reports and
-evidence remain. To report one completed child after a later page failure, use:
+removes the previous parent HTML and legacy Markdown report before validation,
+so invalid revised reviews cannot leave stale combined rates. Available individual
+reports and evidence remain. Each HTML file is published only after rendering
+succeeds. Successful reporting removes superseded generated Markdown for the
+regenerated reports; unrelated historical runs remain untouched. To report one
+completed child after a later page failure, use:
 
 ```bash
 uv run visionaid-evaluate report \
@@ -726,8 +734,10 @@ on screen only and absent from va-dat's CSV report.
 The run root holds the review evidence and scored results. Supporting files
 are together under `$RUN_DIR/artifacts/`. Without `--live`, the command prepares
 the prompts but makes no model requests; neither LLM output file exists yet.
-The individual `report` command adds `report.html` at the root. The Full
-evaluation `report-all` command continues to produce Markdown until its migration.
+The `report` command adds `report.html` at an individual run root. The Full
+evaluation `report-all` command adds `report.html` at the parent and each child
+run root. Reports can regenerate from saved reviewed evidence without model calls;
+both commands require explicit reviewer attribution.
 
 New runs and reporting use only this layout. Existing run directories remain
 untouched and require manual reorganization before the updated `report` command
@@ -742,7 +752,7 @@ compatibility fallback or automatic migration.
 | `normalized-llm-findings.json`             | LLM findings with `finding_id` values for `review.csv`, read as described above. An Unreadable response can appear in `artifacts/raw-llm-responses.json` without producing a finding here.                            |
 | `normalized-programmatic-findings.json`    | Checker results converted to findings with `finding_id` values for `review.csv`.                                                                                                                                      |
 | `run.json`                                 | Configuration, snapshot checksum, prompt list, completion status, format failures, token usage, and estimated cost. `complete: true` does not imply that every response parsed successfully; check `format_failures`. |
-| `report.html`                              | Self-contained individual Evaluation report generated after successful reporting.                                                                                                                                                                  |
+| `report.html`                              | Self-contained Evaluation report generated after successful reporting; a Full evaluation parent embeds all page matching evidence.                                                                                                                                                                  |
 | `artifacts/human-findings.json`            | Canonical imported Home and Global Human findings used to validate and score the review.                                                                                                                              |
 | `artifacts/pricing.json`                   | The versioned public model rates and capture date used to estimate this run's cost from reported usage. Older runs retain their original price schedule.                                                              |
 | `artifacts/raw-llm-responses.json`         | Live model replies, request outcomes, and reported token usage, including responses that could not be parsed into findings.                                                                                           |

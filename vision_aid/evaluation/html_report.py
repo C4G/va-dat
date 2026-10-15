@@ -110,7 +110,65 @@ def page_data(review: PageReview, reviewer: str) -> dict[str, Any]:
     }
 
 
+def full_data(
+    manifest: dict[str, Any], pooled: list[dict[str, Any]],
+    reviews: list[PageReview], reviewer: str,
+) -> dict[str, Any]:
+    """Combine validated presentation rows without changing pooled scoring."""
+    pages = [page_data(review, reviewer) for review in reviews]
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for page in pages:
+        for row in page["rows"]:
+            grouped.setdefault(row["human"]["human_finding_id"], []).append({
+                **row, "source_url": page["manifest"]["source_url"],
+                "run_id": page["manifest"]["run_id"],
+            })
+    counts = detection_counts(pooled)
+    rows = []
+    for row in pooled:
+        rows.append({
+            "human": row["human_finding"],
+            "expected": EXPECTED[row["decision"]["classification"]],
+            "llm_outcome": "Caught" if row["matches"]["llm"] else "Not caught",
+            "programmatic_outcome": "Caught" if row["matches"]["programmatic"] else "Not caught",
+            "pages": grouped[row["human_finding"]["human_finding_id"]],
+        })
+    return {
+        "title": "Full accessibility evaluation", "full": True,
+        "manifest": manifest, "reviewer": reviewer, "rows": rows, "pages": pages,
+        "rates": [{
+            "label": label.removesuffix(" checks"), **counts[kind],
+            "description": _rate(label, counts[kind]["caught"], counts[kind]["eligible"]).replace(
+                "the page's HTML", "the evaluated pages' HTML"),
+        } for kind, label in (("llm", "LLM"), ("programmatic", "Programmatic checks"), ("overall", "Overall"))],
+        "cost": f"{Decimal(manifest['estimated_cost_usd']):.2f}",
+        "pricing_description": ", ".join(dict.fromkeys(page["pricing_description"] for page in pages)),
+        "pricing_schedules": list({
+            page["pricing_identity"]: {
+                "version": page["pricing_version"], "identity": page["pricing_identity"],
+                "sources": page["pricing_sources"],
+            } for page in pages
+        }.values()),
+        "usage_description": _usage_description(manifest["usage"]),
+        "unreadable": sum(page["unreadable"] for page in pages),
+        "prompts": sum(page["prompts"] for page in pages),
+    }
+
+
+def write_full_report(
+    path: Path, manifest: dict[str, Any], pooled: list[dict[str, Any]],
+    reviews: list[PageReview], reviewer: str,
+) -> None:
+    """Render every accepted page decision into the standalone parent."""
+    _write_html(path, "full.html", full_data(manifest, pooled, reviews, reviewer))
+
+
 def write_page_report(path: Path, review: PageReview, reviewer: str) -> None:
+    """Publish a standalone individual Evaluation report."""
+    _write_html(path, "page.html", page_data(review, reviewer))
+
+
+def _write_html(path: Path, template: str, data: dict[str, Any]) -> None:
     """Render completely, then atomically replace the report in its directory."""
     environment = Environment(
         loader=PackageLoader("vision_aid.evaluation", "templates"),
@@ -118,20 +176,14 @@ def write_page_report(path: Path, review: PageReview, reviewer: str) -> None:
         undefined=StrictUndefined,
     )
     try:
-        content = environment.get_template("page.html").render(
-            **page_data(review, reviewer)
-        )
+        content = environment.get_template(template).render(**data)
     except TemplateError as error:
         raise ValueError(f"Cannot render complete report: {error}") from error
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=f".{path.name}.", suffix=".tmp", delete=False,
         ) as stream:
             temporary = Path(stream.name)
             stream.write(content)
