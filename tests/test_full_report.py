@@ -308,9 +308,9 @@ def test_completed_child_report_survives_later_parent_failure(full_workspace, mo
         row.update(classification="llm_eligible", classification_reason="Saved evidence")
     save_review(first, rows)
     assert main(["report", "--run-dir", str(first), "--reviewer", "Page reviewer"]) == 0
-    saved = (first / "report.md").read_bytes()
+    saved = (first / "report.html").read_bytes()
     assert "Incomplete Full evaluations" in refused_report(run, capsys)
-    assert (first / "report.md").read_bytes() == saved
+    assert (first / "report.html").read_bytes() == saved
 
 
 def test_reviewer_description_is_required(completed_review, capsys):

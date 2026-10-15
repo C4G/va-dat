@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}: {{ manifest.source_url }}</title>
+<style>{% include 'report.css' %}</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to report content</a>
+<header>
+<h1>{{ title }}</h1>
+<p>This evaluation covers the saved page at {{ manifest.source_url }}, including Global findings that apply there.</p>
+<p>Model: {{ manifest.configuration.model }}. Run ID: {{ manifest.run_id }}.</p>
+<p>Review decisions by: {{ reviewer }}</p>
+<nav aria-label="Report sections"><a href="#performance">Detection results</a><a href="#human-findings">Human findings</a><a href="#method">How to read this report</a><a href="#provenance">Cost and provenance</a></nav>
+</header>
+<main id="main">
+<section id="performance" aria-labelledby="performance-title">
+<h2 id="performance-title">Detection results</h2>
+{% for rate in rates %}<p>{{ rate.description }}</p>{% endfor %}
+<p>The LLM and Programmatic detection rates count only catches by the expected part. A catch by the other part counts toward the Overall detection rate, which counts each Human finding once out of all imported Human findings.</p>
+</section>
+<section id="human-findings" aria-labelledby="findings-title">
+<h2 id="findings-title">Human findings</h2>
+<p>Evidence starts collapsed. Open any View evidence control to read the original Human finding and the review decision.</p>
+<div class="table-scroll" role="region" aria-label="Human findings table" tabindex="0">
+<table id="findings">
+<caption>Human findings and detection outcomes</caption>
+<thead><tr><th scope="col">Issue title</th><th scope="col">WCAG</th><th scope="col">Expected source</th><th scope="col">LLM</th><th scope="col">Programmatic checks</th><th scope="col">Evidence</th></tr></thead>
+<tbody>
+{% for row in rows %}
+<tr>
+<th scope="row">{{ row.human.problem }}</th><td>{{ row.human.raw_evidence['WCAG Sc'] }}</td><td>{{ row.expected }}</td><td>{{ row.llm_outcome }}</td><td>{{ row.programmatic_outcome }}</td>
+<td><details><summary>View evidence: {{ row.human.problem }}</summary>
+<div class="evidence">
+<h3>Original Human finding</h3>
+<dl><dt>Human finding ID</dt><dd>{{ row.human.human_finding_id }}</dd><dt>Source</dt><dd>{{ row.human.source_sheet }}, row {{ row.human.source_row }}; scope: {{ row.human.page_scope }}; element: {{ row.human.source_element }}</dd>
+{% for label, value in row.human.raw_evidence.items() %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
+<h3>Review decision</h3>
+<dl><dt>Eligibility classification</dt><dd>{{ row.expected }}</dd><dt>Recorded explanation</dt><dd>{{ row.decision.classification_reason }}</dd><dt>Matching rationale</dt><dd>{{ row.decision.match_reason }}</dd><dt>Review notes</dt><dd>{{ row.decision.review_notes }}</dd></dl>
+{% for finding in row.matched %}<div class="matched"><h3>{{ finding.source }} matching evidence</h3><p>{{ finding.source }} ({{ finding.check }}): {{ finding.problem }}</p><dl><dt>Finding ID</dt><dd>{{ finding.id }}</dd><dt>Check</dt><dd>{{ finding.check_id }}; {{ finding.checklist }}</dd><dt>Page provenance</dt><dd>{{ finding.page_url }}; run {{ finding.run_id }}</dd><dt>Element</dt><dd>{{ finding.element }}</dd><dt>Location</dt><dd>{{ finding.location }}</dd></dl></div>{% endfor %}
+</div></details></td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% if not rows %}<p>No Human findings were imported for this page.</p>{% endif %}
+</section>
+<section id="method" aria-labelledby="method-title"><h2 id="method-title">How to read this report</h2>
+<p>The benchmark is the Human audit, an accessibility audit performed by human testers. Each problem they reported is a Human finding.</p>
+<p>LLM checks send extracted page content to the model with prompts asking it to identify accessibility problems. Programmatic checks apply fixed rules directly to the page's HTML.</p>
+<p>LLM findings are read from each response with the tool's own rules, before its false-positive filter and deduplication.</p>
+<p>The tool saw only saved HTML, not a live browser or screen reader. A reviewer decided which part should be expected to detect each Human finding. A catch counts only when the matched findings fully cover the whole Human finding. Partial coverage earns no credit.</p>
+<p>Not testable from the page file: These Human findings cannot be judged from the saved HTML or are too unclear to judge. They are left out of the LLM and Programmatic detection rates but remain in the Overall denominator. Their recorded explanations appear in the evidence.</p>
+</section>
+<section id="provenance" aria-labelledby="provenance-title"><h2 id="provenance-title">Cost and provenance</h2>
+<p>Estimated run cost: ${{ cost }}, calculated using provider-reported token usage and the {{ pricing_description }}. Reported totals: {{ usage_description }}. The actual bill may differ slightly.</p>
+<p>Unreadable responses: {{ unreadable }} of {{ prompts }} LLM checks. These responses yield no LLM findings and do not change execution completion.</p>
+{% if unreadable %}<p>{{ unreadable }} of {{ prompts }} LLM checks returned an Unreadable response that the tool would skip: {{ failed_checks }}.</p>{% endif %}
+<dl><dt>Human audit</dt><dd>{{ manifest.human_audit_filename }}</dd><dt>Human audit SHA-256</dt><dd>{{ manifest.human_audit_sha256 }}</dd><dt>Benchmark snapshot SHA-256</dt><dd>{{ manifest.snapshot_sha256 }}</dd><dt>Saved pricing version</dt><dd>{{ pricing_version }}</dd><dt>Saved pricing SHA-256</dt><dd>{{ pricing_identity }}</dd>{% for source in pricing_sources %}<dt>Pricing source address</dt><dd>{{ source }}</dd>{% endfor %}</dl>
+</section>
+</main>
+</body>
+</html>

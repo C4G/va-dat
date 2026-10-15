@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import openpyxl
 import pytest
+from bs4 import BeautifulSoup
 
 from processing_scripts.llm.registry import PROMPT_REGISTRY
 from vision_aid.evaluation import llm_audit
@@ -76,9 +77,9 @@ def run_cli(workspace: Path, *extra: str) -> int:
 
 
 def report(run: Path) -> str:
-    """Score a reviewed run and return the Markdown report."""
+    """Score a reviewed run and return readable HTML text."""
     assert main(["report", "--run-dir", str(run), "--reviewer", REVIEWER]) == 0
-    return (run / "report.md").read_text(encoding="utf-8")
+    return BeautifulSoup((run / "report.html").read_text(encoding="utf-8"), "html.parser").get_text(" ", strip=True)
 
 
 def refused(run: Path, capsys: pytest.CaptureFixture[str], reviewer: str = REVIEWER) -> str:
@@ -86,7 +87,7 @@ def refused(run: Path, capsys: pytest.CaptureFixture[str], reviewer: str = REVIE
     with pytest.raises(SystemExit) as error:
         main(["report", "--run-dir", str(run), "--reviewer", reviewer])
     assert error.value.code == 2
-    assert not (run / "report.md").exists()
+    assert not (run / "report.html").exists()
     return capsys.readouterr().err
 
 
@@ -593,6 +594,7 @@ def test_historical_reports_keep_saved_prices_and_stored_estimate(workspace, mon
     text = report(run)
     assert "Estimated run cost: $5.40" in text
     assert "published prices dated 2025-10-01" in text
+    assert "https://platform.claude.com/docs/en/about-claude/pricing" in text
     assert "180000 input tokens" in text and "18000 output tokens" in text
     assert all(path.read_bytes() == saved for path, saved in originals.items())
 
@@ -658,16 +660,19 @@ def test_review_validation_and_report_metrics(workspace, monkeypatch, capsys):
             "page's HTML, it caught 1 (50.0%)") in text
     assert "they caught 1 (50.0%)" in text
     assert "Of all 6 Human findings, either part of the tool caught 3 (50.0%)" in text
-    assert "| Skipped heading | 1.3.1 | Programmatic checks | ✓ | ✗ |" in text
-    assert "Why this counts: Full issue" in text
-    missed = text.split("## Missed\n", 1)[1].split("## Not testable", 1)[0]
-    assert "### No captions" in missed and "No full finding" in missed
-    excluded = text.split("## Not testable from the page file\n", 1)[1]
-    assert "### Hidden menu" in excluded and "Needs a browser" in excluded
-    assert "### Unclear claim" in excluded and "Needs judgment" in excluded
+    document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
+    rows = document.select("#findings tbody > tr")
+    assert [cell.get_text(" ", strip=True) for cell in rows[2].find_all(["th", "td"], recursive=False)[:5]] == [
+        "Skipped heading", "1.3.1", "Programmatic checks", "Caught", "Not caught",
+    ]
+    assert "Full issue" in rows[0].details.get_text()
+    assert "No full finding" in rows[5].details.get_text()
+    assert "Needs a browser" in rows[3].details.get_text()
+    assert "Needs judgment" in rows[4].details.get_text()
     assert ("1 of 18 LLM checks returned an Unreadable response that the tool "
             "would skip: page title check.") in text
-    assert all(finding_id not in text for finding_id in [*llm, programmatic])
+    assert llm[0] in text and llm[1] in text and programmatic in text
+    assert llm[2] not in text
     edit_review(run, *[{"classification": "ambiguous", "llm_finding_id": "",
                         "programmatic_finding_id": "", "match_reason": ""}] * 6)
     text = report(run)
@@ -802,5 +807,101 @@ def test_llm_findings_follow_the_tools_rules(workspace, monkeypatch):
     text = report(run)
     assert ("LLM findings are read from each response with the tool's own rules, "
             "before its false-positive filter and deduplication.") in text
-    assert ("- LLM (media captions check; shown on screen only, not in the tool's "
+    assert ("LLM (media captions check; shown on screen only, not in the tool's "
             "CSV report): No captions track") in text
+
+
+def test_single_page_report_is_standalone_html(workspace, monkeypatch, capsys):
+    """A completed review produces readable offline HTML with native evidence controls."""
+    fake_client(monkeypatch)
+    assert run_cli(workspace, "--live", "--approve-live") == 0
+    run = only_run(workspace)
+    edit_review(run, *[{"classification": "llm_eligible"}] * 6)
+    legacy = run / "report.md"
+    legacy.write_text("Superseded report")
+    assert main(["report", "--run-dir", str(run), "--reviewer", REVIEWER]) == 0
+    document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
+    assert f"HTML report: {run / 'report.html'}" in capsys.readouterr().out
+    assert not legacy.exists()
+    assert document.html["lang"] == "en"
+    assert document.title and document.h1
+    assert document.select_one('a[href="#main"]') and document.main["id"] == "main"
+    assert document.style and not document.select("script[src], link[rel=stylesheet], img[src]")
+    table = document.find("table", attrs={"id": "findings"})
+    assert table.caption and len(table.tbody.find_all("tr", recursive=False)) == 6
+    assert [row.th.get_text(strip=True) for row in table.tbody.find_all("tr", recursive=False)] == [
+        "Unclear link", "Missing destination", "Skipped heading", "Hidden menu", "Unclear claim", "No captions",
+    ]
+    disclosures = table.find_all("details")
+    assert len(disclosures) == 6 and all(not item.has_attr("open") for item in disclosures)
+    assert all("View evidence" in item.summary.get_text() for item in disclosures)
+    assert "Vague link\nfor everyone" in document.get_text()
+
+
+def test_report_embeds_canonical_and_complete_matching_evidence(workspace, monkeypatch):
+    """Editable evidence cannot replace originals, and joint matches retain check provenance."""
+    fake_client(monkeypatch)
+    assert run_cli(workspace, "--live", "--approve-live") == 0
+    run = only_run(workspace)
+    findings = load(run, "normalized-llm-findings.json")
+    hostile = '<script>alert("evidence")</script><img src=x onerror=alert(1)>'
+    findings[0].update(problem=hostile, element="<a href='x'>", location="Footer", checklist="Synthetic checklist 42")
+    (run / "normalized-llm-findings.json").write_text(json.dumps(findings))
+    edit_review(run, {
+        "classification": "llm_eligible", "llm_finding_id": ";".join(item["finding_id"] for item in findings[:2]),
+        "match_reason": "Together they fully cover the link", "review_notes": hostile,
+        "actual result": "Editable evidence replacement", "Issue Title": "Edited title",
+    }, *[{"classification": "ambiguous"}] * 5)
+    monkeypatch.setattr(llm_audit, "LLMRequestClient", lambda **_: pytest.fail("report made a paid request"))
+    assert main(["report", "--run-dir", str(run), "--reviewer", hostile]) == 0
+    document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
+    evidence = document.select_one("#findings tbody tr details")
+    text = evidence.get_text(" ", strip=True)
+    assert "Editable evidence replacement" not in text and "Edited title" not in text
+    assert "Vague link\nfor everyone" in text and "Unclear link" in text
+    assert hostile in text and not document.select("script, img, [onerror]")
+    assert "Synthetic checklist 42" in text
+    assert all(item["finding_id"] in text for item in findings[:2])
+    assert "Together they fully cover the link" in text and "Footer" in text
+    assert "<a href='x'>" in text and findings[0]["page_url"] in text
+
+
+@pytest.mark.parametrize("missing", ["human_audit_filename", "configuration.model"])
+def test_report_requires_complete_rendering_data(workspace, monkeypatch, capsys, missing):
+    """Absent required fields cannot publish HTML or discard a legacy report."""
+    fake_client(monkeypatch)
+    assert run_cli(workspace, "--live", "--approve-live") == 0
+    run = only_run(workspace)
+    edit_review(run, *[{"classification": "llm_eligible"}] * 6)
+    manifest = load(run, "run.json")
+    if missing == "configuration.model":
+        del manifest["configuration"]["model"]
+    else:
+        del manifest[missing]
+    (run / "run.json").write_text(json.dumps(manifest))
+    legacy = run / "report.md"
+    legacy.write_text("Previous report")
+    assert "Cannot render complete report" in refused(run, capsys)
+    assert legacy.read_text() == "Previous report"
+    assert not list(run.glob(".report.html.*.tmp"))
+
+
+def test_report_with_no_human_findings_has_no_false_zero_rates(workspace, monkeypatch):
+    """An empty saved review explains absent denominators in words."""
+    fake_client(monkeypatch)
+    assert run_cli(workspace, "--live", "--approve-live") == 0
+    run = only_run(workspace)
+    audit = load(run, "artifacts/human-findings.json")
+    audit["human_findings"] = []
+    (run / "artifacts/human-findings.json").write_text(json.dumps(audit))
+    with (run / "review.csv").open() as stream:
+        header = next(csv.reader(stream))
+    with (run / "review.csv").open("w", newline="") as stream:
+        csv.writer(stream).writerow(header)
+    text = report(run)
+    assert "No Human findings were imported for this page" in text
+    assert "No Human findings were expected to be detected by the LLM" in text
+    assert "No Human findings were expected to be detected by the Programmatic checks" in text
+    assert "(0.0%)" not in text
+    document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
+    assert not document.select("#findings tbody tr")

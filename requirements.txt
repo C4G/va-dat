@@ -52,12 +52,16 @@ idna==3.18
     #   anyio
     #   httpx
     #   requests
+jinja2==3.1.6
+    # via visionaid
 jiter==0.16.0
     # via
     #   anthropic
     #   openai
 lxml==6.1.1
     # via visionaid
+markupsafe==3.0.4
+    # via jinja2
 openai==2.53.0
     # via visionaid
 openpyxl==3.1.5
