@@ -259,3 +259,40 @@ completion/cancellation, other browsers, actual zoom, manual keyboard inspection
 private-use icon appearance and screen-reader reading remain under ticket 06.
 Accessible PDF production and claims of WCAG conformance remain outside this
 verification. Headless PDF text checks do not establish accessible PDF output.
+
+## Integration review, 2026-10-15
+
+The spec review found no implementation issues. The standards review identified
+duplicated document layout in the individual and Full templates. Both now extend
+one shared `base.html` for the document metadata, embedded assets, skip link,
+model and reviewer attribution, navigation, print button and scripts. Their
+scope-specific evidence, charts and scoring explanations remain in the existing
+templates.
+
+- The complete suite passed with 144 tests, including all four browser cases.
+  Scoped Ruff for `vision_aid/evaluation` and `tests`, and `git diff --check`,
+  passed. Existing public CLI and browser tests cover this template refactor;
+  no tests tied to the inheritance implementation were added.
+- A fresh wheel includes `base.html`. Installed commands generated both scopes
+  from `/tmp`, outside the checkout, against a separate saved-run copy at
+  `/tmp/va-dat-report-review-runs/20261011T015629-880f3e7c`. Both generated files
+  match their pre-refactor HTML except for blank lines. No live provider calls
+  were made.
+- Independent final integration inspection confirmed 86 overview rows, 198 page
+  decisions and 187 matched ID occurrences, with all saved classifications,
+  rationale and notes retained. Rates remain 28/62 LLM, 18/18 Programmatic and
+  46/86 Overall, and saved cached-token accounting is unchanged. SHA-256 checks
+  confirmed all 342 original source files were unchanged.
+- The installed outputs were copied alone to the `full` and `page` directories
+  under `/tmp/va-dat-report-review-standalone/`. Chromium 153.0.8010.12 opened
+  both through `file:` with networking disabled and made no HTTP requests.
+  axe-core 4.14.0 reported no violations or incomplete checks for WCAG 2 A/AA
+  and 2.1/2.2 AA tags in each initial document. Both document and body widths
+  stayed at 320 CSS pixels in a 320-pixel viewport. All 205 Full and 16 page
+  disclosures started collapsed; keyboard Enter opened a native disclosure
+  with JavaScript disabled in both scopes. These results also matched the
+  independent integration checks before the layout refactor.
+
+The manual assistive-technology and native print-preview checks listed above
+remain outstanding under ticket 06. These automated checks do not establish
+WCAG conformance or accessible PDF output.
