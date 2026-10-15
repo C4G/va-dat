@@ -13,8 +13,8 @@
 {% block scope %}{% endblock %}
 <p>Run ID: {{ manifest.run_id }}.</p>
 <p>Review decisions by: {{ reviewer }}</p>
-<button id="print-complete-report" type="button" hidden>Print complete report</button>
-<nav aria-label="Report sections"><a href="#performance">Cost and detection results</a><a href="#human-findings">Tool Findings and Human Finding Matches</a><a href="#method">How to read this report</a></nav>
+<button id="print-report" type="button" hidden>Print report</button>
+<nav aria-label="Report sections"><a href="#performance">Cost and detection results</a><a href="#human-findings">Tool Findings and Human Finding Matches</a></nav>
 </header>
 <main id="main">
 {% block content %}{% endblock %}

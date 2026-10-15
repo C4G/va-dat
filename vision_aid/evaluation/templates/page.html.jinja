@@ -21,7 +21,7 @@
 {% for row in rows %}
 <tr data-expected="{{ row.expected }}" data-llm="{{ row.llm_outcome }}" data-programmatic="{{ row.programmatic_outcome }}">
 <th scope="row">{{ row.human.problem }}</th><td data-print-label="WCAG">{{ row.human.raw_evidence['WCAG Sc'] }}</td><td data-print-label="Expected source">{{ row.expected }}</td><td data-print-label="LLM">{{ row.llm_outcome }}</td><td data-print-label="Programmatic checks">{{ row.programmatic_outcome }}</td>
-<td><p data-selected-page-result hidden></p><details><summary>View details</summary>
+<td><p data-selected-page-result hidden></p><details><summary aria-label="View details: {{ row.human.problem }}">View details</summary>
 <div class="evidence">
 {{ human_evidence(row) }}
 {{ page_evidence(row) }}
@@ -32,5 +32,4 @@
 </div>
 {% if not rows %}<p>No Human findings were imported for this page.</p>{% endif %}
 </section>
-{% include 'method.html.jinja' %}
 {% endblock %}

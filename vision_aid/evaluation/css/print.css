@@ -1,27 +1,11 @@
-#print-complete-report { font: inherit; color: #164e88; background: #edf2f6; border: 1px solid #687f93; border-radius: .2rem; padding: .5rem .75rem; margin-bottom: 1rem; cursor: pointer; }
+#print-report { font: inherit; color: #164e88; background: #edf2f6; border: 1px solid #687f93; border-radius: .2rem; padding: .5rem .75rem; margin-bottom: 1rem; cursor: pointer; }
 @page { margin: 12mm; }
 @media print {
   body { max-width: none; padding: 0; color: #000; font-size: 11pt; line-height: 1.4; }
-  .skip, nav, #print-complete-report, #finding-controls,
-  [data-selected-page-result] { display: none !important; }
+  .skip, nav, #print-report, main > :not(#performance) { display: none !important; }
   .table-scroll { overflow: visible; }
   table { table-layout: fixed; }
   thead { display: table-header-group; }
   th, td { padding: .35rem; }
-  h1, h2, h3, dt, summary, caption { break-after: avoid; }
-  summary { color: #000; }
-  summary::marker { content: ''; }
-  .evidence { min-width: 0; max-width: none; }
-  /* Evidence can span many sheets. A wide block avoids tiny table columns and
-     lets long Global decisions split naturally across page boundaries. */
-  #findings, #findings > tbody, #findings > tbody > tr,
-  #findings > tbody > tr > th, #findings > tbody > tr > td { display: block; width: 100%; }
-  #findings > thead { display: none; }
-  #findings > tbody > tr[hidden] { display: none !important; }
-  #findings > tbody > tr { margin-block: 1.5rem; border-top: 2px solid #687f93; break-inside: auto; }
-  #findings > tbody > tr > th { font-size: 13pt; break-after: avoid; }
-  #findings > tbody > tr > th, #findings > tbody > tr > td { border: 0; }
-  #findings [data-print-label]::before { content: attr(data-print-label) ': '; font-weight: 700; }
-  #findings details, #findings .evidence, #findings .matched { break-inside: auto; }
-  #findings summary { overflow-wrap: anywhere; }
+  h1, h2, h3, caption { break-after: avoid; }
 }

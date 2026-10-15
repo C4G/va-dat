@@ -30,6 +30,14 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
       const costBox = await cost.boundingBox();
       assert.ok(costBox.x >= 0 && costBox.x + costBox.width <= 320);
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 320));
+      const findingsRegion = page.locator('.findings-panel > .table-scroll');
+      assert.ok(await findingsRegion.evaluate(e => e.scrollWidth > e.clientWidth));
+      const firstSummary = rows.first().locator('summary').first();
+      assert.ok((await firstSummary.boundingBox()).width >= 200);
+      await findingsRegion.focus();
+      await page.keyboard.press('ArrowRight');
+      await page.waitForFunction(() => document.querySelector('.findings-panel > .table-scroll').scrollLeft > 0);
+      await findingsRegion.evaluate(e => {e.scrollLeft = 0;});
       await page.setViewportSize({width: 1280, height: 900});
       const visibleTitles = () => page.locator('#findings > tbody > tr:visible > th').allTextContents();
       if (behavior === 'filters') {
@@ -71,6 +79,19 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
         assert.equal(await page.getByRole('button', {name: 'Clear filters', exact: true}).evaluate(e => document.activeElement === e), true);
       }
       if (behavior === 'disclosures') {
+        for (const row of await rows.all()) {
+          const title = await row.locator(':scope > th').textContent();
+          const summary = row.locator('summary').first();
+          assert.equal(await summary.textContent(), 'View details');
+          assert.equal(await summary.getAttribute('aria-label'), `View details: ${title}`);
+          await summary.click();
+          const decisionSummaries = row.locator('[data-page-decision] > summary');
+          for (const decisionSummary of await decisionSummaries.all()) {
+            const visibleName = await decisionSummary.textContent();
+            assert.equal(await decisionSummary.getAttribute('aria-label'), `${visibleName} for ${title}`);
+          }
+          await summary.click();
+        }
         await page.getByLabel('Detection outcome', {exact: true}).selectOption({label: 'Programmatic caught (any eligibility)'});
         if (filename === fullFile) await page.getByLabel('Page', {exact: true}).selectOption({label: 'https://example.test/'});
         const expand = page.getByRole('button', {name: 'Expand all dropdowns', exact: true});
@@ -93,6 +114,11 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
         assert.equal(await local.locator('.matched').first().isVisible(), true);
         await expand.click();
         assert.equal(await rows.locator('details:not([open])').count(), 0);
+        await page.setViewportSize({width: 320, height: 800});
+        const evidenceBox = await local.locator('.evidence').boundingBox();
+        assert.ok(evidenceBox.width >= 200 && evidenceBox.width <= 294);
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 320));
+        await page.setViewportSize({width: 1280, height: 900});
         if (filename === fullFile) {
           const global = rows.filter({has: page.getByRole('rowheader', {name: 'Shared defect', exact: true})});
           const summaries = global.locator('details details > summary');
@@ -103,7 +129,7 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
         }
       }
       if (behavior === 'print') {
-        const print = page.getByRole('button', {name: 'Print complete report', exact: true});
+        const print = page.getByRole('button', {name: 'Print report', exact: true});
         assert.equal(await print.count(), 1);
         // Preserve an uneven mixture of independently opened nested disclosures.
         await rows.nth(0).locator('summary').first().click();
@@ -115,9 +141,11 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
           await page.getByLabel('Page', {exact: true}).selectOption({label: 'https://example.test/'});
         }
         await page.getByLabel('Detection outcome', {exact: true}).selectOption({label: 'LLM missed (LLM eligible)'});
-        // Ordinary printing follows the current reading state.
+        // Browser printing and the button share the summary-only layout.
         await page.emulateMedia({media: 'print'});
-        assert.equal(await rows.filter({visible: true}).count(), 2);
+        assert.equal(await page.locator('#performance').isVisible(), true);
+        assert.equal(await page.locator('#human-findings').isVisible(), false);
+        assert.equal(await page.locator('#method').isVisible(), false);
         await page.emulateMedia({media: 'screen'});
         const originalEvidence = await page.locator('main').textContent();
         const savedState = () => page.evaluate(() => ({
@@ -135,37 +163,30 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
           await print.focus();
           const before = await savedState();
           await page.keyboard.press('Enter');
-          assert.equal(await rows.filter({visible: true}).count(), filename === fullFile ? 8 : 7);
-          assert.equal(await page.locator('#findings > tbody > tr[hidden], [data-page-decision][hidden], [data-page-table-row][hidden]').count(), 0);
-          assert.equal(await page.locator('details:not([open])').count(), 0);
+          assert.deepEqual(await savedState(), before, 'Print action preserves reading state');
           await page.emulateMedia({media: 'print'});
           assert.equal(await print.isVisible(), false);
-          assert.equal(await page.locator('#finding-controls').isVisible(), false);
-          assert.equal(await page.locator('[data-selected-page-result]:visible').count(), 0);
-          const evidenceWidth = await rows.nth(0).locator('.evidence').evaluate(e => e.getBoundingClientRect().width);
-          assert.ok(evidenceWidth > 600, `Print evidence uses the page width: ${evidenceWidth}`);
-          assert.equal(await page.locator('#findings > caption').count(), 0);
+          assert.equal(await page.locator('#performance').isVisible(), true);
+          assert.equal(await page.locator('#human-findings').isVisible(), false);
+          assert.equal(await page.locator('#method').isVisible(), false);
+          assert.equal(await page.locator('#combined-method:visible').count(), 0);
           if (result === 'completed') {
             const pdf = path.join(path.dirname(filename), `${path.basename(filename)}.pdf`);
             await page.pdf({path: pdf, format: 'A4', printBackground: true});
             const text = execFileSync('pdftotext', ['-layout', pdf, '-'], {encoding: 'utf8'}).replace(/\s+/g, ' ');
-            for (const expected of ['Original Human finding', 'Matching rationale', 'Long evidence begins.', 'Long evidence ends.',
-              'Complete Global on home', 'Original evidence', 'Detection overview',
-              'Review decisions by: Combined reviewer', 'Estimated run cost:', await cost.locator('.cost-value').textContent(), 'How to read this report']) {
+            for (const expected of ['Detection overview', 'Review decisions by: Combined reviewer',
+              'Estimated run cost:', await cost.locator('.cost-value').textContent()]) {
               assert.ok(text.includes(expected), `PDF includes ${expected}`);
             }
-            if (filename === fullFile) {
-              assert.ok(text.includes('Complete Global on another page'));
-              assert.ok(text.includes('LLM detection by page'));
-              assert.ok(text.includes('Every page decision for Shared defect'));
-            }
-            const identities = await page.locator('dt').filter({hasText: /^Finding ID$/}).evaluateAll(elements =>
-              elements.map(e => e.nextElementSibling.textContent.trim()));
-            for (const identity of identities) assert.ok(text.includes(identity), `PDF includes matched finding ${identity}`);
-            const evidence = await page.locator('#findings dd, #findings .matched > p').allTextContents();
+            if (filename === fullFile) assert.ok(text.includes('LLM detection by page'));
             const compactText = text.replace(/\s+/g, '');
-            for (const value of evidence) {
-              assert.ok(compactText.includes(value.replace(/\s+/g, '')), `PDF includes saved evidence: ${value.slice(0, 100)}`);
+            for (const value of await page.locator('.chart-value').allTextContents()) {
+              assert.ok(compactText.includes(value.replace(/\s+/g, '')), `PDF includes chart value ${value}`);
+            }
+            for (const omitted of ['Tool Findings and Human Finding Matches', 'Original Human finding',
+              'Matching rationale', 'Long evidence begins.', 'Long evidence ends.', 'Page decisions',
+              'How to read this report', 'Full evaluation scoring']) {
+              assert.ok(!text.includes(omitted), `PDF omits ${omitted}`);
             }
           }
           await page.emulateMedia({media: 'screen'});
@@ -182,7 +203,7 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
         const plain = await nojs.newPage();
         await plain.goto(pathToFileURL(filename).href);
         assert.equal(await plain.locator('#finding-controls').isVisible(), false);
-        assert.equal(await plain.getByRole('button', {name: 'Print complete report', exact: true}).isVisible(), false);
+        assert.equal(await plain.getByRole('button', {name: 'Print report', exact: true}).isVisible(), false);
         assert.equal(await plain.locator('#findings > tbody > tr:visible').count(), filename === fullFile ? 8 : 7);
         const global = plain.locator('#findings > tbody > tr').filter({has: plain.getByRole('rowheader', {name: 'Shared defect', exact: true})});
         await global.locator('summary').first().focus();
@@ -197,9 +218,11 @@ const [behavior, fullFile, pageFile] = process.argv.slice(2);
           const pdf = path.join(path.dirname(filename), `${path.basename(filename)}-nojs.pdf`);
           await plain.pdf({path: pdf, format: 'A4'});
           const text = execFileSync('pdftotext', ['-layout', pdf, '-'], {encoding: 'utf8'}).replace(/\s+/g, ' ');
-          for (const expected of ['Shared defect', 'Eligibility classification', 'Complete Global on home',
-            'Detection overview', 'Estimated run cost:']) {
+          for (const expected of ['Detection overview', 'Estimated run cost:']) {
             assert.ok(text.includes(expected), `Basic no-JavaScript PDF includes ${expected}`);
+          }
+          for (const omitted of ['Shared defect', 'Eligibility classification', 'Complete Global on home', 'How to read this report']) {
+            assert.ok(!text.includes(omitted), `Basic no-JavaScript PDF omits ${omitted}`);
           }
         }
         await nojs.close();

@@ -1,5 +1,34 @@
 # Evaluation report verification
 
+## Summary printing, 2026-10-15
+
+The print action is now labelled **Print report**. Both report scopes print the
+header and cost/detection results through their last bar chart. The findings
+table, evidence, and method/scoring sections are omitted from print output,
+including ordinary browser printing and printing with JavaScript disabled.
+This replaces the complete-evidence print behavior documented historically below.
+
+Printing no longer expands disclosures or reveals filtered rows. The button
+retains keyboard-focus and scroll restoration after the browser exits print
+media. Filters, open panels, saved evidence and detection results stay unchanged.
+
+- The reporting/evaluation tests passed 84 cases. All three browser cases passed
+  after the print changes, covering keyboard activation, summary PDF contents,
+  omission of long evidence, active filters/open panels, simulated completion
+  and cancellation, and JavaScript-disabled printing. Every chart's exact text
+  is checked in the PDF, including the final page's bar in Full reports.
+- Scoped Ruff and whitespace checks passed.
+- The saved 17-page Full report and first individual report were regenerated
+  from disposable saved evidence without model API calls. Offline Chromium PDF
+  exports contain all 20 Full chart values or all three individual chart values,
+  respectively, and no findings/evidence/method sections, even with all evidence
+  opened before export. The Full PDF is three A4 pages; the individual PDF is two.
+- Updated HTML and PDF samples are under
+  `.scratch/html-evaluation-reports/verification/full/` and `page/`.
+
+These headless checks do not establish actual screen-reader output, operation
+of native print dialogs, or accessible PDF conformance.
+
 ## Individual HTML report, 2026-10-15
 
 The individual `report` command was verified against synthetic completed runs

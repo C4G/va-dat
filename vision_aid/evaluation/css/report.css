@@ -31,6 +31,10 @@ dd { margin: 0 0 .8rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 [data-selected-page-result] { border-left: 3px solid #687f93; padding-left: .7rem; }
 
 @media screen {
+  .table-scroll > table { min-width: 32rem; }
+  .table-scroll thead th { overflow-wrap: normal; }
+  #findings { min-width: 64rem; }
+  #findings > tbody > tr > th, #findings > tbody > tr > td:last-child { min-width: 16rem; }
   .findings-panel { border: 1px solid #8a99a6; border-bottom: 0; }
   .findings-panel > .table-scroll { margin-inline: -1px; }
   .findings-panel > .table-scroll > table { margin: 0; }
@@ -47,4 +51,7 @@ dd { margin: 0 0 .8rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 }
 @media screen and (min-width: 64rem) {
   .finding-filter-fields { grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
+}
+@media screen and (max-width: 40rem) {
+  .evidence { width: 16rem; }
 }

@@ -833,8 +833,6 @@ def test_llm_findings_follow_the_tools_rules(workspace, monkeypatch):
          "match_reason": "No captions on the video"},
     )
     text = report(run)
-    assert ("LLM findings are read from each response with the tool's own rules, "
-            "before its false-positive filter and deduplication.") in text
     assert ("LLM (media captions check; shown on screen only, not in the tool's "
             "CSV report): No captions track") in text
 
@@ -852,6 +850,7 @@ def test_single_page_report_is_standalone_html(workspace, monkeypatch, capsys):
     assert f"HTML report: {run / 'report.html'}" in capsys.readouterr().out
     assert not legacy.exists()
     assert document.html["lang"] == "en"
+    assert not document.select('#method, #combined-method, a[href="#method"]')
     assert document.title and document.h1
     assert document.select_one('a[href="#main"]') and document.main["id"] == "main"
     assert document.style and not document.select("script[src], link[rel=stylesheet], img[src]")

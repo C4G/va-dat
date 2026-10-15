@@ -138,7 +138,7 @@ def test_combined_report_pools_original_findings_and_any_page_globals(completed_
     assert not document.select(".detection-chart table")
     assert "Each original Human finding counts once." not in text
     assert "Repeated Global findings contribute to each page's results" in text
-    assert "page rates must not be added or averaged" in text
+    assert not document.select('#method, #combined-method, a[href="#method"]')
     assert "those the tool cannot detect from the saved HTML and those too ambiguous to evaluate" in overview.get_text()
     assert "the Overall count can exceed their combined total" in overview.get_text()
     assert "Review decisions by: Combined reviewer" in text
