@@ -275,6 +275,7 @@ everything it does is free:
 
 - `uv.lock` is in sync with `pyproject.toml`, and `requirements.txt` matches the lock
 - entry points import
+- evaluator code, its entry point, and tests pass Ruff lint checks
 - the tracked synthetic pytest suite (`uv run pytest -q`), with no private data or provider calls
 - a full pipeline dry run, asserting prompts generated, findings found, and zero tokens consumed
 - `index.html`'s inline JavaScript parses
@@ -284,6 +285,12 @@ Default pytest discovery is limited to `tests/`, where `tests/test_evaluation.py
 covers the evaluator end to end through its CLI with a fake provider. Optional
 detailed evaluator cases live in the ignored `.local-tests/evaluation/` folder;
 run them with `uv run pytest -q .local-tests/evaluation`. CI never needs them.
+
+Run the evaluator lint checks locally with the dev dependencies installed by `uv sync`:
+
+```bash
+uv run ruff check vision_aid/evaluation entry_points/model_evaluation.py tests
+```
 
 ## Running the Pipeline
 

@@ -1,9 +1,9 @@
 """Run, review, and report Evaluation runs through the public CLI."""
 
 import csv
-from contextlib import nullcontext
 import hashlib
 import json
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -247,7 +247,9 @@ def test_live_run_without_approval_or_with_unsupported_model_buys_nothing(
     assert not (workspace / ".model-evaluation").exists()
     monkeypatch.setattr("builtins.input", lambda _: "no")
     for interactive in (False, True):
-        monkeypatch.setattr("sys.stdin", SimpleNamespace(isatty=lambda: interactive))
+        monkeypatch.setattr(
+            "sys.stdin", SimpleNamespace(isatty=lambda interactive=interactive: interactive),
+        )
         assert run_cli(workspace, "--model", model, "--live") == 0
     runs = list((workspace / ".model-evaluation" / "runs").iterdir())
     assert len(runs) == 2

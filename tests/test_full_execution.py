@@ -3,9 +3,11 @@
 import json
 
 import pytest
-
 from test_evaluation import recording_provider_usage
 from test_full_preview import URLS, full_workspace, only_full, preview
+
+# Re-export the shared fixture for pytest discovery.
+__all__ = ["full_workspace"]
 
 
 def children(run, manifest):

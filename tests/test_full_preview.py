@@ -3,7 +3,6 @@
 import csv
 import hashlib
 import json
-from pathlib import Path
 
 import openpyxl
 import pytest

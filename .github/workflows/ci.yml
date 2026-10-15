@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   checks:
-    name: Dependencies, imports, pipeline
+    name: Dependencies, lint, imports, pipeline
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -52,6 +52,9 @@ jobs:
           from vision_aid.ingestion.file_crawler import fetch_page, fetch_pages_nested
           print('all entry points import cleanly')
           "
+
+      - name: Evaluator lint
+        run: uv run ruff check vision_aid/evaluation entry_points/model_evaluation.py tests
 
       - name: Network-free test suite
         run: uv run pytest -q

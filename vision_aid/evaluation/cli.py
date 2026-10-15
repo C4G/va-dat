@@ -16,14 +16,17 @@ from typing import Any
 from dotenv import load_dotenv
 
 from vision_aid.evaluation.full import (
-    capture_snapshots, execute_full_evaluation, load_full_inputs,
-    prepare_full_evaluation, report_full_evaluation,
+    capture_snapshots,
+    execute_full_evaluation,
+    load_full_inputs,
+    prepare_full_evaluation,
+    report_full_evaluation,
 )
 from vision_aid.evaluation.human_audit import import_homepage_human_findings
 from vision_aid.evaluation.llm_audit import (
     DEFAULT_MODEL,
-    LLMRequestConfig,
     MODEL_PRESETS,
+    LLMRequestConfig,
     evaluation_configuration,
     execute,
     positive_cost,

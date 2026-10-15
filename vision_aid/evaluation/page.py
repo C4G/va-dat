@@ -12,8 +12,8 @@ from typing import Any
 
 from entry_points.run_pipeline import run_pipeline
 from vision_aid.evaluation.llm_audit import (
-    LLMRequestConfig,
     USAGE_KEYS,
+    LLMRequestConfig,
     evaluation_configuration,
     write_json,
 )

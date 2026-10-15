@@ -3,16 +3,18 @@
 import csv
 import hashlib
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import openpyxl
 import pytest
-
 from test_evaluation import recording_provider_usage
 from test_full_execution import children
 from test_full_preview import URLS, full_workspace, only_full, preview
+
 from vision_aid.evaluation.cli import main
+
+# Re-export the shared fixture for pytest discovery.
+__all__ = ["full_workspace"]
 
 
 def save_json(path, value):
