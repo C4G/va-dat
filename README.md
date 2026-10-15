@@ -772,6 +772,20 @@ all original findings. Expand all visible evidence and Collapse all visible
 evidence affect the filtered rows and their visible page panels. With JavaScript
 disabled, all findings and native evidence disclosures remain available.
 
+Use **Print complete report** in either report to print every original Human
+finding and every page's matching evidence, even while searching, filtering or
+reading collapsed disclosures. It includes charts, exact data, metadata and
+scoring explanations. Evidence uses the page width and can continue across
+sheets. Interactive controls are omitted. After printing or cancelling, the
+report restores your filters, opened disclosures and keyboard focus. This action
+works offline and does not change scores or saved reviews.
+
+The dedicated action is the complete-evidence printing path. Ordinary browser
+printing uses the current reading state. Without JavaScript, open the evidence
+you need before using the browser's Print command. Printed output and browser PDF
+export are not verified accessible PDFs; accessible PDF production is outside
+this feature's scope.
+
 New runs and reporting use only this layout. Existing run directories remain
 untouched and require manual reorganization before the updated `report` command
 can read them. Move their supporting files into `artifacts/`, including the

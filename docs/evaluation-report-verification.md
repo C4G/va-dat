@@ -190,3 +190,72 @@ zoom and screen-reader verification remain outstanding, including spoken filter
 count announcements. The stakeholder's assistive technology setup remains
 unknown. Complete printing is the next implementation ticket; these results do
 not establish WCAG conformance.
+
+## Complete printing, 2026-10-15
+
+Both generated report scopes expose Print complete report after their embedded
+print script initializes. The action reveals every original finding, page
+decision, compact page-table row and nested disclosure before invoking browser
+printing. It restores hidden states and independently opened disclosures on
+`afterprint`, without changing filter values, counts, evidence or scoring.
+Keyboard focus and scroll position return when screen media resumes. The same
+browser notification handles completion and cancellation.
+
+Print styling lays each finding out as a full-width block with labelled outcomes;
+long evidence can continue across sheets. Charts retain exact labels and their
+equivalent data tables, other tables repeat their column headers, and controls,
+search excerpts and selected-page filter summaries are omitted. Ordinary browser
+printing follows the current reading state. With JavaScript disabled, readers
+can open native disclosures before using the browser's Print command; no scripted
+print or filter controls are offered.
+
+- The full suite passed with 144 tests, including four optional browser checks.
+  Ruff for `vision_aid/evaluation` and `tests`, and `git diff --check`, passed.
+- The committed print check uses CLI-generated synthetic parent and child
+  reports, each copied into its own directory without run evidence or other HTML
+  files, and opens them through `file:` with networking disabled. It exercises
+  active text, page and outcome filters, independently opened nested Global
+  panels, and 250 lines of review notes spanning sheets. Real headless Chromium
+  A4 PDFs include all matched IDs, saved Human and tool text, rationale, notes,
+  charts' exact data, metadata and scoring explanations. Basic no-JavaScript
+  printing includes the manually opened evidence. The check also verifies full
+  evidence and caption widths and preservation of ordinary-print filtering.
+- Completion and cancellation state restoration are exercised with simulated
+  browser lifecycle events. The PDF export itself also emits Chromium print
+  lifecycle events. This does not exercise a human completing or cancelling a
+  native preview dialog; that remains a manual check under ticket 06.
+- `uv build --wheel` bundled `print.css` and `print.js`. A fresh environment at
+  `/tmp/va-dat-ticket05-installed` invoked installed `report-all` and `report`
+  commands from `/tmp` against disposable synthetic and real saved runs. The
+  committed print browser check passed against the installed package's
+  synthetic outputs. No live provider calls were made.
+- The real run regenerated in a separate disposable copy at
+  `/tmp/va-dat-ticket05-runs/20261011T015629-880f3e7c`. Its standalone installed
+  outputs and temporary PDFs are under
+  `/tmp/va-dat-ticket05-standalone/real/`, in separate `full` and `page`
+  directories. Source run evidence and review decisions were not edited.
+- Chromium 153.0.8010.12 on Linux exported the complete real Full report as
+  273 A4 sheets and its homepage as 35 sheets. `pdftotext` found all 86 original
+  titles and 187 matched finding IDs in the parent, and all 16 original titles
+  and 23 matched IDs in the homepage. Comparison of 3,118 parent evidence text
+  blocks found all ordinary text, with nine private-use icon glyph fragments
+  containing U+F104 failing exact PDF text extraction. All 426 homepage blocks
+  matched. Saved evidence is preserved as supplied; these results do not promise
+  exact font-glyph preservation. Raster inspection checked representative printed
+  table and full-width evidence pages.
+- The real copied documents made no network requests or browser script errors.
+  Initial-document axe-core 4.14.0 checks with WCAG 2 A/AA and 2.1/2.2 AA tags
+  reported no violations or incomplete checks. Both retained a 320 CSS-pixel
+  document width, and native disclosures opened by keyboard without JavaScript.
+  A separate fully expanded 320-pixel scan reported no violations but left
+  color-contrast checks incomplete for table cells obscured by their scroll
+  containers. Initial and targeted expanded checks do not establish coverage
+  of every possible expanded state.
+
+Run the browser checks as documented above. The print case additionally requires
+Poppler's `pdftotext`; it skips when that executable is unavailable. Only the
+Chromium/Linux combination above has been exercised for printing. Native preview
+completion/cancellation, other browsers, actual zoom, manual keyboard inspection,
+private-use icon appearance and screen-reader reading remain under ticket 06.
+Accessible PDF production and claims of WCAG conformance remain outside this
+verification. Headless PDF text checks do not establish accessible PDF output.
