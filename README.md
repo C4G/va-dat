@@ -677,6 +677,27 @@ uv run visionaid-evaluate report \
   --reviewer "Name and how this page was reviewed"
 ```
 
+### Reading the detection charts
+
+Both report scopes lead with an LLM detection bar, followed by Programmatic and
+Overall results. Bar length uses a common 0% to 100% scale. Every bar shows its
+caught count, eligible count and percentage, with the same values in a labelled
+semantic table. A rate with no eligible findings has an explanation and no bar.
+The Overall denominator includes all imported Human findings, including findings
+Not testable from the page file. Source-specific rates count only catches by that
+source among the findings expected from it; cross-catches still earn Overall
+credit.
+
+Full reports also compare page LLM results in Human audit page order. Page
+eligibility varies, and Global findings repeat in page results while counting
+once in the combined result. Do not add page counts or average page percentages
+to calculate the combined result. The comparison is not a controlled ranking of
+pages or model quality. Individual reports omit this comparison.
+
+Charts and their exact-data tables work offline without JavaScript. Labels and
+values convey the results without relying on color; tables have their own
+horizontal scroll regions on narrow screens.
+
 ### How the evaluator reads LLM responses
 
 The evaluator reads each LLM response using va-dat's own parsing and reporting

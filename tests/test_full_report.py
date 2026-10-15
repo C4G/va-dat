@@ -126,6 +126,24 @@ def test_combined_report_pools_original_findings_and_any_page_globals(completed_
     assert "LLM detection rate: Of the 4" in text and "caught 2 (50.0%)" in text
     assert "Programmatic detection rate: Of the 3" in text and "caught 1 (33.3%)" in text
     assert "Overall detection rate: Of all 8 Human findings" in text and "caught 5 (62.5%)" in text
+    overview = document.find("caption", string="Exact detection overview data").parent
+    assert [[cell.get_text(" ", strip=True) for cell in row.find_all(["th", "td"])[:4]]
+            for row in overview.tbody.find_all("tr")] == [
+        ["LLM", "2", "4", "50.0%"],
+        ["Programmatic", "1", "3", "33.3%"],
+        ["Overall", "5", "8", "62.5%"],
+    ]
+    comparison = document.find("caption", string="Exact page LLM detection data")
+    assert comparison is not None
+    assert [[cell.get_text(" ", strip=True) for cell in row.find_all(["th", "td"])]
+            for row in comparison.parent.tbody.find_all("tr")] == [
+        [URLS[0], "1", "3", "33.3%"],
+        [URLS[1], "1", "3", "33.3%"],
+        [URLS[2], "1", "2", "50.0%"],
+    ]
+    assert "Repeated Global findings contribute to each page's results" in text
+    assert "page rates must not be added or averaged" in text
+    assert "not a controlled ranking of pages or model quality" in text
     assert "Review decisions by: Combined reviewer" in text
     assert "Estimated run cost: $0.00" in text
     assert "1000 input tokens" in text and "100 output tokens" in text
@@ -236,6 +254,15 @@ def test_empty_page_without_globals_still_has_a_report(full_workspace, monkeypat
     text = BeautifulSoup((empty / "report.html").read_text(), "html.parser").get_text(" ", strip=True)
     assert "Overall detection rate: No Human findings were imported for this page" in text
     assert "Overall detection rate: Of all 3 Human findings" in BeautifulSoup((run / "report.html").read_text(), "html.parser").get_text(" ", strip=True)
+    parent = BeautifulSoup((run / "report.html").read_text(), "html.parser")
+    comparison = parent.find("caption", string="Exact page LLM detection data").parent
+    assert [[cell.get_text(" ", strip=True) for cell in row.find_all(["th", "td"])]
+            for row in comparison.tbody.find_all("tr")] == [
+        [URLS[0], "0", "0", "Not defined: no eligible Human findings"],
+        [URLS[1], "0", "0", "Not defined: no eligible Human findings"],
+        [URLS[2], "0", "0", "Not defined: no eligible Human findings"],
+    ]
+
 
 
 def test_invalid_revised_review_withholds_stale_combined_rates(completed_review, capsys):

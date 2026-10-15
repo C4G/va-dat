@@ -29,6 +29,31 @@ EXPECTED = {
 }
 
 
+def _chart_rates(counts: dict[str, dict[str, int]], *, full: bool = False) -> list[dict[str, Any]]:
+    """Prepare chart labels and widths from the existing deterministic counts."""
+    rates = []
+    for kind, label, denominator in (
+        ("llm", "LLM", "Human findings expected to be detected by the LLM"),
+        ("programmatic", "Programmatic checks", "Human findings expected to be detected by Programmatic checks"),
+        ("overall", "Overall", "All imported Human findings, including findings Not testable from the page file"),
+    ):
+        caught, eligible = counts[kind]["caught"], counts[kind]["eligible"]
+        percentage = f"{caught / eligible * 100:.1f}" if eligible else None
+        description = _rate(label, caught, eligible)
+        if full:
+            description = description.replace("the page's HTML", "the evaluated pages' HTML")
+        rates.append({
+            "label": label.removesuffix(" checks"), **counts[kind],
+            "description": description, "denominator": denominator,
+            "bar_percent": percentage,
+            "percentage": percentage + "%" if percentage is not None else (
+                "Not defined: no imported Human findings" if kind == "overall"
+                else "Not defined: no eligible Human findings"
+            ),
+        })
+    return rates
+
+
 def page_data(review: PageReview, reviewer: str) -> dict[str, Any]:
     """Resolve validated evidence and deterministic scores before rendering."""
     manifest = review.manifest
@@ -71,20 +96,7 @@ def page_data(review: PageReview, reviewer: str) -> dict[str, Any]:
                 "matched": matched,
             }
         )
-    rates = [
-        {
-            "label": label.removesuffix(" checks"),
-            **counts[kind],
-            "description": _rate(
-                label, counts[kind]["caught"], counts[kind]["eligible"]
-            ),
-        }
-        for kind, label in (
-            ("llm", "LLM"),
-            ("programmatic", "Programmatic checks"),
-            ("overall", "Overall"),
-        )
-    ]
+    rates = _chart_rates(counts)
     return {
         "title": "LLM accessibility evaluation",
         "manifest": manifest,
@@ -136,11 +148,7 @@ def full_data(
     return {
         "title": "Full accessibility evaluation", "full": True,
         "manifest": manifest, "reviewer": reviewer, "rows": rows, "pages": pages,
-        "rates": [{
-            "label": label.removesuffix(" checks"), **counts[kind],
-            "description": _rate(label, counts[kind]["caught"], counts[kind]["eligible"]).replace(
-                "the page's HTML", "the evaluated pages' HTML"),
-        } for kind, label in (("llm", "LLM"), ("programmatic", "Programmatic checks"), ("overall", "Overall"))],
+        "rates": _chart_rates(counts, full=True),
         "cost": f"{Decimal(manifest['estimated_cost_usd']):.2f}",
         "pricing_description": ", ".join(dict.fromkeys(page["pricing_description"] for page in pages)),
         "pricing_schedules": list({

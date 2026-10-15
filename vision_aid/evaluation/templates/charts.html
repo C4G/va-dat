@@ -1,0 +1,33 @@
+{% macro rate_bar(label, rate, primary=false) %}
+<li{% if primary %} class="chart-primary"{% endif %}>
+<p class="chart-value"><strong>{{ label }}:</strong> {{ rate.caught }} caught / {{ rate.eligible }} eligible; {{ rate.percentage }}</p>
+{% if rate.bar_percent is not none %}<div class="chart-track" aria-hidden="true"><span class="chart-fill" style="width: {{ rate.bar_percent }}%"></span></div>{% endif %}
+</li>
+{% endmacro %}
+
+{% macro detection_overview(rates) %}
+<figure class="detection-chart" aria-labelledby="detection-chart-title">
+<figcaption><h3 id="detection-chart-title">Detection overview</h3>
+<p>Bar length shows the detection rate on a scale from 0% to 100%. The LLM result leads; each source uses its own denominator. No bar is drawn when the rate is not defined.</p></figcaption>
+<ul class="chart-bars">{% for rate in rates %}{{ rate_bar(rate.label, rate, loop.first) }}{% endfor %}</ul>
+<div class="table-scroll" role="region" aria-label="Exact detection overview data" tabindex="0">
+<table><caption>Exact detection overview data</caption>
+<thead><tr><th scope="col">Detection source</th><th scope="col">Caught</th><th scope="col">Eligible</th><th scope="col">Detection rate</th><th scope="col">Denominator</th></tr></thead>
+<tbody>{% for rate in rates %}<tr><th scope="row">{{ rate.label }}</th><td>{{ rate.caught }}</td><td>{{ rate.eligible }}</td><td>{{ rate.percentage }}</td><td>{{ rate.denominator }}</td></tr>{% endfor %}</tbody>
+</table></div>
+</figure>
+{% endmacro %}
+
+{% macro page_comparison(pages) %}
+<figure class="detection-chart" aria-labelledby="page-chart-title">
+<figcaption><h3 id="page-chart-title">LLM detection by page</h3>
+<p>Pages appear in Human audit order. Each bar uses a 0% to 100% scale and the page's LLM-eligible findings. Pages can have different numbers of local and testable findings. Repeated Global findings contribute to each page's results but only once to combined results. Combined rates use original finding counts; page rates must not be added or averaged. This comparison is not a controlled ranking of pages or model quality.</p>
+<p>No bar is drawn where no Human findings were eligible for the LLM. Exact values follow in the table.</p></figcaption>
+<ul class="chart-bars">{% for page in pages %}{{ rate_bar(page.manifest.source_url, page.rates[0]) }}{% endfor %}</ul>
+<div class="table-scroll" role="region" aria-label="Exact page LLM detection data" tabindex="0">
+<table><caption>Exact page LLM detection data</caption>
+<thead><tr><th scope="col">Page</th><th scope="col">LLM caught</th><th scope="col">LLM eligible</th><th scope="col">LLM detection rate</th></tr></thead>
+<tbody>{% for page in pages %}<tr><th scope="row">{{ page.manifest.source_url }}</th><td>{{ page.rates[0].caught }}</td><td>{{ page.rates[0].eligible }}</td><td>{{ page.rates[0].percentage }}</td></tr>{% endfor %}</tbody>
+</table></div>
+</figure>
+{% endmacro %}
