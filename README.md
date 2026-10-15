@@ -503,16 +503,22 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    uv run visionaid-evaluate report --run-dir "$RUN_DIR" --reviewer "Your name or agent description"
    ```
 
-   Open `$RUN_DIR/report.md`. It explains how to read the homepage evaluation,
-   then shows the model, run ID, reviewer, three detection rates, and estimated
-   cost with token counts and the pricing date. A table follows the Human audit's
-   original order and marks catches by each part, including cross-catches. The
-   remaining sections show what each part caught and why each match counts,
-   every missed finding with any recorded explanations, and findings not
-   testable from the page file with their reasons. IDs, locations, and raw JSON
-   stay in the run artifacts. Not-testable findings are left out of the LLM and
-   Programmatic rates but remain in the Overall denominator. Reporting rejects
-   incomplete runs, missing classifications, and invalid or reused finding IDs.
+   Open `$RUN_DIR/report.html` in a browser. This self-contained offline report
+   identifies the evaluated page, model, run ID, and reviewer, and leads with the
+   LLM detection rate. Programmatic and Overall detection rates show exact counts
+   and explain their denominators. Cost, recorded tokens, and saved pricing
+   provenance are included.
+
+   The findings table follows the Human audit's original order. Each **View
+   evidence** control opens the original Human evidence, Eligibility classification,
+   explanation, matched finding text and IDs, check identity, rationale, and notes.
+   These native controls work with a keyboard and with JavaScript disabled. A copied
+   HTML file needs no neighboring run files or internet connection.
+
+   Not-testable findings remain in Overall while staying outside source-specific
+   denominators. Reporting rejects incomplete runs, missing classifications, and
+   invalid or reused finding IDs. Successful regeneration replaces that report's
+   superseded Markdown file. It never repeats paid model calls.
 
 ### Capture the Human audit's listed pages
 
@@ -712,7 +718,7 @@ non-empty (for tables, `issues` or `header_clarity_issues`). Every
 `placeholder_as_label` item is a finding, because that check only receives
 placeholder-only fields. Yes/no answers never create a finding on their own.
 A table response may be one object or a list. These findings have
-`"screen_only": true`. The evaluation report, `report.md`, labels them as shown
+`"screen_only": true`. The individual Evaluation report, `report.html`, labels them as shown
 on screen only and absent from va-dat's CSV report.
 
 ### Evaluation run files
@@ -720,7 +726,8 @@ on screen only and absent from va-dat's CSV report.
 The run root holds the review evidence and scored results. Supporting files
 are together under `$RUN_DIR/artifacts/`. Without `--live`, the command prepares
 the prompts but makes no model requests; neither LLM output file exists yet.
-Successful reporting adds `report.md` at the root.
+The individual `report` command adds `report.html` at the root. The Full
+evaluation `report-all` command continues to produce Markdown until its migration.
 
 New runs and reporting use only this layout. Existing run directories remain
 untouched and require manual reorganization before the updated `report` command
@@ -735,7 +742,7 @@ compatibility fallback or automatic migration.
 | `normalized-llm-findings.json`             | LLM findings with `finding_id` values for `review.csv`, read as described above. An Unreadable response can appear in `artifacts/raw-llm-responses.json` without producing a finding here.                            |
 | `normalized-programmatic-findings.json`    | Checker results converted to findings with `finding_id` values for `review.csv`.                                                                                                                                      |
 | `run.json`                                 | Configuration, snapshot checksum, prompt list, completion status, format failures, token usage, and estimated cost. `complete: true` does not imply that every response parsed successfully; check `format_failures`. |
-| `report.md`                                | Scored results generated after successful reporting.                                                                                                                                                                  |
+| `report.html`                              | Self-contained individual Evaluation report generated after successful reporting.                                                                                                                                                                  |
 | `artifacts/human-findings.json`            | Canonical imported Home and Global Human findings used to validate and score the review.                                                                                                                              |
 | `artifacts/pricing.json`                   | The versioned public model rates and capture date used to estimate this run's cost from reported usage. Older runs retain their original price schedule.                                                              |
 | `artifacts/raw-llm-responses.json`         | Live model replies, request outcomes, and reported token usage, including responses that could not be parsed into findings.                                                                                           |
@@ -754,7 +761,7 @@ evidence. Check
 check the file under `artifacts/prompts/` to see whether the model received the
 relevant evidence.
 Record decisions in `review.csv`; the `report` command reads that CSV and the
-run evidence to write `report.md`. The pipeline briefly writes
+run evidence to write `report.html`. The pipeline briefly writes
 `artifacts/manifest.json`, but the Evaluation command removes it and keeps the
 relevant metadata in
 `run.json`.

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from entry_points.run_pipeline import run_pipeline
+from vision_aid.evaluation.html_report import write_page_report
 from vision_aid.evaluation.llm_audit import (
     USAGE_KEYS,
     LLMRequestConfig,
@@ -19,7 +20,7 @@ from vision_aid.evaluation.llm_audit import (
 )
 from vision_aid.evaluation.normalization import normalize_programmatic_findings
 from vision_aid.evaluation.pricing import DEFAULT_SCHEDULE, PriceSchedule
-from vision_aid.evaluation.review import create_review, reviewed_rows, write_report
+from vision_aid.evaluation.review import create_review, reviewed_rows
 from vision_aid.evaluation.schemas import HumanAudit
 
 
@@ -144,8 +145,6 @@ def report_page(run: Path, reviewer: str) -> PageReview:
     if not reviewer.strip():
         raise ValueError("A reviewer description is required")
     review = validated_page_review(run)
-    write_report(
-        run / "report.md", review.manifest, review.rows, review.llm,
-        review.programmatic, reviewer, review.schedule.price_description,
-    )
+    write_page_report(run / "report.html", review, reviewer)
+    (run / "report.md").unlink(missing_ok=True)
     return review

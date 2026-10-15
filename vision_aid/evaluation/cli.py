@@ -287,7 +287,7 @@ def _report(args: argparse.Namespace) -> int:
     """Validate human decisions and report a completed run."""
     run = args.run_dir.resolve()
     report_page(run, args.reviewer)
-    print(f"Markdown report: {run / 'report.md'}")
+    print(f"HTML report: {run / 'report.html'}")
     return 0
 
 
