@@ -29,7 +29,7 @@ HTML-like model/reviewer text was copied into a directory containing only
 | Check | Actual coverage | Result |
 | --- | --- | --- |
 | Standalone resources | Chromium 153.0.8010.12, Linux, Playwright offline context | No HTTP requests; report readable |
-| Automated accessibility | axe-core 4.11.1, WCAG 2 A/AA and 2.1/2.2 AA tags | No violations or incomplete checks in the tested initial document |
+| Automated accessibility | axe-core 4.14.0, WCAG 2 A/AA and 2.1/2.2 AA tags | No violations or incomplete checks in the tested initial document |
 | Narrow layout | Chromium viewport 320 × 800 CSS pixels | Document and body width 320; findings table scrolls in its own region |
 | Native disclosure | Chromium, JavaScript disabled, focus first summary and press Enter | Evidence opened; six disclosures were initially collapsed |
 
