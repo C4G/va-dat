@@ -91,3 +91,47 @@ These browser checks are automated. Actual browser zoom, manual keyboard
 inspection, and screen-reader verification remain outstanding. Charts,
 filtering, search, and complete printing are later ticket work; no WCAG
 conformance claim is made.
+
+## Detection charts, 2026-10-15
+
+Both commands now render labelled detection overview bars with exact counts,
+percentages and semantic tables. The LLM result appears first with a stronger
+border and larger label. Programmatic and Overall denominators remain separate.
+Python prepares all chart percentages from the existing deterministic counts;
+charts contain no script or external dependency. A zero denominator has a text
+explanation and no bar. Full reports include page LLM results in original page
+order, with an explanation of varying eligibility, repeated Globals and the
+limits of comparing pages.
+
+- Full suite: 140 tests passed. Existing public CLI fixtures now assert chart
+  and table results for individual cross-catches, the worked combined 2/4 LLM,
+  1/3 Programmatic and 5/8 Overall case, and page LLM counts of 1/3, 1/3 and 1/2.
+  Empty original sets and empty page results retain undefined source rates in
+  words. Nonempty Overall denominators still report a truthful 0.0% when no
+  findings were caught. Individual reports omit the page comparison.
+- `ruff check vision_aid/evaluation tests` and `git diff --check`: passed.
+- `uv build --wheel` bundled `charts.html` and `charts.css` with the shared
+  templates. The wheel was installed in a fresh environment at
+  `/tmp/va-dat-ticket03-installed`; its `report-all` and `report` commands
+  generated both scopes from `/tmp`, outside the checkout, against a separate
+  disposable copy at `/tmp/va-dat-ticket03-installed-runs`. No saved review
+  decisions were changed and no live model calls were made.
+- The installed parent retained 28/62 LLM, 18/18 Programmatic and 46/86 Overall;
+  the first individual page retained 3/9 LLM, 5/5 Programmatic and 8/16 Overall.
+  Copied standalone files contain only their respective `report.html` under
+  `/tmp/va-dat-ticket03-standalone/full` and `/tmp/va-dat-ticket03-standalone/page`.
+
+Chromium 153.0.8010.12 opened both copied files through `file:` in offline
+contexts. axe-core 4.14.0 reported no violations or incomplete checks using
+WCAG 2 A/AA and 2.1/2.2 AA tags. No HTTP requests occurred. Browser assertions
+located the named figures and captioned tables, measured rendered bar lengths
+against the displayed 45.2%, 100.0%, 53.5% parent values and 33.3%, 100.0%, 50.0%
+page values, and confirmed 17 page-comparison table rows. With JavaScript
+disabled these labels, values, tables and graphics remained available. A
+320 × 800 CSS-pixel viewport retained a 320-pixel document width in both scopes;
+tables retained their own scroll regions. Automated keyboard Enter opened the
+first native disclosure in both scopes.
+
+These checks do not replace actual screen-reader reading, manual keyboard
+inspection or actual browser zoom. Those checks remain outstanding under the
+assistive-technology verification ticket, and no WCAG conformance claim is made.

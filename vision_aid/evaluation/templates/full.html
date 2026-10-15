@@ -1,11 +1,12 @@
 {% from 'evidence.html' import human_evidence, decision_evidence %}
+{% from 'charts.html' import detection_overview, page_comparison %}
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ title }}: {{ manifest.run_id }}</title>
-<style>{% include 'report.css' %}</style>
+<style>{% include 'report.css' %}{% include 'charts.css' %}</style>
 </head>
 <body>
 <a class="skip" href="#main">Skip to report content</a>
@@ -19,9 +20,11 @@
 <main id="main">
 <section id="performance" aria-labelledby="performance-title">
 <h2 id="performance-title">Detection results</h2>
+{{ detection_overview(rates) }}
 {% for rate in rates %}<p>{{ rate.description }}</p>{% endfor %}
 <p>The LLM and Programmatic detection rates count only catches by the expected part. A catch by the other part counts toward the Overall detection rate, which counts each original Human finding once.</p>
 <p>Each original Human finding counts once. Page-local findings use their assigned page. Global findings earn credit through complete detection on any single page, independently for each detection source. Several catches still count once; partial matches across pages are never combined.</p>
+{{ page_comparison(pages) }}
 </section>
 <section id="human-findings" aria-labelledby="findings-title">
 <h2 id="findings-title">Human findings</h2>
