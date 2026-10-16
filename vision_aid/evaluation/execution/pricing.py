@@ -30,11 +30,6 @@ class PriceSchedule:
             raise TypeError("Price schedule must contain a models object.")
         return cls(data=data, identity=hashlib.sha256(raw).hexdigest())
 
-    @classmethod
-    def default(cls) -> PriceSchedule:
-        """Load the committed public pricing schedule."""
-        return cls.load(DEFAULT_SCHEDULE)
-
     @property
     def version(self) -> str:
         """Return the curator-assigned price-schedule version."""

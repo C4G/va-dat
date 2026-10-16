@@ -321,7 +321,7 @@ def _is_decorative_img_fp(row: ReportRow, soup: BeautifulSoup | None) -> bool:
     return False
 
 
-def _is_svg_fp(row: ReportRow, soup: BeautifulSoup | None) -> bool:
+def _is_svg_fp(soup: BeautifulSoup | None) -> bool:
     """Return True if an SVG accessibility finding is a likely false positive.
 
     SVGs inside links or buttons that already have visible text are decorative
@@ -398,7 +398,7 @@ def filter_false_positives(
 
         # Check SVG false positives
         elif "SVG" in category:
-            is_fp = _is_svg_fp(row, soup)
+            is_fp = _is_svg_fp(soup)
 
         if is_fp:
             suppressed.append(row)
@@ -555,7 +555,7 @@ def normalize_programmatic(findings: list[dict], page_title: str,
 
 # ── LLM prompt normalizers ─────────────────────────────────────────────────
 
-def _norm_page_title(data: dict, wcag: str, **ctx) -> list[ReportRow]:
+def _norm_page_title(data: dict, wcag: str) -> list[ReportRow]:
     rows = []
     for issue in data.get("issues", []):
         rows.append(ReportRow(
@@ -572,7 +572,7 @@ def _norm_page_title(data: dict, wcag: str, **ctx) -> list[ReportRow]:
     return rows
 
 
-def _norm_heading_structure(data: dict, wcag: str, **ctx) -> list[ReportRow]:
+def _norm_heading_structure(data: dict, wcag: str) -> list[ReportRow]:
     rows = []
     for issue in data.get("issues", []):
         rows.append(ReportRow(
@@ -601,7 +601,7 @@ def _norm_heading_structure(data: dict, wcag: str, **ctx) -> list[ReportRow]:
     return rows
 
 
-def _norm_link_clarity(data: list, wcag: str, **ctx) -> list[ReportRow]:
+def _norm_link_clarity(data: list, wcag: str) -> list[ReportRow]:
     rows = []
     for item in data:
         if item.get("is_clear", True):
@@ -621,7 +621,7 @@ def _norm_link_clarity(data: list, wcag: str, **ctx) -> list[ReportRow]:
     return rows
 
 
-def _norm_iframe_titles(data: list, wcag: str, **ctx) -> list[ReportRow]:
+def _norm_iframe_titles(data: list, wcag: str) -> list[ReportRow]:
     rows = []
     for item in data:
         if item.get("is_descriptive", True):
@@ -641,7 +641,7 @@ def _norm_iframe_titles(data: list, wcag: str, **ctx) -> list[ReportRow]:
     return rows
 
 
-def _norm_landmark_structure(data: dict, wcag: str, **ctx) -> list[ReportRow]:
+def _norm_landmark_structure(data: dict, wcag: str) -> list[ReportRow]:
     rows = []
     for issue in data.get("issues", []):
         rows.append(ReportRow(
@@ -658,7 +658,7 @@ def _norm_landmark_structure(data: dict, wcag: str, **ctx) -> list[ReportRow]:
     return rows
 
 
-def _norm_label_quality(data: list, wcag: str, **ctx) -> list[ReportRow]:
+def _norm_label_quality(data: list, wcag: str) -> list[ReportRow]:
     rows = []
     for item in data:
         if item.get("is_descriptive", True):
@@ -681,7 +681,7 @@ def _norm_label_quality(data: list, wcag: str, **ctx) -> list[ReportRow]:
     return rows
 
 
-def _norm_required_field_indicators(data: list, wcag: str, **ctx) -> list[ReportRow]:
+def _norm_required_field_indicators(data: list, wcag: str) -> list[ReportRow]:
     rows = []
     for item in data:
         issues = item.get("issues", [])
@@ -703,7 +703,7 @@ def _norm_required_field_indicators(data: list, wcag: str, **ctx) -> list[Report
     return rows
 
 
-def _norm_informative_alt_quality(data: list, wcag: str, **ctx) -> list[ReportRow]:
+def _norm_informative_alt_quality(data: list, wcag: str) -> list[ReportRow]:
     rows = []
     for item in data:
         issues = item.get("issues", [])
@@ -725,7 +725,7 @@ def _norm_informative_alt_quality(data: list, wcag: str, **ctx) -> list[ReportRo
     return rows
 
 
-def _norm_decorative_verification(data: list, wcag: str, **ctx) -> list[ReportRow]:
+def _norm_decorative_verification(data: list, wcag: str) -> list[ReportRow]:
     rows = []
     for item in data:
         if item.get("likely_decorative", True):
@@ -745,7 +745,7 @@ def _norm_decorative_verification(data: list, wcag: str, **ctx) -> list[ReportRo
     return rows
 
 
-def _norm_actionable_image_alt(data: list, wcag: str, **ctx) -> list[ReportRow]:
+def _norm_actionable_image_alt(data: list, wcag: str) -> list[ReportRow]:
     rows = []
     for item in data:
         issues = item.get("issues", [])
@@ -768,7 +768,7 @@ def _norm_actionable_image_alt(data: list, wcag: str, **ctx) -> list[ReportRow]:
     return rows
 
 
-def _norm_svg_accessibility(data: list, wcag: str, **ctx) -> list[ReportRow]:
+def _norm_svg_accessibility(data: list, wcag: str) -> list[ReportRow]:
     rows = []
     for item in data:
         issues = item.get("issues", [])
@@ -789,7 +789,7 @@ def _norm_svg_accessibility(data: list, wcag: str, **ctx) -> list[ReportRow]:
     return rows
 
 
-def _norm_icon_font_accessibility(data: list, wcag: str, **ctx) -> list[ReportRow]:
+def _norm_icon_font_accessibility(data: list, wcag: str) -> list[ReportRow]:
     rows = []
     for item in data:
         issues = item.get("issues", [])

@@ -118,19 +118,6 @@ def reviewed_rows(
     return [result[identity] for identity in expected]
 
 
-def _rate(part: str, caught: int, total: int) -> str:
-    """Explain each denominator, including when there is nothing to score."""
-    if part == "Overall":
-        if total == 0:
-            return "Overall detection rate: No Human findings were imported for this page."
-        return f"Overall detection rate: Of all {total} Human findings, either part of the tool caught {caught} ({caught / total:.1%})."
-    label = part.removesuffix(" checks")
-    if total == 0:
-        return f"{label} detection rate: No Human findings were expected to be detected by the {part} from the page's HTML."
-    subject = "it" if part == "LLM" else "they"
-    return f"{label} detection rate: Of the {total} Human findings the {part} could be expected to detect from the page's HTML, {subject} caught {caught} ({caught / total:.1%})."
-
-
 def detection_counts(rows: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
     """Count validated catches and denominators without averaging page rates.
 
@@ -155,18 +142,3 @@ def detection_counts(rows: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
         "eligible": len(rows),
     }
     return counts
-
-
-def _usage_description(usage: dict[str, int]) -> str:
-    """Describe reported input, output, and nonzero cache token totals."""
-    tokens = [
-        f"{usage['input_tokens']} input tokens",
-        f"{usage['output_tokens']} output tokens",
-    ]
-    for key, label in (
-        ("cached_input_tokens", "cached input"),
-        ("cache_creation_input_tokens", "cache-creation input"),
-    ):
-        if usage[key]:
-            tokens.append(f"{usage[key]} {label} tokens")
-    return ", ".join(tokens)

@@ -14,7 +14,6 @@ class PromptSpec:
         prompt_index: 1-based index of the prompt within the .txt file.
         payload_slicer: Name of the slicer function in slicers.py.
         wcag_criteria: WCAG success criteria this prompt evaluates.
-        element_types: HTML element tags this prompt is relevant to.
         output_type: Expected JSON response shape — "array", "object", or "summary".
         is_summary: If True, only run when --include-summaries is set.
         skip_if_empty: If True, skip the API call when the payload slice is empty.
@@ -26,7 +25,6 @@ class PromptSpec:
     prompt_index: int
     payload_slicer: str
     wcag_criteria: list[str] = field(default_factory=list)
-    element_types: list[str] = field(default_factory=list)
     output_type: str = "array"
     is_summary: bool = False
     skip_if_empty: bool = True
@@ -41,7 +39,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=1,
         payload_slicer="slice_page_title",
         wcag_criteria=["2.4.2"],
-        element_types=["title", "h1"],
         output_type="object",
     ),
     PromptSpec(
@@ -51,7 +48,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=2,
         payload_slicer="slice_headings",
         wcag_criteria=["1.3.1", "2.4.6"],
-        element_types=["h1", "h2", "h3", "h4", "h5", "h6"],
         output_type="object",
     ),
     PromptSpec(
@@ -61,7 +57,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=3,
         payload_slicer="slice_flagged_links",
         wcag_criteria=["2.4.4"],
-        element_types=["a"],
         output_type="array",
     ),
     PromptSpec(
@@ -71,7 +66,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=4,
         payload_slicer="slice_tables",
         wcag_criteria=["1.3.1"],
-        element_types=["table", "th", "caption"],
         output_type="array",
     ),
     PromptSpec(
@@ -81,7 +75,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=5,
         payload_slicer="slice_iframes",
         wcag_criteria=["4.1.2"],
-        element_types=["iframe"],
         output_type="array",
     ),
     PromptSpec(
@@ -91,7 +84,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=6,
         payload_slicer="slice_landmarks",
         wcag_criteria=["1.3.1"],
-        element_types=["main", "nav", "header", "footer", "aside"],
         output_type="object",
     ),
     PromptSpec(
@@ -101,7 +93,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=7,
         payload_slicer="slice_cl01_full",
         wcag_criteria=["1.3.1", "2.4.2", "2.4.4", "2.4.6", "3.1.1", "4.1.2"],
-        element_types=[],
         output_type="summary",
         is_summary=True,
     ),
@@ -113,7 +104,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=1,
         payload_slicer="slice_fields_with_labels",
         wcag_criteria=["1.3.1", "2.4.6"],
-        element_types=["input", "select", "textarea", "label"],
         output_type="array",
     ),
     PromptSpec(
@@ -123,7 +113,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=2,
         payload_slicer="slice_placeholder_only_fields",
         wcag_criteria=["1.3.1"],
-        element_types=["input", "select", "textarea"],
         output_type="array",
     ),
     PromptSpec(
@@ -133,7 +122,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=3,
         payload_slicer="slice_form_groups",
         wcag_criteria=["1.3.1"],
-        element_types=["fieldset", "legend"],
         output_type="array",
     ),
     PromptSpec(
@@ -143,7 +131,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=4,
         payload_slicer="slice_required_fields",
         wcag_criteria=["3.3.2"],
-        element_types=["input", "select", "textarea"],
         output_type="array",
     ),
     PromptSpec(
@@ -153,7 +140,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=5,
         payload_slicer="slice_fields_with_instructions",
         wcag_criteria=["3.3.2"],
-        element_types=["input", "select", "textarea"],
         output_type="array",
     ),
     PromptSpec(
@@ -163,7 +149,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=6,
         payload_slicer="slice_cl02_full",
         wcag_criteria=["1.3.1", "2.4.6", "3.3.2"],
-        element_types=[],
         output_type="summary",
         is_summary=True,
     ),
@@ -175,7 +160,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=1,
         payload_slicer="slice_informative_images",
         wcag_criteria=["1.1.1"],
-        element_types=["img"],
         output_type="array",
     ),
     PromptSpec(
@@ -185,7 +169,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=2,
         payload_slicer="slice_decorative_images",
         wcag_criteria=["1.1.1"],
-        element_types=["img"],
         output_type="array",
     ),
     PromptSpec(
@@ -195,7 +178,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=3,
         payload_slicer="slice_actionable_images",
         wcag_criteria=["1.1.1", "2.4.4"],
-        element_types=["img", "a", "button"],
         output_type="array",
     ),
     PromptSpec(
@@ -205,7 +187,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=4,
         payload_slicer="slice_complex_images",
         wcag_criteria=["1.1.1"],
-        element_types=["img"],
         output_type="array",
     ),
     PromptSpec(
@@ -215,7 +196,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=5,
         payload_slicer="slice_svgs",
         wcag_criteria=["1.1.1"],
-        element_types=["svg"],
         output_type="array",
     ),
     PromptSpec(
@@ -225,7 +205,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=6,
         payload_slicer="slice_icon_fonts",
         wcag_criteria=["1.1.1"],
-        element_types=["i", "span"],
         output_type="array",
     ),
     PromptSpec(
@@ -235,7 +214,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=7,
         payload_slicer="slice_media",
         wcag_criteria=["1.2.1", "1.2.2", "1.2.3"],
-        element_types=["video", "audio"],
         output_type="array",
     ),
     PromptSpec(
@@ -245,7 +223,6 @@ PROMPT_REGISTRY: list[PromptSpec] = [
         prompt_index=8,
         payload_slicer="slice_cl03_full",
         wcag_criteria=["1.1.1", "1.2.1", "1.2.2", "1.2.3"],
-        element_types=[],
         output_type="summary",
         is_summary=True,
     ),
