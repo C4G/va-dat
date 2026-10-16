@@ -1,12 +1,13 @@
-import requests
-from datetime import datetime
-from typing import Optional, List, Set
-from urllib.parse import urljoin, urlparse
 import re
 import time
+from datetime import datetime
+from urllib.parse import urljoin, urlparse
 
-def download_html(url: str, filename: Optional[str] = None, depth: int = 1, 
-                  visited: Optional[Set[str]] = None, base_domain: Optional[str] = None) -> List[str]:
+import requests
+
+
+def download_html(url: str, filename: str | None = None, depth: int = 1,
+                  visited: set[str] | None = None, base_domain: str | None = None) -> list[str]:
     """
     Download HTML from a URL and recursively follow links to nested pages.
     
@@ -93,11 +94,11 @@ def download_html(url: str, filename: Optional[str] = None, depth: int = 1,
         
         return saved_files
         
-    except Exception as e:
+    except (requests.RequestException, OSError, ValueError) as e:
         print(f"Error downloading {url}: {e}")
         return saved_files
 
-def extract_links(html_content: str, base_url: str) -> Set[str]:
+def extract_links(html_content: str, base_url: str) -> set[str]:
     """Extract all href links from HTML content."""
     links = set()
     
@@ -181,11 +182,11 @@ def fetch_pages_nested(url: str, max_depth: int = 1,
     """
     url = _normalize_url(url)
     base_domain = urlparse(url).netloc
-    visited: Set[str] = set()
-    parts: List[str] = []
+    visited: set[str] = set()
+    parts: list[str] = []
     tree: dict = {}  # parent_url -> [child_urls]
 
-    def _crawl(current_url: str, depth: int, parent_url: str = None) -> None:
+    def _crawl(current_url: str, depth: int, parent_url: str | None = None) -> None:
         current_url = _normalize_url(current_url)
         if current_url in visited or depth < 0:
             return
@@ -210,7 +211,7 @@ def fetch_pages_nested(url: str, max_depth: int = 1,
                 for link in nested[:max_links_per_page]:
                     time.sleep(0.5)
                     _crawl(link, depth - 1, parent_url=current_url)
-        except Exception as e:
+        except (requests.RequestException, ValueError) as e:
             print(f"Warning: could not fetch {current_url}: {e}")
 
     _crawl(url, max_depth)

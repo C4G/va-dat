@@ -1,8 +1,9 @@
-import requests
 from datetime import datetime
-from typing import Optional
 
-def download_html(url:str, filename:Optional[str]):
+import requests
+
+
+def download_html(url:str, filename:str | None):
     try:
         response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
         response.raise_for_status()
@@ -18,7 +19,7 @@ def download_html(url:str, filename:Optional[str]):
         print(f"HTML saved to {filename}")
         return filename
         
-    except Exception as e:
+    except (requests.RequestException, OSError, ValueError) as e:
         print(f"Error: {e}")
         return None
 

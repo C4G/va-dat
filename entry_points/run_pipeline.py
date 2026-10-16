@@ -18,7 +18,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -27,16 +27,21 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from processing_scripts.llm.registry import PROMPT_REGISTRY, PromptSpec
+from processing_scripts.llm.filters import (
+    apply_cl01_filters,
+    apply_cl02_filters,
+    apply_cl03_filters,
+    build_filter_flags,
+)
+from processing_scripts.llm.registry import PROMPT_REGISTRY
 from processing_scripts.llm.slicers import get_slicer, is_empty_slice
 from processing_scripts.llm.templates import fill_template
 from processing_scripts.llm_client.audit import (
     AuditRequestClient as PipelineClient,
+)
+from processing_scripts.llm_client.audit import (
     AuditRequestConfig,
     resolved_request_metadata,
-)
-from processing_scripts.llm_preprocessing.semantic_checklist_01 import (
-    extract as cl01_extract,
 )
 from processing_scripts.llm_preprocessing.forms_checklist_02 import (
     extract as cl02_extract,
@@ -44,16 +49,12 @@ from processing_scripts.llm_preprocessing.forms_checklist_02 import (
 from processing_scripts.llm_preprocessing.nontext_checklist_03 import (
     extract as cl03_extract,
 )
-from processing_scripts.llm.filters import (
-    apply_cl01_filters,
-    apply_cl02_filters,
-    apply_cl03_filters,
-    build_filter_flags,
+from processing_scripts.llm_preprocessing.semantic_checklist_01 import (
+    extract as cl01_extract,
 )
-from processing_scripts.programmatic.semantic_checklist_01 import audit_html_file
 from processing_scripts.programmatic.forms_checklist_02 import audit_forms
 from processing_scripts.programmatic.nontext_checklist_03 import audit_nontext
-
+from processing_scripts.programmatic.semantic_checklist_01 import audit_html_file
 
 # Pricing per million tokens: (input, output)
 MODEL_PRICING = {
@@ -322,7 +323,7 @@ def run_pipeline(
 
     # ── Step 3: Write manifest ───────────────────────────────────────────────
     manifest = {
-        "run_timestamp": datetime.now(timezone.utc).isoformat(),
+        "run_timestamp": datetime.now(UTC).isoformat(),
         "html_file": str(html_path),
         "model": model,
         "request_config": resolved_request_metadata(request_config),
@@ -361,7 +362,7 @@ def print_summary(manifest: dict, show_cost: bool = False) -> None:
     skipped = manifest.get("prompts_skipped", [])
 
     if manifest["dry_run"]:
-        print(f"Mode: DRY RUN (no API calls)")
+        print("Mode: DRY RUN (no API calls)")
         print(f"Prompts generated: {len(dry_run_prompts)}")
     else:
         success = [r for r in executed if r.get("status") == "success"]
@@ -371,7 +372,7 @@ def print_summary(manifest: dict, show_cost: bool = False) -> None:
         print(f"  Failed: {len(failed)}")
 
         if manifest["total_input_tokens"] > 0:
-            print(f"\nToken usage:")
+            print("\nToken usage:")
             print(f"  Input:  {manifest['total_input_tokens']:,}")
             print(f"  Output: {manifest['total_output_tokens']:,}")
 
@@ -383,7 +384,7 @@ def print_summary(manifest: dict, show_cost: bool = False) -> None:
                     model,
                 )
                 if cost is not None:
-                    print(f"\nEstimated cost:")
+                    print("\nEstimated cost:")
                     pricing = get_pricing(model)
                     print(f"  Model: {model}")
                     print(f"  Rate:  ${pricing[0]:.2f} / 1M input, ${pricing[1]:.2f} / 1M output")
@@ -449,7 +450,7 @@ def main():
     # Load environment
     load_dotenv(args.env_file)
 
-    from processing_scripts.llm_client.client import is_openai_model, is_gemini_model
+    from processing_scripts.llm_client.client import is_gemini_model, is_openai_model
 
     if is_openai_model(args.model):
         api_key = os.getenv("OPENAI_API_KEY")

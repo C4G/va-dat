@@ -17,10 +17,14 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 import re
 from dataclasses import dataclass, fields
 from pathlib import Path
+
 from bs4 import BeautifulSoup
+
+logger = logging.getLogger(__name__)
 
 # ── Deduplication prompt ─────────────────────────────────────────────────────
 
@@ -244,7 +248,7 @@ def _load_html_for_filtering(output_dir: Path) -> BeautifulSoup | None:
             return None
         with open(html_path, "r", encoding="utf-8", errors="replace") as f:
             return BeautifulSoup(f.read(), "lxml")
-    except Exception:
+    except (OSError, ValueError, TypeError):
         return None
 
 
@@ -280,10 +284,7 @@ def _is_link_fp(row: ReportRow, nav_link_texts: set[str]) -> bool:
         return True
 
     # Links inside <nav> or <footer> are clear in context
-    if link_text.lower() in nav_link_texts:
-        return True
-
-    return False
+    return link_text.lower() in nav_link_texts
 
 
 def _is_decorative_img_fp(row: ReportRow, soup: BeautifulSoup | None) -> bool:
@@ -880,6 +881,7 @@ def deduplicate_with_llm(
             response_text = response.choices[0].message.content or "[]"
         else:
             import anthropic
+
             from processing_scripts.llm_client.client import supports_temperature
 
             client = anthropic.Anthropic(api_key=api_key)
@@ -897,7 +899,7 @@ def deduplicate_with_llm(
 
         to_remove: list[int] = safe_parse_json(response_text)
         if not isinstance(to_remove, list):
-            raise ValueError(f"Expected list, got {type(to_remove)}")
+            raise TypeError(f"Expected list, got {type(to_remove)}")
 
         remove_set = {int(i) for i in to_remove}
         original_count = len(rows)
@@ -907,8 +909,8 @@ def deduplicate_with_llm(
             print(f"  LLM deduplication removed: {removed} duplicate(s)")
         return deduped
 
-    except Exception as exc:
-        print(f"  WARNING: LLM deduplication failed ({exc}), skipping.")
+    except Exception:
+        logger.exception("LLM deduplication failed, skipping.")
         return rows
 
 

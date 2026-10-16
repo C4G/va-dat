@@ -1,9 +1,9 @@
 # Written using the assist of ChatGPT
 
-import sys
 import os
-from bs4 import BeautifulSoup
+import sys
 
+from bs4 import BeautifulSoup
 
 # ==========================================================
 # UTILITY FUNCTIONS
@@ -98,9 +98,8 @@ def audit_forms(file_path):
         has_label = False
 
         # <label for="id">
-        if control_id:
-            if soup.find("label", attrs={"for": control_id}):
-                has_label = True
+        if control_id and soup.find("label", attrs={"for": control_id}):
+            has_label = True
 
         # Wrapped by <label>
         if control.find_parent("label"):
@@ -213,14 +212,13 @@ def audit_forms(file_path):
 
     for el in soup.find_all(True):
 
-        if el.get("onclick") and el.name not in ["button", "a", "input"]:
-            if not el.get("role"):
-                results.append(issue(
-                    "FORM_CUSTOM_001",
-                    "Custom interactive element missing role",
-                    el,
-                    "Element has click handler but no semantic role."
-                ))
+        if el.get("onclick") and el.name not in ["button", "a", "input"] and not el.get("role"):
+            results.append(issue(
+                "FORM_CUSTOM_001",
+                "Custom interactive element missing role",
+                el,
+                "Element has click handler but no semantic role."
+            ))
 
     return results
 
