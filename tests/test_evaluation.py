@@ -697,7 +697,7 @@ def test_review_validation_and_report_metrics(workspace, monkeypatch, capsys):
         "Skipped heading", "1.3.1", "Programmatic checks", "Caught", "Not caught",
     ]
     assert "Full issue" in rows[0].details.get_text()
-    assert "No full finding" in rows[5].details.get_text()
+    assert "No full finding" not in rows[5].details.get_text()
     assert "Needs a browser" in rows[3].details.get_text()
     assert "Needs judgment" in rows[4].details.get_text()
     assert load(run, "run.json")["format_failures"] == ["page_title"]

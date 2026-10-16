@@ -158,7 +158,11 @@ def test_combined_report_pools_original_findings_and_any_page_globals(completed_
     for finding in originals["human_findings"]:
         assert text.count(finding["human_finding_id"]) == 1
     assert "Not testable on page 1" in text and "Not testable on page 2" in text
-    assert "Partial evidence only on page 1" in text
+    assert "Partial evidence only on page 1" not in text
+    for panel in document.select('details[data-page-decision]'):
+        labels = [label.get_text() for label in panel.select('dt')]
+        assert ("Matching rationale" in labels) == bool(panel.select('.matched'))
+        assert ("VA-DAT Matched Findings" in labels) == bool(panel.select('.matched'))
     for page in manifest["pages"]:
         child = run / page["run_dir"]
         assert (child / "report.html").is_file()

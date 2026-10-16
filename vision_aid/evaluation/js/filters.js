@@ -36,7 +36,7 @@
       for (const tr of item.row.querySelectorAll('[data-page-table-row]')) tr.hidden = Boolean(selectedPage && tr.dataset.pageTableRow !== selectedPage);
       if (!item.row.hidden) count++;
     }
-    status.textContent = `Filtered findings: ${count} of ${rows.length} original Human findings.${count ? '' : ' No matching findings.'} Complete-run detection results are unchanged.`;
+    status.textContent = `Filtered findings: ${count} of ${rows.length} original Human findings.${count ? '' : ' No matching findings.'}`;
   }
   pageFilter?.addEventListener('change', update);
   outcome.addEventListener('change', update);
