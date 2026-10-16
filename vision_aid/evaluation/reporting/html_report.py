@@ -20,8 +20,8 @@ from jinja2 import (
 from vision_aid.evaluation.review import detection_counts
 
 if TYPE_CHECKING:
+    from vision_aid.evaluation.execution.pricing import PriceSchedule
     from vision_aid.evaluation.page import PageReview
-    from vision_aid.evaluation.pricing import PriceSchedule
 
 EXPECTED = {
     "llm_eligible": "LLM",
@@ -201,12 +201,12 @@ def write_page_report(path: Path, review: PageReview, reviewer: str) -> None:
 def _write_html(path: Path, template: str, data: dict[str, Any]) -> None:
     """Render completely, then atomically replace the report in its directory."""
     environment = Environment(
-        loader=PackageLoader("vision_aid.evaluation", "templates"),
+        loader=PackageLoader("vision_aid.evaluation.reporting", "templates"),
         autoescape=select_autoescape(("html.jinja",)),
         undefined=StrictUndefined,
     )
     # Only trusted package assets bypass escaping; review data stays escaped.
-    assets = files("vision_aid.evaluation")
+    assets = files("vision_aid.evaluation.reporting")
     styles = "".join(
         assets.joinpath("css", name).read_text(encoding="utf-8")
         for name in ("report.css", "charts.css", "print.css")

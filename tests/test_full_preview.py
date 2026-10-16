@@ -8,7 +8,7 @@ import openpyxl
 import pytest
 
 from vision_aid.evaluation.cli import main
-from vision_aid.evaluation.human_audit import HEADERS
+from vision_aid.evaluation.inputs.human_audit import HEADERS
 
 URLS = ["https://example.test/", "https://example.test/contact/",
         "https://example.test/empty/"]

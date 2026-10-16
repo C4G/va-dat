@@ -15,15 +15,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from vision_aid.evaluation.full import (
-    capture_snapshots,
-    execute_full_evaluation,
-    load_full_inputs,
-    prepare_full_evaluation,
-    report_full_evaluation,
-)
-from vision_aid.evaluation.human_audit import import_homepage_human_findings
-from vision_aid.evaluation.llm_audit import (
+from vision_aid.evaluation.execution.llm_audit import (
     DEFAULT_MODEL,
     MODEL_PRESETS,
     LLMRequestConfig,
@@ -31,8 +23,16 @@ from vision_aid.evaluation.llm_audit import (
     execute,
     positive_cost,
 )
+from vision_aid.evaluation.execution.pricing import PriceSchedule
+from vision_aid.evaluation.full import (
+    capture_snapshots,
+    execute_full_evaluation,
+    load_full_inputs,
+    prepare_full_evaluation,
+    report_full_evaluation,
+)
+from vision_aid.evaluation.inputs.human_audit import import_homepage_human_findings
 from vision_aid.evaluation.page import prepare_page, report_page
-from vision_aid.evaluation.pricing import PriceSchedule
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_HUMAN_AUDIT = PROJECT_ROOT / "Pristine Accessibility Defect Report.xlsx"

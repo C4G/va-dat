@@ -46,7 +46,8 @@ HTML file (e.g. 1.9 MB)
 ├── entry_points/                                # Entry points
 │   ├── api_server.py                            # Serves the site and the /api/* audit endpoints
 │   ├── run_pipeline.py                          # Runs the full pipeline from the CLI
-│   └── generate_report.py                       # Combines findings into unified CSV report
+│   ├── generate_report.py                       # Combines findings into unified CSV report
+│   └── model_evaluation.py                      # Compatibility entry point for the evaluator CLI
 │
 ├── processing_scripts/
 │   ├── llm/                                     # Modular prompt system + templates
@@ -73,9 +74,28 @@ HTML file (e.g. 1.9 MB)
 │   │
 │   └── docs/pipeline.md                         # Pipeline architecture documentation
 │
-├── vision_aid/ingestion/
-│   ├── file_crawler.py                         # fetch_page / fetch_pages_nested (used by the server)
-│   └── pull_html.py                            # Standalone HTML download helper
+├── vision_aid/
+│   ├── evaluation/                             # Evaluation workflows, review, and shared schemas
+│   │   ├── cli.py                              # CLI commands and operator interaction
+│   │   ├── full.py                             # Full evaluation across all audited pages
+│   │   ├── page.py                             # Shared page preparation and review validation
+│   │   ├── review.py                           # Review CSV validation and detection counts
+│   │   ├── schemas.py                          # Shared Human audit and finding types
+│   │   ├── inputs/
+│   │   │   └── human_audit.py                  # Import Human findings and audited URLs
+│   │   ├── execution/
+│   │   │   ├── llm_audit.py                    # LLM requests, saved responses, and cost guardrails
+│   │   │   ├── normalization.py                # Convert tool responses into findings
+│   │   │   ├── pricing.py                      # Load price schedules and estimate request cost
+│   │   │   └── pricing.json                    # Versioned public model rates
+│   │   └── reporting/
+│   │       ├── html_report.py                  # Prepare report data and render standalone HTML
+│   │       ├── templates/                      # Report HTML templates
+│   │       ├── css/                            # Report styles
+│   │       └── js/                             # Report filters and printing
+│   └── ingestion/
+│       ├── file_crawler.py                     # fetch_page / fetch_pages_nested (used by the server)
+│       └── pull_html.py                        # Standalone HTML download helper
 │
 ├── Dockerfile                                  # Multi-stage uv build → runtime image
 ├── docker-compose.yml                          # Local run (Coolify deploys the image directly)

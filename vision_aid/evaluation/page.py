@@ -11,15 +11,17 @@ from pathlib import Path
 from typing import Any
 
 from entry_points.run_pipeline import run_pipeline
-from vision_aid.evaluation.html_report import write_page_report
-from vision_aid.evaluation.llm_audit import (
+from vision_aid.evaluation.execution.llm_audit import (
     USAGE_KEYS,
     LLMRequestConfig,
     evaluation_configuration,
     write_json,
 )
-from vision_aid.evaluation.normalization import normalize_programmatic_findings
-from vision_aid.evaluation.pricing import DEFAULT_SCHEDULE, PriceSchedule
+from vision_aid.evaluation.execution.normalization import (
+    normalize_programmatic_findings,
+)
+from vision_aid.evaluation.execution.pricing import DEFAULT_SCHEDULE, PriceSchedule
+from vision_aid.evaluation.reporting.html_report import write_page_report
 from vision_aid.evaluation.review import create_review, reviewed_rows
 from vision_aid.evaluation.schemas import HumanAudit
 

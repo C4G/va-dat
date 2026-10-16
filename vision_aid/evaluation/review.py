@@ -6,7 +6,7 @@ import csv
 from pathlib import Path
 from typing import Any
 
-from vision_aid.evaluation.human_audit import ELIGIBILITY_VALUES, HEADERS
+from vision_aid.evaluation.inputs.human_audit import ELIGIBILITY_VALUES, HEADERS
 
 DECISION_COLUMNS = (
     "classification",

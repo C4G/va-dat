@@ -45,8 +45,8 @@ collapsed, then tabbing to its first "View details" control. The screenshot
 
 The combination of `overflow-wrap: anywhere` on every cell and no minimum
 findings-table width causes the compression. See
-`vision_aid/evaluation/css/report.css:13` and
-`vision_aid/evaluation/templates/full.html.jinja:18`.
+`vision_aid/evaluation/reporting/css/report.css:13` and
+`vision_aid/evaluation/reporting/templates/full.html.jinja:18`.
 
 Give the findings table and key columns readable minimum widths inside the
 existing keyboard-focusable horizontal scroll region, or use a narrow layout
@@ -76,8 +76,8 @@ Keep the visible action text in the accessible name and retain native
 `details`/`summary` expanded-state behavior.
 
 The relevant rendering locations are
-`vision_aid/evaluation/templates/full.html.jinja:24` and
-`vision_aid/evaluation/templates/evidence.html.jinja:13`. The individual report
+`vision_aid/evaluation/reporting/templates/full.html.jinja:24` and
+`vision_aid/evaluation/reporting/templates/evidence.html.jinja:13`. The individual report
 uses the same generic top-level wording and should receive the same correction.
 
 This is a navigation improvement, not a confirmed WCAG failure. Existing row

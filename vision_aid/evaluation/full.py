@@ -11,16 +11,22 @@ from typing import Any
 
 import requests
 
-from vision_aid.evaluation.html_report import write_full_report, write_page_report
-from vision_aid.evaluation.human_audit import import_all_human_findings, list_audit_urls
-from vision_aid.evaluation.llm_audit import (
+from vision_aid.evaluation.execution.llm_audit import (
     USAGE_KEYS,
     LLMRequestConfig,
     evaluation_configuration,
     execute,
     write_json,
 )
+from vision_aid.evaluation.inputs.human_audit import (
+    import_all_human_findings,
+    list_audit_urls,
+)
 from vision_aid.evaluation.page import PageReview, prepare_page, validated_page_review
+from vision_aid.evaluation.reporting.html_report import (
+    write_full_report,
+    write_page_report,
+)
 from vision_aid.evaluation.schemas import HumanAudit
 
 

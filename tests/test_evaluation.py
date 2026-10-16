@@ -13,8 +13,8 @@ import pytest
 from bs4 import BeautifulSoup
 
 from processing_scripts.llm.registry import PROMPT_REGISTRY
-from vision_aid.evaluation import llm_audit
 from vision_aid.evaluation.cli import main
+from vision_aid.evaluation.execution import llm_audit
 
 MODELS = (
     "claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5",
