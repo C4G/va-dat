@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
 import openpyxl
@@ -12,6 +13,7 @@ import openpyxl
 from vision_aid.evaluation.schemas import HumanAudit, HumanFinding
 
 SHEET = "Defect report"
+HOMEPAGE_SCOPES: set[Literal["home", "global"]] = {"home", "global"}
 HEADERS = (
     "Sr. #",
     "element name",
@@ -54,7 +56,7 @@ def _source_findings(
                 if header
             }
             scope = raw["Page name"].strip().casefold()
-            if homepage_only and scope not in {"home", "global"}:
+            if homepage_only and scope not in HOMEPAGE_SCOPES:
                 continue
             if not raw["Issue Title"].strip():
                 raise ValueError(f"Defect report row {number} has no Issue Title")
@@ -64,7 +66,7 @@ def _source_findings(
                     human_finding_id="human-" + hashlib.sha256(identity).hexdigest()[:16],
                     source_sheet=SHEET,
                     source_row=number,
-                    page_scope=scope if scope in {"home", "global"} else "page",
+                    page_scope=scope if scope in HOMEPAGE_SCOPES else "page",
                     source_element=raw["element name"],
                     problem=raw["Issue Title"],
                     raw_evidence=raw,
