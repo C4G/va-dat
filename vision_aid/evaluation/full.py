@@ -176,7 +176,7 @@ def prepare_full_evaluation(
 
 
 def save_full_baseline(run: Path, baseline: dict[str, Any]) -> None:
-    """Pin the approved source shared by all children, including corrected runs."""
+    """Pin the approved source shared by all children during preparation."""
     manifest = json.loads((run / "full.json").read_text())
     validate_baseline(baseline, manifest["human_audit_sha256"])
     original = json.loads((run / "human-findings.json").read_text())

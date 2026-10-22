@@ -106,7 +106,7 @@ def reviewed_rows(
                     raise ValueError(
                         f"Human finding {human_finding_id}: approved Evaluation baseline "
                         f"decision changed: {column}. Restore the saved decision; "
-                        "review LLM matches in this run, or deliberately update the shared baseline."
+                        "review LLM matches in this run, or approve a new baseline CSV review for future runs."
                     )
         classification = row["classification"].strip()
         if classification not in ELIGIBILITY_VALUES:

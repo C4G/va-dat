@@ -12,6 +12,7 @@
 <h1>{{ title }}: {{ model_name }}</h1>
 {% block scope %}{% endblock %}
 <p>Run ID: {{ manifest.run_id }}.</p>
+{# Preserve attribution when rendering historical runs repaired before CSV authoring. #}
 {% if manifest.get("review_correction") %}
 <p>Report review by: {{ reviewer }}</p>
 <p>Saved-run correction reviewed by: {{ manifest.review_correction.corrected_by }}</p>

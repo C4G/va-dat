@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import openpyxl
 import pytest
 from bs4 import BeautifulSoup
+from legacy_evaluation import historical_run_cli
 
 from processing_scripts.llm.registry import PROMPT_REGISTRY
 from vision_aid.evaluation.cli import main
@@ -69,8 +70,8 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def run_cli(workspace: Path, *extra: str) -> int:
-    """Invoke the public run command for the synthetic inputs."""
-    return main([
+    """Exercise new-run execution, then represent historical editable review evidence."""
+    return historical_run_cli(workspace, [
         "run", "--human-audit", str(workspace / "human-audit.xlsx"),
         "--html", str(workspace / "home.html"),
         "--source-url", "https://example.test/", "--max-cost-usd", "1", *extra,

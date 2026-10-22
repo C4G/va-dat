@@ -16,7 +16,10 @@ from typing import Any
 from dotenv import load_dotenv
 
 from vision_aid.evaluation.baseline import select_baseline
-from vision_aid.evaluation.correction import correct_full_evaluation
+from vision_aid.evaluation.baseline_review import (
+    approve_baseline_review,
+    prepare_baseline_review,
+)
 from vision_aid.evaluation.execution.llm_audit import (
     DEFAULT_MODEL,
     MODEL_PRESETS,
@@ -44,6 +47,18 @@ def build_parser() -> argparse.ArgumentParser:
     """Expose the supported evaluation operations."""
     parser = argparse.ArgumentParser(prog="visionaid-evaluate")
     commands = parser.add_subparsers(dest="command", required=True)
+    baseline_prepare = commands.add_parser(
+        "baseline-prepare", help="prepare Human audit classification and Programmatic review CSVs",
+    )
+    baseline_prepare.add_argument("--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT)
+    baseline_prepare.add_argument("--snapshots", type=Path, required=True)
+    baseline_prepare.add_argument("--output-dir", type=Path, required=True)
+    baseline_approve = commands.add_parser(
+        "baseline-approve", help="validate reviewed CSVs and export an approved baseline",
+    )
+    baseline_approve.add_argument("--review-dir", type=Path, required=True)
+    baseline_approve.add_argument("--reviewer", required=True)
+    baseline_approve.add_argument("--output", type=Path, help="new JSON filename; defaults to review-dir/baseline.json")
     capture = commands.add_parser(
         "capture", help="download each Human audit URL to a saved Benchmark snapshot",
         description=(
@@ -131,16 +146,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report_all.add_argument("--run-dir", type=Path, required=True, help="Full evaluation directory")
     report_all.add_argument("--reviewer", required=True, help="who made all page review decisions")
-    correction = commands.add_parser(
-        "correct-all", help="apply approved decisions and regenerate reports from saved Full evidence",
-        description=(
-            "Preserve a verified original backup, apply the Human audit's approved "
-            "baseline and regenerate every report without model calls or downloads."
-        ),
-    )
-    correction.add_argument("--run-dir", type=Path, required=True)
-    correction.add_argument("--baseline", type=Path, help="approved source; defaults to bundled audit baseline")
-    correction.add_argument("--reviewer", required=True, help="who reviewed the saved-run correction")
     return parser
 
 
@@ -163,6 +168,17 @@ def _new_run_directory(kind: str = "runs") -> Path:
     return run
 
 
+def _required_baseline(path: Path | None, audit_sha256: str) -> dict[str, Any]:
+    """Require approved decisions before preparing any new Evaluation run."""
+    baseline = select_baseline(path, audit_sha256)
+    if baseline is None:
+        raise ValueError(
+            "New Evaluation runs require an approved baseline. Use baseline-prepare and "
+            "baseline-approve to review this audit, then supply --baseline PATH."
+        )
+    return baseline
+
+
 def _run(args: argparse.Namespace) -> int:
     """Prepare a fresh run and execute only after explicit approval."""
     request_config = MODEL_PRESETS[args.model]
@@ -173,7 +189,7 @@ def _run(args: argparse.Namespace) -> int:
     if not args.html.is_file():
         raise ValueError(f"Benchmark HTML not found: {args.html}")
     human_audit = import_page_human_findings(args.human_audit, args.source_url)
-    baseline = select_baseline(args.baseline, human_audit.human_audit_sha256)
+    baseline = _required_baseline(args.baseline, human_audit.human_audit_sha256)
     run = _new_run_directory()
     manifest = prepare_page(
         run, args.html, args.source_url, human_audit, request_config, limit, baseline
@@ -272,7 +288,7 @@ def _run_all(args: argparse.Namespace) -> int:
     if args.approve_live and not args.live:
         raise ValueError("--approve-live requires --live")
     audits, snapshots = load_full_inputs(args.human_audit, args.snapshots)
-    baseline = select_baseline(args.baseline, next(iter(audits.values())).human_audit_sha256)
+    baseline = _required_baseline(args.baseline, next(iter(audits.values())).human_audit_sha256)
     run = _new_run_directory("full-runs")
     print(f"Full evaluation: {run}")
     manifest = prepare_full_evaluation(run, audits, snapshots, request_config, limit, baseline)
@@ -312,11 +328,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        if args.command == "correct-all":
-            run = args.run_dir.resolve()
-            history = correct_full_evaluation(run, args.reviewer, args.baseline)
-            print(f"Original evidence and reports: {history}")
-            print(f"Corrected combined HTML report: {run / 'report.html'}")
+        if args.command == "baseline-prepare":
+            prepare_baseline_review(args.human_audit, args.snapshots, args.output_dir)
+            print(f"Baseline review CSVs and instructions: {args.output_dir.resolve()}")
+            return 0
+        if args.command == "baseline-approve":
+            baseline = approve_baseline_review(args.review_dir, args.reviewer, args.output)
+            print(f"Approved Evaluation baseline: {baseline.resolve()}")
             return 0
         if args.command == "capture":
             mapping = capture_snapshots(args.human_audit, args.output_dir)

@@ -218,7 +218,7 @@ def saved_baseline_decisions(
         if path.exists():
             raise ValueError("Saved Evaluation baseline is missing its run identity")
         if (BASELINE_DIRECTORY / f"{manifest['human_audit_sha256']}.json").is_file():
-            raise ValueError("This Human audit requires its approved Evaluation baseline; apply it to the saved run before reporting")
+            raise ValueError("This Human audit requires its approved Evaluation baseline; prepare a new run with --baseline PATH")
         return None
     baseline = load_baseline_snapshot(run, manifest)
     return resolved_decisions(baseline, human, manifest["source_url"], programmatic)

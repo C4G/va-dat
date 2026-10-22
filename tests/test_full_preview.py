@@ -6,6 +6,7 @@ import json
 
 import openpyxl
 import pytest
+from legacy_evaluation import historical_run_cli
 
 from vision_aid.evaluation.cli import main
 from vision_aid.evaluation.inputs.human_audit import HEADERS
@@ -59,8 +60,8 @@ def full_workspace(tmp_path, monkeypatch):
 
 
 def preview(workspace, *extra):
-    """Invoke the public Full evaluation preview using saved evidence."""
-    return main([
+    """Preview with explicit approval, converting only historical review fixtures."""
+    return historical_run_cli(workspace, [
         "run-all", "--human-audit", str(workspace / "human-audit.xlsx"),
         "--snapshots", str(workspace / "snapshots/snapshots.json"),
         "--max-cost-usd", "2", *extra,
@@ -244,6 +245,7 @@ def test_one_page_selection_and_human_ids_remain_compatible(full_workspace):
         "run", "--human-audit", str(full_workspace / "human-audit.xlsx"),
         "--html", str(full_workspace / "snapshots/page-001.html"),
         "--source-url", URLS[0], "--max-cost-usd", "2",
+        "--baseline", str(full_workspace / "historical-setup-baseline.json"),
     ]) == 0
     (page_run,) = (full_workspace / ".model-evaluation/runs").iterdir()
     evidence = json.loads((page_run / "artifacts/human-findings.json").read_text())

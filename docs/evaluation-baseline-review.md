@@ -159,7 +159,7 @@ combined reporting use the same saved-decision contract.
 
 ### Actual saved-run correction
 
-After the temporary checks, `correct-all` successfully applied the approved
+During the original implementation, the now-retired `correct-all` command applied the approved
 baseline to both original completed Full evaluations. All 36 regenerated reports
 are standalone and usable offline. The two evaluations validate 396 child review
 rows in total and retain 86 unique originals each, with the corrected counts in
@@ -176,9 +176,10 @@ SHA-256 inventories beside them. The local verification records are
 
 ## Manual maintenance
 
-When Programmatic rules change, deliberately re-review the affected original
-Human defects and update both their classifications and page expectations.
-Verify the revised decisions through the evaluator CLI before using them.
+When Programmatic rules change, prepare a new baseline CSV review and
+deliberately re-review the affected original Human defects and page matches.
+Approve that review through the evaluator CLI into a new baseline file before
+preparing new runs. The current authoring workflow is documented in the README.
 Discovering a new rule or observing a different catch must not silently change a
 classification. An unresolved expectation requires investigation, not a guessed
 match or a removed responsibility.

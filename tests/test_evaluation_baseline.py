@@ -288,7 +288,7 @@ def test_bundled_baseline_is_automatic_and_cannot_be_removed_to_unlock_reporting
     manifest.pop("evaluation_baseline_sha256")
     manifest.pop("evaluation_baseline_approved_by")
     (run / "run.json").write_text(json.dumps(manifest))
-    assert "apply it to the saved run before reporting" in refused(run, capsys)
+    assert "prepare a new run with --baseline PATH" in refused(run, capsys)
 
 
 @pytest.mark.parametrize("change,error", [
