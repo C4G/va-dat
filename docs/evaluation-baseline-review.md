@@ -157,6 +157,23 @@ It made no model requests or downloads and did not change checker behavior.
 The reusable baseline JSON is included in installed package data. Correction and
 combined reporting use the same saved-decision contract.
 
+### Actual saved-run correction
+
+After the temporary checks, `correct-all` successfully applied the approved
+baseline to both original completed Full evaluations. All 36 regenerated reports
+are standalone and usable offline. The two evaluations validate 396 child review
+rows in total and retain 86 unique originals each, with the corrected counts in
+the table above.
+
+Comparison with the pre-correction inventory confirmed unchanged original
+execution evidence, model configuration, completion, usage, pricing, costs, and
+all LLM match IDs, reasoning, and notes. The interrupted Haiku attempt also
+remains unchanged. Verified original backups contain 344 Haiku files and 342 Luna
+files at `.model-evaluation/full-runs/review-history/<run-id>/original`, with
+SHA-256 inventories beside them. The local verification records are
+`.scratch/evaluation-baseline/verification/before.json`, `after.json`, and
+`backup-and-html.json`.
+
 ## Manual maintenance
 
 When Programmatic rules change, deliberately re-review the affected original

@@ -152,6 +152,31 @@ def resolved_decisions(
     return resolved
 
 
+def save_baseline_snapshot(
+    run: Path, manifest: dict[str, Any], baseline: dict[str, Any],
+) -> None:
+    """Save approved decisions and pin their bytes and attribution in a manifest."""
+    path = run / BASELINE_ARTIFACT
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    manifest["evaluation_baseline_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest["evaluation_baseline_approved_by"] = baseline["approved_by"]
+
+
+def load_baseline_snapshot(
+    run: Path, manifest: dict[str, Any], label: str = "Saved Evaluation baseline",
+) -> dict[str, Any]:
+    """Load a pinned approved source only after verifying its bytes and attribution."""
+    path = run / BASELINE_ARTIFACT
+    digest = manifest["evaluation_baseline_sha256"]
+    if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+        raise ValueError(f"{label} is missing or its checksum changed")
+    baseline = load_baseline(path, manifest["human_audit_sha256"])
+    if manifest.get("evaluation_baseline_approved_by") != baseline["approved_by"]:
+        raise ValueError(f"{label} approval attribution changed")
+    return baseline
+
+
 def apply_baseline(run: Path, baseline: dict[str, Any]) -> None:
     """Populate fixed decisions and save their source, preserving per-run LLM review."""
     manifest = json.loads((run / "run.json").read_text())
@@ -178,10 +203,7 @@ def apply_baseline(run: Path, baseline: dict[str, Any]) -> None:
         writer = csv.DictWriter(stream, fieldnames=columns)
         writer.writeheader()
         writer.writerows(rows)
-    snapshot = run / BASELINE_ARTIFACT
-    snapshot.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    manifest["evaluation_baseline_sha256"] = hashlib.sha256(snapshot.read_bytes()).hexdigest()
-    manifest["evaluation_baseline_approved_by"] = baseline["approved_by"]
+    save_baseline_snapshot(run, manifest, baseline)
     (run / "run.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
@@ -198,9 +220,5 @@ def saved_baseline_decisions(
         if (BASELINE_DIRECTORY / f"{manifest['human_audit_sha256']}.json").is_file():
             raise ValueError("This Human audit requires its approved Evaluation baseline; apply it to the saved run before reporting")
         return None
-    if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
-        raise ValueError("Saved Evaluation baseline is missing or its checksum changed")
-    baseline = load_baseline(path, manifest["human_audit_sha256"])
-    if manifest.get("evaluation_baseline_approved_by") != baseline["approved_by"]:
-        raise ValueError("Saved Evaluation baseline approval attribution changed")
+    baseline = load_baseline_snapshot(run, manifest)
     return resolved_decisions(baseline, human, manifest["source_url"], programmatic)
