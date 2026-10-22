@@ -590,6 +590,16 @@ recommendations do not assign findings. The known `/Contact/` alias maps to
 stop preparation. Each page's review contains its local findings and every
 Global finding, including pages with no local findings.
 
+The Human audit checksum selects its bundled Evaluation baseline automatically.
+For another audit, add `--baseline path/to/approved-decisions.json` to select
+approved decisions explicitly. Preparation selects the source once and copies
+the same complete baseline into the parent and every child as
+`artifacts/evaluation-baseline.json`, with checksums in their manifests.
+Each page receives the approved classifications and Programmatic explanations;
+expected matches resolve to that child's actual finding IDs. Missing or
+non-unique expected checker evidence stops preparation with the affected Human
+finding and page. Audits without an approved baseline retain manual review.
+
 Each invocation creates a fresh `.model-evaluation/full-runs/<run-id>/`
 directory. Its `full.json` records ordered membership and preparation status;
 `human-findings.json` retains unique originals and their page assignments.
@@ -641,11 +651,14 @@ again; it does not resume or reuse previous paid outputs.
 ### Review and report a Full evaluation
 
 After every page completes execution, edit each child's `review.csv` under
-`.model-evaluation/full-runs/<run-id>/pages/`. Use the same Eligibility
-classifications, finding ID columns, and full Match decisions as the one-page
-workflow below. Establish eligibility from the Human finding and saved HTML
-independently of what the model caught. Each page includes all Global findings,
-so their evidence and eligibility can be reviewed separately on every page.
+`.model-evaluation/full-runs/<run-id>/pages/`. When an Evaluation baseline is
+saved, review each page's LLM matches, LLM matching rationale, and notes using
+the one-page full Match requirements below. Keep the populated classifications,
+classification reasons, Programmatic finding IDs, and approved Programmatic
+explanations fixed. Each page includes all Global findings, whose LLM evidence
+is reviewed separately on every page. With no approved baseline, establish
+eligibility and both sources' matches manually from the Human finding and saved
+HTML independently of what the model caught.
 
 Generate the individual page reports and the combined report:
 
@@ -657,6 +670,12 @@ uv run visionaid-evaluate report-all \
 
 `report-all` validates every listed execution, child evidence identity, and
 page review before writing final combined rates to the parent's `report.html`.
+It verifies that every child uses the exact approved source retained by the
+parent, rejects edits to fixed decisions, and resolves all expectations against
+actual page evidence again. Later edits to the original baseline file do not
+change saved runs. Reports retain baseline approval attribution alongside the
+LLM reviewer and distinguish approved Programmatic explanations from LLM
+matching rationale.
 Open that file in a browser. It is a self-contained offline document with every
 original Human finding once, the reviewer attribution, and embedded readable
 matching evidence. Global findings show a compact table of every page's decision,
@@ -674,8 +693,9 @@ Partial evidence on different pages never earns combined credit. LLM and
 Programmatic catches may come from different pages, but Overall counts that
 Global once. Repeated catches on several pages also count once.
 
-Global classifications may be `unavailable_evidence` or `ambiguous` on some
-pages. If any page is testable, all testable pages must agree on `llm_eligible`
+The approved baseline fixes each Global's classification across its pages.
+In manual reviews, Global classifications may be `unavailable_evidence` or
+`ambiguous` on some pages. If any page is testable, all testable pages must agree on `llm_eligible`
 or `programmatic`; that original finding enters the corresponding denominator
 once, including when nothing caught it. If every page is not testable, its
 recorded reasons remain in the report, it leaves the LLM and Programmatic
@@ -683,9 +703,10 @@ denominators, and it stays in Overall. Combined rates use pooled finding
 counts, rather than averages of page percentages. A catch by the other source
 counts in Overall but earns no credit in the expected source's rate.
 
-Missing or incomplete execution, invalid reviews, missing evidence, or
-conflicting testable Global classifications withhold final combined rates.
-Correct review decisions and run `report-all` again. Regenerating a report
+Missing or incomplete execution, invalid reviews, missing expected evidence,
+inconsistent saved baselines, or conflicting testable Global classifications
+withhold final combined rates. Restore approved decisions or investigate missing
+checker evidence before running `report-all` again. Regenerating a report
 removes the previous parent HTML and legacy Markdown report before validation,
 so invalid revised reviews cannot leave stale combined rates. Available individual
 reports and evidence remain. Each HTML file is published only after rendering
