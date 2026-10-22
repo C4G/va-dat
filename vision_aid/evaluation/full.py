@@ -11,6 +11,11 @@ from typing import Any
 
 import requests
 
+from vision_aid.evaluation.baseline import (
+    BASELINE_ARTIFACT,
+    load_baseline,
+    validate_baseline,
+)
 from vision_aid.evaluation.execution.llm_audit import (
     USAGE_KEYS,
     LLMRequestConfig,
@@ -97,6 +102,7 @@ def prepare_full_evaluation(
     snapshots: dict[str, Path],
     request_config: LLMRequestConfig,
     limit: Decimal,
+    baseline: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Prepare all listed pages, retaining membership and progress on failure."""
     first_audit = next(iter(audits.values()))
@@ -140,13 +146,17 @@ def prepare_full_evaluation(
         "source_urls": list(audits),
     })
     write_json(run / "full.json", manifest)
+    if baseline is not None:
+        save_full_baseline(run, baseline)
+        manifest = json.loads((run / "full.json").read_text())
+        pages = manifest["pages"]
     for page in pages:
         child = run / page["run_dir"]
         try:
             child.mkdir(parents=True)
             child_manifest = prepare_page(
                 child, snapshots[page["source_url"]], page["source_url"],
-                audits[page["source_url"]], request_config, limit,
+                audits[page["source_url"]], request_config, limit, baseline,
             )
         except (OSError, ValueError, KeyError) as error:
             page["status"] = "preparation_failed"
@@ -162,6 +172,23 @@ def prepare_full_evaluation(
     manifest["incomplete_reason"] = "preview"
     write_json(run / "full.json", manifest)
     return manifest
+
+
+def save_full_baseline(run: Path, baseline: dict[str, Any]) -> None:
+    """Pin the approved source shared by all children, including corrected runs."""
+    manifest = json.loads((run / "full.json").read_text())
+    validate_baseline(baseline, manifest["human_audit_sha256"])
+    original = json.loads((run / "human-findings.json").read_text())
+    if {item["human_finding_id"] for item in baseline["decisions"]} != {
+        item["human_finding_id"] for item in original["human_findings"]
+    }:
+        raise ValueError("Full evaluation baseline must contain each original Human finding exactly once")
+    path = run / BASELINE_ARTIFACT
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    manifest["evaluation_baseline_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest["evaluation_baseline_approved_by"] = baseline["approved_by"]
+    write_json(run / "full.json", manifest)
 
 
 def execute_full_evaluation(
@@ -277,6 +304,18 @@ def _validated_full_reviews(
     locals_ = {item["human_finding_id"] for item in findings if item["page_scope"] != "global"}
     if set(assignments) != locals_ or any(url not in urls for url in assignments.values()):
         raise ValueError("Full evaluation has invalid original page assignments")
+    baseline_path = run / BASELINE_ARTIFACT
+    baseline_digest = manifest.get("evaluation_baseline_sha256")
+    if baseline_digest:
+        if not baseline_path.is_file() or hashlib.sha256(baseline_path.read_bytes()).hexdigest() != baseline_digest:
+            raise ValueError("Saved Full evaluation baseline is missing or its checksum changed")
+        baseline = load_baseline(baseline_path, manifest["human_audit_sha256"])
+        if manifest.get("evaluation_baseline_approved_by") != baseline["approved_by"]:
+            raise ValueError("Saved Full evaluation baseline approval attribution changed")
+        if {item["human_finding_id"] for item in baseline["decisions"]} != set(identities):
+            raise ValueError("Full evaluation baseline differs from original Human findings")
+    elif baseline_path.exists():
+        raise ValueError("Saved Full evaluation baseline is missing its parent identity")
     reviews = []
     child_ids: set[str] = set()
     tool_ids: set[str] = set()
@@ -303,6 +342,8 @@ def _validated_full_reviews(
             raise ValueError("Child Human finding evidence differs from the original page selection")
         review = validated_page_review(child)
         saved = review.manifest
+        if saved.get("evaluation_baseline_sha256") != baseline_digest:
+            raise ValueError(f"Child Evaluation baseline differs from the Full evaluation: {page['source_url']}")
         for field, expected_value in (
             ("run_id", page["run_id"]), ("source_url", page["source_url"]),
             ("human_audit_sha256", manifest["human_audit_sha256"]),

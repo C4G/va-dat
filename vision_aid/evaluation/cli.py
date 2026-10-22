@@ -96,6 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_all.add_argument(
         "--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT, help="Human audit"
     )
+    run_all.add_argument("--baseline", type=Path, help="approved Human audit decisions; defaults to bundled audit baseline")
     run_all.add_argument(
         "--snapshots", type=Path, required=True,
         help="saved snapshots.json mapping from capture; resolves HTML beside it",
@@ -260,9 +261,10 @@ def _run_all(args: argparse.Namespace) -> int:
     if args.approve_live and not args.live:
         raise ValueError("--approve-live requires --live")
     audits, snapshots = load_full_inputs(args.human_audit, args.snapshots)
+    baseline = select_baseline(args.baseline, next(iter(audits.values())).human_audit_sha256)
     run = _new_run_directory("full-runs")
     print(f"Full evaluation: {run}")
-    manifest = prepare_full_evaluation(run, audits, snapshots, request_config, limit)
+    manifest = prepare_full_evaluation(run, audits, snapshots, request_config, limit, baseline)
     prompt_count = 0
     for page in manifest["pages"]:
         child = run / page["run_dir"]
