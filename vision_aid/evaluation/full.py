@@ -13,7 +13,8 @@ import requests
 
 from vision_aid.evaluation.baseline import (
     BASELINE_ARTIFACT,
-    load_baseline,
+    load_baseline_snapshot,
+    save_baseline_snapshot,
     validate_baseline,
 )
 from vision_aid.evaluation.execution.llm_audit import (
@@ -183,11 +184,7 @@ def save_full_baseline(run: Path, baseline: dict[str, Any]) -> None:
         item["human_finding_id"] for item in original["human_findings"]
     }:
         raise ValueError("Full evaluation baseline must contain each original Human finding exactly once")
-    path = run / BASELINE_ARTIFACT
-    path.parent.mkdir(exist_ok=True)
-    path.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    manifest["evaluation_baseline_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
-    manifest["evaluation_baseline_approved_by"] = baseline["approved_by"]
+    save_baseline_snapshot(run, manifest, baseline)
     write_json(run / "full.json", manifest)
 
 
@@ -307,11 +304,7 @@ def _validated_full_reviews(
     baseline_path = run / BASELINE_ARTIFACT
     baseline_digest = manifest.get("evaluation_baseline_sha256")
     if baseline_digest:
-        if not baseline_path.is_file() or hashlib.sha256(baseline_path.read_bytes()).hexdigest() != baseline_digest:
-            raise ValueError("Saved Full evaluation baseline is missing or its checksum changed")
-        baseline = load_baseline(baseline_path, manifest["human_audit_sha256"])
-        if manifest.get("evaluation_baseline_approved_by") != baseline["approved_by"]:
-            raise ValueError("Saved Full evaluation baseline approval attribution changed")
+        baseline = load_baseline_snapshot(run, manifest, "Saved Full evaluation baseline")
         if {item["human_finding_id"] for item in baseline["decisions"]} != set(identities):
             raise ValueError("Full evaluation baseline differs from original Human findings")
     elif baseline_path.exists():
