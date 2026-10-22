@@ -512,9 +512,11 @@ From the repository root, use the supplied `Pristine Accessibility Defect Report
    provider usage, and each request's billable categories and estimated cost;
    `$RUN_DIR/artifacts/raw-programmatic-findings.json` has the original checker output.
 
-5. **Make the human decisions in one CSV.** Open `$RUN_DIR/review.csv` in
-   Excel or a CSV-aware text editor. Review every Human finding and fill in
-   the decision columns using the guide below. Save the file as CSV.
+5. **Review the LLM matches in one CSV.** Open `$RUN_DIR/review.csv` in
+   Excel or a CSV-aware text editor. An approved Evaluation baseline populates
+   classifications, reasons, and Programmatic matches. Review the LLM finding IDs,
+   `match_reason`, and `review_notes` using the guide below. For an audit without
+   an approved baseline, fill all decision columns. Save the file as CSV.
 
 6. **Generate the final report.** Run `report` after completing the review,
    naming whoever made the decisions:
@@ -817,6 +819,7 @@ compatibility fallback or automatic migration.
 | `normalized-programmatic-findings.json`    | Checker results converted to findings with `finding_id` values for `review.csv`.                                                                                                                                      |
 | `run.json`                                 | Configuration, snapshot checksum, prompt list, completion status, format failures, token usage, and estimated cost. `complete: true` does not imply that every response parsed successfully; check `format_failures`. |
 | `report.html`                              | Self-contained Evaluation report generated after successful reporting; a Full evaluation parent embeds all page matching evidence.                                                                                                                                                                  |
+| `artifacts/evaluation-baseline.json`       | Approved decisions copied into baseline-backed runs, with an integrity checksum recorded in `run.json`; later shared edits do not rewrite historical interpretation. |
 | `artifacts/human-findings.json`            | Canonical imported Home and Global Human findings used to validate and score the review.                                                                                                                              |
 | `artifacts/pricing.json`                   | The versioned public model rates and capture date used to estimate this run's cost from reported usage. Older runs retain their original price schedule.                                                              |
 | `artifacts/raw-llm-responses.json`         | Live model replies, request outcomes, and reported token usage, including responses that could not be parsed into findings.                                                                                           |
@@ -846,6 +849,72 @@ inspection of malformed replies, and `review-validation.json` with checks on
 the completed review. The standard `visionaid-evaluate run` command does not
 create those files or perform those extra checks.
 
+### Approved decisions for a single page
+
+The supplied Human audit automatically selects its approved Evaluation baseline
+by the SHA-256 of the Excel file. Model and snapshot identities do not select
+the baseline. To select approved decisions for another audit explicitly, add
+`--baseline path/to/approved-decisions.json` to `visionaid-evaluate run`.
+Unknown audits without a bundled baseline retain the manual review workflow.
+For an audit with a `URL list`, `--source-url` selects that page's local Human
+findings and all Globals; an unlisted URL is rejected. Older audits without a
+URL list retain the Home and Global selection.
+
+Preparation fills `classification`, `classification_reason`,
+`programmatic_finding_id`, and `programmatic_match_reason`. These are approved
+fields: reporting rejects edits to them. Expected catches identify an existing
+rule and relevant element or page evidence, then resolve to the actual finding
+IDs in this run. Missing or non-unique evidence stops preparation or reporting
+with the Human finding, page, rule, and evidence to investigate. A Programmatic
+classification requires a complete expected catch; classification alone never
+awards coverage. An empty expectations list records an explained absence,
+including for LLM-eligible findings that have no Programmatic cross-catch.
+
+Reviewers edit `llm_finding_id`, `match_reason` (LLM reasoning), and
+`review_notes`. Practical semantic matching and complete-coverage requirements
+still apply. Joint matches and cross-catches are supported; not-testable rows
+cannot claim a catch. The report distinguishes approved Programmatic explanations
+and baseline approval attribution from the per-run LLM review.
+
+The run saves its approved source in `artifacts/evaluation-baseline.json` and
+pins its checksum in `run.json`. Reporting uses that saved copy, so a later
+manual baseline update does not change historical results. To change approved
+responsibilities or expectations, review and edit the shared JSON deliberately,
+then prepare a new run or apply the saved-run correction workflow after preserving
+old artifacts. Editing a run's CSV does not update shared decisions. Programmatic
+rules are never changed or classifications inferred automatically by this workflow.
+
+An approved JSON uses `schema_version: 1`, `human_audit_sha256`, `approved_by`,
+and a `decisions` array. Each decision has `human_finding_id`, `classification`,
+`classification_reason`, and `programmatic_by_page`. Every applicable page URL
+maps to an explicit `expectations` array and an explanatory `reason`:
+
+```json
+{
+  "human_finding_id": "human-…",
+  "classification": "programmatic",
+  "classification_reason": "The existing missing-title rule catches this defect.",
+  "programmatic_by_page": {
+    "https://example.test/": {
+      "expectations": [
+        {
+          "rule": "PAGE_TITLE_001",
+          "evidence": {"raw_source": {"location": {"tag": "head"}}}
+        }
+      ],
+      "reason": "The page-level missing title fully covers the Human defect."
+    }
+  }
+}
+```
+
+An expectation uses the canonical rule (`problem_family`) plus exact `element`,
+`location`, `problem`, or a selected subset of nested `raw_source` fields. Include
+sufficient relevant evidence to resolve exactly one finding. Multiple expectations
+are a joint complete match. Do not include run-specific finding IDs in shared
+expectations. A finding cannot be assigned to multiple Human findings on one page.
+Changed page evidence and checker-rule changes remain outside this workflow.
+
 ### Fill in `review.csv`
 
 The CSV has one row for each of the 16 Home or Global Human findings. Keep
@@ -856,7 +925,8 @@ In particular, `source_sheet` and `source_row` point back to the Human audit,
 `page_scope` says Home or Global, and `source_element` copies the Human audit's
 `element name`. It is not an inferred location on the page.
 
-For **every row**, fill in `classification`:
+For a run without an approved baseline, fill in `classification` for **every row**.
+For a baseline-backed run, retain the populated classification:
 
 | `classification` value | Use it when                                                                                                                                           |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -868,16 +938,18 @@ For **every row**, fill in `classification`:
 Base the classification on the Human finding and available evidence, not on
 whether this run happened to produce a matching finding. In
 `classification_reason`, write a short explanation of that choice, including
-what evidence is missing or unclear when applicable. This explanation is
-optional, but `classification` cannot be blank when you generate the report.
+what evidence is missing or unclear when applicable. Without an approved baseline this explanation is optional, but `classification`
+cannot be blank when you generate the report. Approved explanations are required
+and must retain the baseline wording.
 
 Then complete the remaining decision columns for that row:
 
 | Column                    | What to enter                                                                                                                                                                                                                  |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `llm_finding_id`          | Copy `finding_id` values from `$RUN_DIR/normalized-llm-findings.json` only when the selected LLM findings **jointly cover the whole Human finding**. Separate multiple IDs with semicolons (`;`). Otherwise leave blank.       |
-| `programmatic_finding_id` | Copy `finding_id` values from `$RUN_DIR/normalized-programmatic-findings.json` only when the selected Programmatic findings **jointly cover the whole Human finding**. Use semicolons for multiple IDs. Otherwise leave blank. |
-| `match_reason`            | If either finding-ID cell has an ID, briefly explain how those findings cover the full defect, including the relevant element or behavior. If both ID cells are blank, this can be blank.                                      |
+| `programmatic_finding_id` | Keep the approved value when a baseline is selected. Otherwise copy `finding_id` values from `$RUN_DIR/normalized-programmatic-findings.json` only when the selected Programmatic findings **jointly cover the whole Human finding**. Use semicolons for multiple IDs. Otherwise leave blank. |
+| `match_reason`            | For a baseline-backed run, explain LLM matches here; the approved Programmatic explanation is separate. Otherwise, if either finding-ID cell has an ID, briefly explain how those findings cover the full defect, including the relevant element or behavior. If both ID cells are blank, this can be blank.                                      |
+| `programmatic_match_reason` | Populated only for baseline-backed runs; retain the approved explanation for the Programmatic match or deliberate absence. |
 | `review_notes`            | Optional context, such as a more precise location or a finding that covers only part of the defect. Notes do not award coverage.                                                                                               |
 
 You may use findings from both files for one row. Each finding ID must exist in
@@ -885,7 +957,8 @@ the named file and can be assigned to only one Human finding. Leave both ID
 cells blank when no findings fully cover the row; that records a miss, even if
 you describe partial evidence in `review_notes`. For `unavailable_evidence` and
 `ambiguous` rows, leave both ID cells blank. The report command checks these
-rules and requires a `match_reason` whenever you enter an ID.
+rules and requires a `match_reason` whenever you enter an LLM ID. Without an
+approved baseline, a Programmatic ID also requires `match_reason`.
 
 #### Using Codex or Claude Code for the review
 

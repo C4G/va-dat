@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from entry_points.run_pipeline import run_pipeline
+from vision_aid.evaluation.baseline import apply_baseline, saved_baseline_decisions
 from vision_aid.evaluation.execution.llm_audit import (
     USAGE_KEYS,
     LLMRequestConfig,
@@ -44,6 +45,7 @@ def prepare_page(
     human_audit: HumanAudit,
     request_config: LLMRequestConfig,
     limit: Decimal,
+    baseline: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Save a page's inputs, checks, prompts and blank review without paid requests.
 
@@ -108,6 +110,9 @@ def prepare_page(
         "skipped_prompts": production["prompts_skipped"],
     }
     write_json(run / "run.json", manifest)
+    if baseline is not None:
+        apply_baseline(run, baseline)
+        manifest = json.loads((run / "run.json").read_text())
     return manifest
 
 
@@ -135,8 +140,9 @@ def validated_page_review(run: Path) -> PageReview:
         ):
             label = kind.upper() if kind == "llm" else kind.title()
             raise ValueError(f"{label} findings do not belong to this run")
+    approved = saved_baseline_decisions(run, manifest, human_audit, programmatic)
     rows = reviewed_rows(
-        run / "review.csv", human_audit["human_findings"], llm, programmatic
+        run / "review.csv", human_audit["human_findings"], llm, programmatic, approved
     )
     schedule = PriceSchedule.load(artifacts / "pricing.json")
     return PageReview(manifest, rows, llm, programmatic, schedule)
@@ -144,6 +150,7 @@ def validated_page_review(run: Path) -> PageReview:
 
 def report_page(run: Path, reviewer: str) -> PageReview:
     """Validate human decisions and write the page report with attribution."""
+    (run / "report.html").unlink(missing_ok=True)
     if not reviewer.strip():
         raise ValueError("A reviewer description is required")
     review = validated_page_review(run)
