@@ -720,6 +720,61 @@ uv run visionaid-evaluate report \
   --reviewer "Name and how this page was reviewed"
 ```
 
+### Correct saved Full evaluation reviews
+
+Use `correct-all` to apply approved decisions to a completed saved Full evaluation
+and regenerate every child and combined HTML report. It reads saved Human,
+Programmatic, and LLM evidence without model requests, downloads, or checker runs:
+
+```bash
+uv run visionaid-evaluate correct-all \
+  --run-dir .model-evaluation/full-runs/20261018T152533-610e4938 \
+  --reviewer "Name and how the saved-run correction was reviewed"
+
+uv run visionaid-evaluate correct-all \
+  --run-dir .model-evaluation/full-runs/20261011T015629-880f3e7c \
+  --reviewer "Name and how the saved-run correction was reviewed"
+```
+
+The Human audit checksum automatically selects its bundled approved baseline.
+For another audit, supply `--baseline path/to/approved-decisions.json`. Correction
+requires completed execution; leave interrupted attempts as historical evidence.
+
+Before replacing or removing any review or report, correction copies the complete
+run to `review-history/<run-id>/original` beside the run directory. Its sibling
+`inventory.json` records every original file's relative path and SHA-256. The
+copy is verified before correction begins. Repeating the command verifies and
+reuses the first original backup. A corrupt backup stops correction before any
+saved-run files change. Inspect that backup to compare the previous reviews,
+reports, attribution, execution metadata, and source evidence with the correction.
+
+Correction resolves all approved expectations against each child's own saved
+Programmatic findings. It retains compatible `llm_finding_id`, `match_reason`, and
+`review_notes` cells exactly, including qualifications and cross-catches. The
+original Human evidence, snapshots, raw responses, normalized findings, model
+configuration, completion, usage, pricing, and costs remain unchanged. Only review
+and report artifacts, approved-source snapshots, and review provenance metadata
+are updated.
+
+If a saved LLM catch is incompatible with the approved classification, or its
+IDs or explanation are invalid, correction stops and writes
+`correction-review.json` in the run directory. That file identifies the page,
+Human finding, current LLM cells, and required review. Inspect the saved evidence,
+edit only the listed LLM decision cells in the child's `review.csv` explicitly,
+retain qualifications in `review_notes`, then rerun `correct-all`. It never
+silently removes an incompatible catch. Missing or ambiguous Programmatic
+expectations also stop correction and identify the evidence to investigate.
+Failed correction removes stale combined results only after preserving them in
+the verified backup; run reports are regenerated only after validation succeeds.
+
+Corrected manifests record the original backup and its inventory checksum,
+original LLM reviewer attribution from preserved reports, approved-baseline
+attribution, and the correction reviewer. The reports distinguish these roles.
+The approved score changes for the supplied audit are explained in
+[the Evaluation baseline review](docs/evaluation-baseline-review.md).
+Changing Programmatic rules requires deliberate re-review of shared decisions;
+changed page evidence remains a separate deferred policy.
+
 ### Reading the detection charts
 
 Both report scopes lead with an LLM detection bar, followed by Programmatic and

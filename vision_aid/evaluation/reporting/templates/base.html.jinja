@@ -12,7 +12,15 @@
 <h1>{{ title }}: {{ model_name }}</h1>
 {% block scope %}{% endblock %}
 <p>Run ID: {{ manifest.run_id }}.</p>
-<p>Review decisions by: {{ reviewer }}</p>
+{% if manifest.get("review_correction") %}
+<p>Report review by: {{ reviewer }}</p>
+<p>Saved-run correction reviewed by: {{ manifest.review_correction.corrected_by }}</p>
+{% if manifest.review_correction.original_llm_reviewers %}
+<p>Original LLM review by: {{ manifest.review_correction.original_llm_reviewers | join('; ') }}</p>
+{% else %}<p>Original LLM reviewer attribution was not recorded in the saved report.</p>{% endif %}
+<p>Approved baseline by: {{ manifest.review_correction.baseline_approved_by }}</p>
+<p>Original evidence and reports preserved at: {{ manifest.review_correction.original_backup }}</p>
+{% else %}<p>Review decisions by: {{ reviewer }}</p>{% endif %}
 <button id="print-report" type="button" hidden>Print report</button>
 <nav aria-label="Report sections"><a href="#performance">Cost and detection results</a><a href="#human-findings">Tool Findings and Human Finding Matches</a></nav>
 </header>

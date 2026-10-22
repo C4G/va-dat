@@ -16,6 +16,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from vision_aid.evaluation.baseline import select_baseline
+from vision_aid.evaluation.correction import correct_full_evaluation
 from vision_aid.evaluation.execution.llm_audit import (
     DEFAULT_MODEL,
     MODEL_PRESETS,
@@ -130,6 +131,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report_all.add_argument("--run-dir", type=Path, required=True, help="Full evaluation directory")
     report_all.add_argument("--reviewer", required=True, help="who made all page review decisions")
+    correction = commands.add_parser(
+        "correct-all", help="apply approved decisions and regenerate reports from saved Full evidence",
+        description=(
+            "Preserve a verified original backup, apply the Human audit's approved "
+            "baseline and regenerate every report without model calls or downloads."
+        ),
+    )
+    correction.add_argument("--run-dir", type=Path, required=True)
+    correction.add_argument("--baseline", type=Path, help="approved source; defaults to bundled audit baseline")
+    correction.add_argument("--reviewer", required=True, help="who reviewed the saved-run correction")
     return parser
 
 
@@ -301,6 +312,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command == "correct-all":
+            run = args.run_dir.resolve()
+            history = correct_full_evaluation(run, args.reviewer, args.baseline)
+            print(f"Original evidence and reports: {history}")
+            print(f"Corrected combined HTML report: {run / 'report.html'}")
+            return 0
         if args.command == "capture":
             mapping = capture_snapshots(args.human_audit, args.output_dir)
             print(f"Snapshot mapping: {mapping}")
