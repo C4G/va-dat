@@ -20,6 +20,10 @@ _Avoid_: Homepage-only finding, separate Human finding for each page.
 The saved HTML of the audited page, identified by its source URL and checksum.
 _Avoid_: Live page.
 
+**Evaluation baseline**:
+The approved Eligibility classifications, their reasons, and expected Programmatic matches for one Human audit, shared across its Evaluation runs. Programmatic responsibility is limited to existing Programmatic checks. Each Evaluation run retains the approved decisions used to interpret its evidence.
+_Avoid_: Per-model classifications, automatically inferred eligibility.
+
 **Evaluation run**:
 One audit with one selected model held fixed throughout, together with its evidence, the human decisions, its completion status, and its report.
 _Avoid_: Execution plan, report bundle.
@@ -52,7 +56,7 @@ An accessibility problem reported by the Programmatic checks.
 _Avoid_: Audit finding, LLM finding.
 
 **Eligibility classification**:
-A reviewer's decision about which part of the tool should be expected to catch a Human finding, recorded with a reason. The values are `llm_eligible`, `programmatic`, `unavailable_evidence` (the Benchmark snapshot cannot show the problem), and `ambiguous` (the Human finding is too unclear to judge).
+An approved decision about which part of the tool should be expected to catch a Human finding, recorded with a reason in the Evaluation baseline. The values are `llm_eligible`, `programmatic`, `unavailable_evidence` (the Benchmark snapshot cannot show the problem), and `ambiguous` (the Human finding is too unclear to judge).
 _Avoid_: Automatic model score, exclusion without rationale.
 
 **Not testable from the page file**:
@@ -60,7 +64,7 @@ The reader-facing group for Human findings classified `unavailable_evidence` or 
 _Avoid_: Excluded, unavailable, ambiguous (in reports).
 
 **Match decision**:
-A reviewer's judgment that the selected findings together fully cover one Human finding. Partial evidence alone earns no credit.
+A reviewer's judgment that the selected findings together fully cover one Human finding. The Evaluation baseline fixes Programmatic expectations; each Evaluation run resolves them to its actual Programmatic findings and records its own LLM judgments. Partial evidence alone earns no credit.
 _Avoid_: Candidate match, partial-credit score.
 
 **LLM detection rate**:
