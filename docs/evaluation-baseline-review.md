@@ -51,7 +51,7 @@ paragraph heading is unnecessary or that repeated Presto wording is descriptive.
 
 ## Semantic and unavailable evidence
 
-The 63 LLM findings require judgment about meaning, intended structure, or
+The 63 Human findings assigned to the LLM require judgment about meaning, intended structure, or
 accessibility patterns absent from existing rules. The JSON gives an individual
 reason for every original finding, including these distinctions:
 
@@ -102,6 +102,33 @@ from not testable to LLM. Their exact names are present outside the iframes.
 The other final classifications agree after inspection. Neither previous review
 has saved catches on any of the five final not-testable originals, so this group
 introduces no incompatible LLM matches during correction.
+
+## Comparable saved results
+
+Applying the approved decisions to the saved evidence produces these combined
+counts, with every compatible LLM decision and qualification retained:
+
+| Saved Full evaluation | Measure | Previous review | Shared baseline |
+| --- | --- | --- | --- |
+| Haiku `20261018T152533-610e4938` | LLM | 22/59, 37.3% | 21/63, 33.3% |
+| Haiku | Programmatic | 17/19, 89.5% | 18/18, 100.0% |
+| Haiku | Overall | 39/86, 45.3% | 39/86, 45.3% |
+| Luna `20261011T015629-880f3e7c` | LLM | 28/62, 45.2% | 28/63, 44.4% |
+| Luna | Programmatic | 18/18, 100.0% | 18/18, 100.0% |
+| Luna | Overall | 46/86, 53.5% | 46/86, 53.5% |
+
+Haiku gains five LLM responsibilities and loses Careers heading structure to the
+Programmatic denominator, increasing its LLM denominator by four. Its previous
+LLM catch for Careers remains a valid cross-catch but no longer enters the LLM
+numerator. Luna gains one LLM responsibility, Contact company/location headings,
+without an additional saved catch. Both runs now have five not-testable originals
+and the same source denominators. Overall is unchanged because source credit
+moves between responsibilities while each original still counts once.
+
+The Programmatic counts come from resolved, validated evidence. All 17 pages
+have identical checker evidence across the two runs, and every approved expected
+catch resolves to the appropriate run's findings. A missing or non-unique
+expectation prevents reporting rather than receiving assumed credit.
 
 ## Verification
 
