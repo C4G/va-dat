@@ -215,6 +215,7 @@ ci-output/
 # Private model-evaluation inputs and derived artifacts
 /Pristine Accessibility Defect Report.xlsx
 /.model-evaluation/
+/vision_aid/evaluation/baselines/
 
 # Node.js / Next.js generated files
 node_modules/

@@ -88,7 +88,7 @@ def load_baseline(path: Path, audit_sha256: str) -> dict[str, Any]:
 
 
 def select_baseline(path: Path | None, audit_sha256: str) -> dict[str, Any] | None:
-    """Select explicit decisions or the bundled baseline for this audit checksum."""
+    """Select explicit decisions or a locally stored baseline for this audit checksum."""
     if path is None:
         path = BASELINE_DIRECTORY / f"{audit_sha256}.json"
         if not path.is_file():

@@ -88,7 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT, help="Human audit"
     )
-    run.add_argument("--baseline", type=Path, help="approved Human audit decisions; defaults to bundled audit baseline")
+    run.add_argument("--baseline", type=Path, help="approved Human audit decisions; defaults to a local audit baseline")
     run.add_argument("--html", type=Path, required=True, help="local Benchmark HTML")
     run.add_argument("--source-url", required=True, help="URL represented by the HTML")
     run.add_argument(
@@ -112,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_all.add_argument(
         "--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT, help="Human audit"
     )
-    run_all.add_argument("--baseline", type=Path, help="approved Human audit decisions; defaults to bundled audit baseline")
+    run_all.add_argument("--baseline", type=Path, help="approved Human audit decisions; defaults to a local audit baseline")
     run_all.add_argument(
         "--snapshots", type=Path, required=True,
         help="saved snapshots.json mapping from capture; resolves HTML beside it",

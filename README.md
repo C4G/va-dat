@@ -449,7 +449,9 @@ requests run sequentially without retries or fallback models.
 ### Get a final report with the supplied Human audit
 
 From the repository root, use the supplied `Pristine Accessibility Defect Report.xlsx`
-(16 Home and Global defects). These steps work after deleting `.model-evaluation/`.
+(16 Home and Global defects). Keep the Excel file and its approved baseline
+available locally. A fresh checkout must create a baseline through the CSV
+workflow below or supply an existing file with `--baseline PATH`.
 
 1. **Save a Benchmark snapshot.** For the one-page workflow,
    create the ignored directory and save the homepage HTML there:
@@ -568,7 +570,9 @@ new directory after addressing the failure.
 ### Create an Evaluation baseline through CSV review
 
 New `run` and `run-all` invocations require an approved Evaluation baseline,
-including previews. The supplied Human audit already has a bundled baseline.
+including previews. The supplied Human audit can reuse its approved local
+baseline when available. Baseline JSON files remain untracked and are not
+included in installed package data; fresh checkouts must prepare or supply one.
 For a new Human audit, capture its listed pages first, then prepare a review
 using saved HTML and existing Programmatic checks:
 
@@ -672,7 +676,10 @@ recommendations do not assign findings. The known `/Contact/` alias maps to
 stop preparation. Each page's review contains its local findings and every
 Global finding, including pages with no local findings.
 
-The Human audit checksum selects its bundled Evaluation baseline automatically.
+The Human audit checksum selects an available local Evaluation baseline
+automatically from `vision_aid/evaluation/baselines/<audit-sha256>.json`.
+That directory is ignored by Git. Newly approved files remain in their review
+directory unless the operator explicitly chooses another output path.
 For another audit, add `--baseline path/to/approved-decisions.json` to select
 approved decisions explicitly. Preparation selects the source once and copies
 the same complete baseline into the parent and every child as
@@ -950,11 +957,11 @@ create those files or perform those extra checks.
 
 ### Approved decisions for a single page
 
-The supplied Human audit automatically selects its approved Evaluation baseline
+When present locally, an approved Evaluation baseline is automatically selected
 by the SHA-256 of the Excel file. Model and snapshot identities do not select
 the baseline. To select approved decisions for another audit explicitly, add
 `--baseline path/to/approved-decisions.json` to `visionaid-evaluate run`.
-Audits without a bundled baseline must supply an approved file created through
+Audits without a local baseline must supply an approved file created through
 `baseline-prepare` and `baseline-approve`.
 For an audit with a `URL list`, `--source-url` selects that page's local Human
 findings and all Globals; an unlisted URL is rejected. Older audits without a

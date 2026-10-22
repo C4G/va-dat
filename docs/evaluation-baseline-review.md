@@ -1,7 +1,8 @@
 # Approved decisions for the supplied Human audit
 
-The approved Evaluation baseline is
-[`f8e9c83d5de8155cd81c4d9c15180c6e38640a5aba7323d35040b81e39aa6c9a.json`](../vision_aid/evaluation/baselines/f8e9c83d5de8155cd81c4d9c15180c6e38640a5aba7323d35040b81e39aa6c9a.json).
+The approved Evaluation baseline is retained locally under
+`vision_aid/evaluation/baselines/f8e9c83d5de8155cd81c4d9c15180c6e38640a5aba7323d35040b81e39aa6c9a.json`.
+The JSON is untracked and is not distributed with the repository.
 It contains one classification and reason for each of the 86 original Human
 findings and an explicit Programmatic decision for each of the 198 applicable
 page review rows. Its selection key is the SHA-256 checksum of the supplied
@@ -133,7 +134,7 @@ expectation prevents reporting rather than receiving assumed credit.
 ## Verification
 
 Verification used the existing evaluator CLI against temporary copies of the
-ignored source evidence. The initial Home preview test failed because no bundled
+ignored source evidence. The initial Home preview test failed because no approved local
 baseline was saved. Adding the approved JSON made it pass. The external
 verification suite then passed all four scenarios:
 
@@ -154,8 +155,9 @@ verification suite then passed all four scenarios:
 
 The original saved reviews and reports were not changed by this verification.
 It made no model requests or downloads and did not change checker behavior.
-The reusable baseline JSON is included in installed package data. Correction and
-combined reporting use the same saved-decision contract.
+Baseline JSON remains local and is excluded from package data. New checkouts
+prepare a CSV review or select an approved local file with `--baseline PATH`.
+Combined reporting uses the same saved-decision contract.
 
 ### Actual saved-run correction
 
