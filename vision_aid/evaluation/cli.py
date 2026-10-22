@@ -15,6 +15,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from vision_aid.evaluation.baseline import select_baseline
 from vision_aid.evaluation.execution.llm_audit import (
     DEFAULT_MODEL,
     MODEL_PRESETS,
@@ -31,7 +32,7 @@ from vision_aid.evaluation.full import (
     prepare_full_evaluation,
     report_full_evaluation,
 )
-from vision_aid.evaluation.inputs.human_audit import import_homepage_human_findings
+from vision_aid.evaluation.inputs.human_audit import import_page_human_findings
 from vision_aid.evaluation.page import prepare_page, report_page
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -71,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT, help="Human audit"
     )
+    run.add_argument("--baseline", type=Path, help="approved Human audit decisions; defaults to bundled audit baseline")
     run.add_argument("--html", type=Path, required=True, help="local Benchmark HTML")
     run.add_argument("--source-url", required=True, help="URL represented by the HTML")
     run.add_argument(
@@ -158,10 +160,11 @@ def _run(args: argparse.Namespace) -> int:
         raise ValueError("--approve-live requires --live")
     if not args.html.is_file():
         raise ValueError(f"Benchmark HTML not found: {args.html}")
-    human_audit = import_homepage_human_findings(args.human_audit, args.source_url)
+    human_audit = import_page_human_findings(args.human_audit, args.source_url)
+    baseline = select_baseline(args.baseline, human_audit.human_audit_sha256)
     run = _new_run_directory()
     manifest = prepare_page(
-        run, args.html, args.source_url, human_audit, request_config, limit
+        run, args.html, args.source_url, human_audit, request_config, limit, baseline
     )
     snapshot_hash = manifest["snapshot_sha256"]
     schedule = PriceSchedule.load(run / "artifacts" / "pricing.json")

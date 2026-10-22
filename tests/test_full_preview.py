@@ -236,7 +236,7 @@ def test_preview_displays_one_fixed_model_and_recorded_prices(full_workspace, ca
 
 
 def test_one_page_selection_and_human_ids_remain_compatible(full_workspace):
-    """The one-page command still selects Home and Globals with identical IDs."""
+    """The one-page command selects the URL's local findings and stable Globals."""
     assert preview(full_workspace) == 0
     full_run, _ = only_full(full_workspace)
     originals = json.loads((full_run / "human-findings.json").read_text())
@@ -248,9 +248,11 @@ def test_one_page_selection_and_human_ids_remain_compatible(full_workspace):
     (page_run,) = (full_workspace / ".model-evaluation/runs").iterdir()
     evidence = json.loads((page_run / "artifacts/human-findings.json").read_text())
     assert [finding["problem"] for finding in evidence["human_findings"]] == [
-        "Contact local", "Shared defect", "Shared second defect",
+        "First local", "Second local", "Shared defect", "Shared second defect",
     ]
-    assert evidence["human_findings"] == originals["human_findings"][2:]
+    assert evidence["human_findings"] == (
+        originals["human_findings"][:2] + originals["human_findings"][3:]
+    )
 
 
 def test_run_all_help_explains_saved_snapshots_and_shared_allowance(capsys):

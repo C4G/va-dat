@@ -150,3 +150,18 @@ def list_audit_urls(path: Path) -> tuple[str, ...]:
     if not urls:
         raise ValueError("Human audit URL list has no target URLs")
     return urls
+
+
+def import_page_human_findings(path: Path, source_url: str) -> HumanAudit:
+    """Select a listed page's local findings and Globals, retaining older Home audits."""
+    book = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        has_urls = "URL list" in book.sheetnames
+    finally:
+        book.close()
+    if not has_urls:
+        return import_homepage_human_findings(path, source_url)
+    pages = import_all_human_findings(path)
+    if source_url not in pages:
+        raise ValueError(f"Source URL is not listed in the Human audit: {source_url}")
+    return pages[source_url]
