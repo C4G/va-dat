@@ -230,3 +230,6 @@ web/prisma/generated/
 # Local-only issue tracker and detailed evaluator tests
 /.scratch/
 /.local-tests/
+
+# Local architecture decision records
+/docs/adr/
