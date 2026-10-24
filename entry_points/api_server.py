@@ -29,7 +29,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from dotenv import load_dotenv
-from requests import RequestException
 
 # ── Project root and sys.path ─────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -367,7 +366,7 @@ class AuditHandler(BaseHTTPRequestHandler):
             })
             try:
                 html_content = fetch_page(url)
-            except (RequestException, ValueError) as exc:
+            except Exception as exc:
                 result = {"type": "result", "success": False, "error": f"Failed to fetch URL: {exc}"}
                 send_event(result)
                 return
@@ -390,7 +389,7 @@ class AuditHandler(BaseHTTPRequestHandler):
         # ── Multi-page: stream progress, run pipeline per page, merge ─────
         try:
             html_content, crawl_tree = fetch_pages_nested(url)
-        except (RequestException, ValueError) as exc:
+        except Exception as exc:
             self._send_json({"success": False, "error": f"Failed to fetch URL: {exc}"}, 502)
             return
 
@@ -576,7 +575,7 @@ class AuditHandler(BaseHTTPRequestHandler):
                 self._send_json(
                     {"valid": False, "error": f"Provider returned HTTP {exc.code}"}
                 )
-        except (OSError, ValueError) as exc:
+        except Exception as exc:
             self._send_json({"valid": False, "error": str(exc)})
 
     def _send_json(self, obj: dict, status: int = 200):

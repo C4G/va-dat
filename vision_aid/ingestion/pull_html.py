@@ -19,7 +19,7 @@ def download_html(url:str, filename:str | None):
         print(f"HTML saved to {filename}")
         return filename
         
-    except (requests.RequestException, OSError, ValueError) as e:
+    except Exception as e:
         print(f"Error: {e}")
         return None
 

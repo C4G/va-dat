@@ -94,7 +94,7 @@ def download_html(url: str, filename: str | None = None, depth: int = 1,
         
         return saved_files
         
-    except (requests.RequestException, OSError, ValueError) as e:
+    except Exception as e:
         print(f"Error downloading {url}: {e}")
         return saved_files
 
@@ -211,7 +211,7 @@ def fetch_pages_nested(url: str, max_depth: int = 1,
                 for link in nested[:max_links_per_page]:
                     time.sleep(0.5)
                     _crawl(link, depth - 1, parent_url=current_url)
-        except (requests.RequestException, ValueError) as e:
+        except Exception as e:
             print(f"Warning: could not fetch {current_url}: {e}")
 
     _crawl(url, max_depth)

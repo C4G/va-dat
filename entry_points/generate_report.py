@@ -248,7 +248,7 @@ def _load_html_for_filtering(output_dir: Path) -> BeautifulSoup | None:
             return None
         with open(html_path, "r", encoding="utf-8", errors="replace") as f:
             return BeautifulSoup(f.read(), "lxml")
-    except (OSError, ValueError, TypeError):
+    except Exception:
         return None
 
 
