@@ -10,6 +10,7 @@ from typing import Any
 
 from vision_aid.evaluation.inputs.human_audit import ELIGIBILITY_VALUES
 
+# Preserve storage names for existing local mappings and saved runs.
 BASELINE_DIRECTORY = Path(__file__).with_name("baselines")
 BASELINE_ARTIFACT = "artifacts/evaluation-baseline.json"
 LOCKED_COLUMNS = (
@@ -26,23 +27,23 @@ def _text(value: Any) -> bool:
 def validate_baseline(baseline: dict[str, Any], audit_sha256: str) -> None:
     """Reject unrelated audits and incomplete or conflicting approved decisions."""
     if not isinstance(baseline, dict) or baseline.get("schema_version") != 1:
-        raise ValueError("Evaluation baseline must use schema_version 1")
+        raise ValueError("Human finding mapping must use schema_version 1")
     if baseline.get("human_audit_sha256") != audit_sha256:
-        raise ValueError("Evaluation baseline Human audit identity differs from the run")
+        raise ValueError("Human finding mapping Human audit identity differs from the run")
     if not _text(baseline.get("approved_by")):
-        raise ValueError("Evaluation baseline needs approved_by attribution")
+        raise ValueError("Human finding mapping needs approved_by attribution")
     decisions = baseline.get("decisions")
     if not isinstance(decisions, list) or not decisions:
-        raise ValueError("Evaluation baseline needs approved decisions")
+        raise ValueError("Human finding mapping needs approved decisions")
     seen = set()
     for decision in decisions:
         if not isinstance(decision, dict):
-            raise ValueError("Evaluation baseline decision must be an object")  # noqa: TRY004 - CLI input validation
+            raise ValueError("Human finding mapping decision must be an object")  # noqa: TRY004 - CLI input validation
         identity = decision.get("human_finding_id")
         if not _text(identity) or identity in seen:
-            raise ValueError(f"Evaluation baseline has unknown or repeated Human finding: {identity}")
+            raise ValueError(f"Human finding mapping has unknown or repeated Human finding: {identity}")
         seen.add(identity)
-        prefix = f"Evaluation baseline Human finding {identity}"
+        prefix = f"Human finding mapping Human finding {identity}"
         if decision.get("classification") not in ELIGIBILITY_VALUES:
             raise ValueError(f"{prefix}: invalid classification")
         if not _text(decision.get("classification_reason")):
@@ -88,7 +89,7 @@ def load_baseline(path: Path, audit_sha256: str) -> dict[str, Any]:
 
 
 def select_baseline(path: Path | None, audit_sha256: str) -> dict[str, Any] | None:
-    """Select explicit decisions or a locally stored baseline for this audit checksum."""
+    """Select explicit decisions or a locally stored Human finding mapping for this audit checksum."""
     if path is None:
         path = BASELINE_DIRECTORY / f"{audit_sha256}.json"
         if not path.is_file():
@@ -117,7 +118,7 @@ def resolved_decisions(
     used = set()
     for human in human_audit["human_findings"]:
         identity = human["human_finding_id"]
-        prefix = f"Evaluation baseline Human finding {identity}, {source_url}"
+        prefix = f"Human finding mapping Human finding {identity}, {source_url}"
         if identity not in decisions:
             raise ValueError(f"{prefix}: missing approved decision")
         decision = decisions[identity]
@@ -164,7 +165,7 @@ def save_baseline_snapshot(
 
 
 def load_baseline_snapshot(
-    run: Path, manifest: dict[str, Any], label: str = "Saved Evaluation baseline",
+    run: Path, manifest: dict[str, Any], label: str = "Saved Human finding mapping",
 ) -> dict[str, Any]:
     """Load a pinned approved source only after verifying its bytes and attribution."""
     path = run / BASELINE_ARTIFACT
@@ -216,9 +217,9 @@ def saved_baseline_decisions(
     digest = manifest.get("evaluation_baseline_sha256")
     if not digest:
         if path.exists():
-            raise ValueError("Saved Evaluation baseline is missing its run identity")
+            raise ValueError("Saved Human finding mapping is missing its run identity")
         if (BASELINE_DIRECTORY / f"{manifest['human_audit_sha256']}.json").is_file():
-            raise ValueError("This Human audit requires its approved Evaluation baseline; prepare a new run with --baseline PATH")
+            raise ValueError("This Human audit requires its approved Human finding mapping; prepare a new run with --human-finding-mapping PATH")
         return None
     baseline = load_baseline_snapshot(run, manifest)
     return resolved_decisions(baseline, human, manifest["source_url"], programmatic)

@@ -155,7 +155,7 @@ def test_combined_reporting_rejects_a_child_with_different_saved_approved_decisi
     saved = load(child / "run.json")
     saved["evaluation_baseline_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
     save_json(child / "run.json", saved)
-    assert "baseline" in refused_report(run, capsys).lower()
+    assert "human finding mapping" in refused_report(run, capsys).lower()
 
 
 def rates(document):
@@ -205,8 +205,8 @@ def test_combined_and_child_reports_keep_complete_matches_and_source_denominator
     ("programmatic_finding_id", "decision changed: programmatic_finding_id"),
     ("missing_evidence", "resolved to 0 findings"),
     ("foreign_id", "decision changed: programmatic_finding_id"),
-    ("missing_child_baseline", "baseline"),
-    ("missing_parent_baseline", "baseline"),
+    ("missing_child_baseline", "Human finding mapping"),
+    ("missing_parent_baseline", "Human finding mapping"),
     ("parent_source", "checksum changed"),
 ])
 def test_combined_report_rejects_changed_approved_decisions_or_missing_expected_evidence(

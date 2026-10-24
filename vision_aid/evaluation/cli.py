@@ -47,18 +47,23 @@ def build_parser() -> argparse.ArgumentParser:
     """Expose the supported evaluation operations."""
     parser = argparse.ArgumentParser(prog="visionaid-evaluate")
     commands = parser.add_subparsers(dest="command", required=True)
-    baseline_prepare = commands.add_parser(
-        "baseline-prepare", help="prepare Human audit classification and Programmatic review CSVs",
+    mapping_prepare = commands.add_parser(
+        "human-finding-mapping-prepare", aliases=["baseline-prepare"],
+        help="prepare Human finding eligibility and Programmatic match review CSVs",
     )
-    baseline_prepare.add_argument("--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT)
-    baseline_prepare.add_argument("--snapshots", type=Path, required=True)
-    baseline_prepare.add_argument("--output-dir", type=Path, required=True)
-    baseline_approve = commands.add_parser(
-        "baseline-approve", help="validate reviewed CSVs and export an approved baseline",
+    mapping_prepare.add_argument("--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT)
+    mapping_prepare.add_argument("--snapshots", type=Path, required=True)
+    mapping_prepare.add_argument("--output-dir", type=Path, required=True)
+    mapping_approve = commands.add_parser(
+        "human-finding-mapping-approve", aliases=["baseline-approve"],
+        help="validate reviewed CSVs and export an approved Human finding mapping",
     )
-    baseline_approve.add_argument("--review-dir", type=Path, required=True)
-    baseline_approve.add_argument("--reviewer", required=True)
-    baseline_approve.add_argument("--output", type=Path, help="new JSON filename; defaults to review-dir/baseline.json")
+    mapping_approve.add_argument("--review-dir", type=Path, required=True)
+    mapping_approve.add_argument("--reviewer", required=True)
+    mapping_approve.add_argument(
+        "--output", type=Path,
+        help="new JSON filename; defaults to review-dir/human-finding-mapping.json (baseline.json for the legacy alias)",
+    )
     capture = commands.add_parser(
         "capture", help="download each Human audit URL to a saved Benchmark snapshot",
         description=(
@@ -88,7 +93,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT, help="Human audit"
     )
-    run.add_argument("--baseline", type=Path, help="approved Human audit decisions; defaults to a local audit baseline")
+    run.add_argument(
+        "--human-finding-mapping", "--baseline", dest="human_finding_mapping", type=Path,
+        help="approved eligibility classifications and Programmatic matches; defaults to this audit's local Human finding mapping",
+    )
     run.add_argument("--html", type=Path, required=True, help="local Benchmark HTML")
     run.add_argument("--source-url", required=True, help="URL represented by the HTML")
     run.add_argument(
@@ -112,7 +120,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_all.add_argument(
         "--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT, help="Human audit"
     )
-    run_all.add_argument("--baseline", type=Path, help="approved Human audit decisions; defaults to a local audit baseline")
+    run_all.add_argument(
+        "--human-finding-mapping", "--baseline", dest="human_finding_mapping", type=Path,
+        help="approved eligibility classifications and Programmatic matches; defaults to this audit's local Human finding mapping",
+    )
     run_all.add_argument(
         "--snapshots", type=Path, required=True,
         help="saved snapshots.json mapping from capture; resolves HTML beside it",
@@ -168,15 +179,16 @@ def _new_run_directory(kind: str = "runs") -> Path:
     return run
 
 
-def _required_baseline(path: Path | None, audit_sha256: str) -> dict[str, Any]:
+def _required_human_finding_mapping(path: Path | None, audit_sha256: str) -> dict[str, Any]:
     """Require approved decisions before preparing any new Evaluation run."""
-    baseline = select_baseline(path, audit_sha256)
-    if baseline is None:
+    mapping = select_baseline(path, audit_sha256)
+    if mapping is None:
         raise ValueError(
-            "New Evaluation runs require an approved baseline. Use baseline-prepare and "
-            "baseline-approve to review this audit, then supply --baseline PATH."
+            "New Evaluation runs require an approved Human finding mapping. Use "
+            "human-finding-mapping-prepare and human-finding-mapping-approve to review "
+            "this audit, then supply --human-finding-mapping PATH."
         )
-    return baseline
+    return mapping
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -189,10 +201,10 @@ def _run(args: argparse.Namespace) -> int:
     if not args.html.is_file():
         raise ValueError(f"Benchmark HTML not found: {args.html}")
     human_audit = import_page_human_findings(args.human_audit, args.source_url)
-    baseline = _required_baseline(args.baseline, human_audit.human_audit_sha256)
+    mapping = _required_human_finding_mapping(args.human_finding_mapping, human_audit.human_audit_sha256)
     run = _new_run_directory()
     manifest = prepare_page(
-        run, args.html, args.source_url, human_audit, request_config, limit, baseline
+        run, args.html, args.source_url, human_audit, request_config, limit, mapping
     )
     snapshot_hash = manifest["snapshot_sha256"]
     schedule = PriceSchedule.load(run / "artifacts" / "pricing.json")
@@ -288,10 +300,10 @@ def _run_all(args: argparse.Namespace) -> int:
     if args.approve_live and not args.live:
         raise ValueError("--approve-live requires --live")
     audits, snapshots = load_full_inputs(args.human_audit, args.snapshots)
-    baseline = _required_baseline(args.baseline, next(iter(audits.values())).human_audit_sha256)
+    mapping = _required_human_finding_mapping(args.human_finding_mapping, next(iter(audits.values())).human_audit_sha256)
     run = _new_run_directory("full-runs")
     print(f"Full evaluation: {run}")
-    manifest = prepare_full_evaluation(run, audits, snapshots, request_config, limit, baseline)
+    manifest = prepare_full_evaluation(run, audits, snapshots, request_config, limit, mapping)
     prompt_count = 0
     for page in manifest["pages"]:
         child = run / page["run_dir"]
@@ -328,13 +340,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        if args.command == "baseline-prepare":
+        if args.command in {"human-finding-mapping-prepare", "baseline-prepare"}:
             prepare_baseline_review(args.human_audit, args.snapshots, args.output_dir)
-            print(f"Baseline review CSVs and instructions: {args.output_dir.resolve()}")
+            print(f"Human finding mapping review CSVs and instructions: {args.output_dir.resolve()}")
             return 0
-        if args.command == "baseline-approve":
-            baseline = approve_baseline_review(args.review_dir, args.reviewer, args.output)
-            print(f"Approved Evaluation baseline: {baseline.resolve()}")
+        if args.command in {"human-finding-mapping-approve", "baseline-approve"}:
+            output = args.output
+            if output is None and args.command == "baseline-approve":
+                output = args.review_dir / "baseline.json"
+            mapping = approve_baseline_review(args.review_dir, args.reviewer, output)
+            print(f"Approved Human finding mapping: {mapping.resolve()}")
             return 0
         if args.command == "capture":
             mapping = capture_snapshots(args.human_audit, args.output_dir)

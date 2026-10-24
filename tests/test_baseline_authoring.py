@@ -19,11 +19,11 @@ def rows(path):
         return list(csv.DictReader(stream))
 
 
-def prepare(workspace):
-    """Prepare a baseline review independently of model selection and execution."""
+def prepare(workspace, *, legacy=False):
+    """Prepare a Human finding mapping review independently of model selection and execution."""
     directory = workspace / "baseline-review"
     assert main([
-        "baseline-prepare",
+        "baseline-prepare" if legacy else "human-finding-mapping-prepare",
         "--human-audit", str(workspace / "human-audit.xlsx"),
         "--snapshots", str(workspace / "snapshots/snapshots.json"),
         "--output-dir", str(directory),
@@ -81,15 +81,15 @@ def fill_review(directory):
     save_rows(directory / "programmatic-review.csv", list(reversed(matches)))
 
 
-def approve(directory):
+def approve(directory, *, legacy=False):
     """Approve reviewed CSV choices using only the supported CLI."""
     return main([
-        "baseline-approve",
+        "baseline-approve" if legacy else "human-finding-mapping-approve",
         "--review-dir", str(directory), "--reviewer", "Human CSV reviewer",
     ])
 
 
-def test_baseline_preparation_lists_originals_once_and_readable_page_evidence(
+def test_human_finding_mapping_preparation_lists_originals_once_and_readable_page_evidence(
     full_workspace,
 ):
     """Reviewers classify five originals once and choose matches for nine page rows."""
@@ -122,14 +122,15 @@ def test_baseline_preparation_lists_originals_once_and_readable_page_evidence(
     assert all((directory / page["snapshot"]).is_file() for page in evidence["pages"])
 
 
+@pytest.mark.parametrize("legacy", [False, True])
 def test_csv_approval_builds_reusable_expectations_consumed_by_new_full_run(
-    full_workspace, monkeypatch
+    full_workspace, monkeypatch, legacy
 ):
     """A reviewer never authors JSON or selectors; the approved result drives run scoring."""
-    directory = prepare(full_workspace)
+    directory = prepare(full_workspace, legacy=legacy)
     fill_review(directory)
-    assert approve(directory) == 0
-    baseline = directory / "baseline.json"
+    assert approve(directory, legacy=legacy) == 0
+    baseline = directory / ("baseline.json" if legacy else "human-finding-mapping.json")
     approved = json.loads(baseline.read_text())
     assert approved["approved_by"] == "Human CSV reviewer"
     assert len(approved["decisions"]) == 5
@@ -147,7 +148,7 @@ def test_csv_approval_builds_reusable_expectations_consumed_by_new_full_run(
     assert (
         preview(
             full_workspace,
-            "--baseline",
+            "--baseline" if legacy else "--human-finding-mapping",
             str(baseline),
             "--model",
             "gpt-6-luna",
@@ -166,6 +167,7 @@ def test_csv_approval_builds_reusable_expectations_consumed_by_new_full_run(
     assert "Programmatic: 1 caught / 1 eligible" in text
     assert "LLM: 0 caught / 2 eligible" in text
     assert "Overall: 2 caught / 5 eligible" in text
+    assert "Human finding mapping approved by" in text
 
 
 @pytest.mark.parametrize("command", ["run", "run-all"])
@@ -173,7 +175,7 @@ def test_csv_approval_builds_reusable_expectations_consumed_by_new_full_run(
 def test_new_evaluations_require_approved_decisions_before_creating_a_run(
     full_workspace, capsys, command, live
 ):
-    """New audits must complete baseline review before either evaluation entry point."""
+    """New audits must complete Human finding mapping review before either evaluation entry point."""
     arguments = [
         command,
         "--human-audit",
@@ -197,9 +199,9 @@ def test_new_evaluations_require_approved_decisions_before_creating_a_run(
     assert error.value.code == 2
     message = capsys.readouterr().err
     assert (
-        "approved baseline" in message
-        and "baseline-prepare" in message
-        and "--baseline" in message
+        "approved Human finding mapping" in message
+        and "human-finding-mapping-prepare" in message
+        and "--human-finding-mapping" in message
     )
     assert not (full_workspace / ".model-evaluation").exists()
 
@@ -282,7 +284,7 @@ def test_csv_approval_rejects_incomplete_or_conflicting_reviews(
         approve(directory)
     assert failure.value.code == 2
     assert error in capsys.readouterr().err
-    assert not (directory / "baseline.json").exists()
+    assert not (directory / "human-finding-mapping.json").exists()
 
 
 def test_catalog_edits_cannot_replace_checker_evidence_and_approval_never_overwrites(
@@ -297,7 +299,7 @@ def test_catalog_edits_cannot_replace_checker_evidence_and_approval_never_overwr
     save_rows(directory / "programmatic-findings.csv", catalog)
     output = full_workspace / "approved/baseline.json"
     arguments = [
-        "baseline-approve",
+        "human-finding-mapping-approve",
         "--review-dir",
         str(directory),
         "--reviewer",
@@ -325,7 +327,7 @@ def test_csv_review_requires_reviewer_and_keeps_previous_work_on_repeated_prepar
         prepare(full_workspace)
     assert (directory / "classifications.csv").read_bytes() == original
     with pytest.raises(SystemExit) as failure:
-        main(["baseline-approve", "--review-dir", str(directory), "--reviewer", " "])
+        main(["human-finding-mapping-approve", "--review-dir", str(directory), "--reviewer", " "])
     assert failure.value.code == 2
     assert "reviewer description is required" in capsys.readouterr().err
-    assert not (directory / "baseline.json").exists()
+    assert not (directory / "human-finding-mapping.json").exists()

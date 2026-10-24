@@ -59,7 +59,7 @@ def _historical_review(run):
 
 def historical_run_cli(workspace, arguments):
     """Run with approved fixture decisions, then simulate a historical source format."""
-    if "--baseline" in arguments:
+    if "--human-finding-mapping" in arguments or "--baseline" in arguments:
         return main(arguments)
     audit_path = workspace / _argument(arguments, "--human-audit")
     try:

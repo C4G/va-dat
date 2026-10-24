@@ -78,7 +78,7 @@ def baseline_run(workspace, path, *extra):
     """Prepare a baseline-backed run through the normal command."""
     root = workspace / ".model-evaluation/runs"
     before = set(root.iterdir())
-    assert run_cli(workspace, "--baseline", str(path), *extra) == 0
+    assert run_cli(workspace, "--human-finding-mapping", str(path), *extra) == 0
     (run,) = set(root.iterdir()) - before
     return run
 
@@ -295,7 +295,7 @@ def test_bundled_baseline_is_automatic_and_cannot_be_removed_to_unlock_reporting
     manifest.pop("evaluation_baseline_sha256")
     manifest.pop("evaluation_baseline_approved_by")
     (run / "run.json").write_text(json.dumps(manifest))
-    assert "prepare a new run with --baseline PATH" in refused(run, capsys)
+    assert "prepare a new run with --human-finding-mapping PATH" in refused(run, capsys)
 
 
 @pytest.mark.parametrize("change,error", [

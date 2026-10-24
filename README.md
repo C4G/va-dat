@@ -449,9 +449,10 @@ requests run sequentially without retries or fallback models.
 ### Get a final report with the supplied Human audit
 
 From the repository root, use the supplied `Pristine Accessibility Defect Report.xlsx`
-(16 Home and Global defects). Keep the Excel file and its approved baseline
-available locally. A fresh checkout must create a baseline through the CSV
-workflow below or supply an existing file with `--baseline PATH`.
+(16 Home and Global defects). Keep the Excel file and its approved Human finding
+mapping available locally. A fresh checkout must create a Human finding mapping
+through the CSV workflow below or supply an existing file with
+`--human-finding-mapping PATH`.
 
 1. **Save a Benchmark snapshot.** For the one-page workflow,
    create the ignored directory and save the homepage HTML there:
@@ -515,7 +516,7 @@ workflow below or supply an existing file with `--baseline PATH`.
    `$RUN_DIR/artifacts/raw-programmatic-findings.json` has the original checker output.
 
 5. **Review the LLM matches in one CSV.** Open `$RUN_DIR/review.csv` in
-   Excel or a CSV-aware text editor. An approved Evaluation baseline populates
+   Excel or a CSV-aware text editor. An approved Human finding mapping populates
    classifications, reasons, and Programmatic matches. Review the LLM finding IDs,
    `match_reason`, and `review_notes` using the guide below. Keep the approved
    classification and Programmatic fields fixed. Save the file as CSV.
@@ -567,17 +568,23 @@ stops capture immediately. Earlier HTML files remain, but capture writes no
 snapshot mapping until every download succeeds. Start another capture in a
 new directory after addressing the failure.
 
-### Create an Evaluation baseline through CSV review
+### Create a Human finding mapping through CSV review
 
-New `run` and `run-all` invocations require an approved Evaluation baseline,
+The Human finding mapping pins each Human finding's eligibility classification
+and its approved Programmatic matches or explained absence of matches. The four
+classifications are LLM eligible, Programmatic eligible, unavailable evidence,
+and ambiguous. The mapping is reused across model runs; LLM matches are
+reviewed separately for each run.
+
+New `run` and `run-all` invocations require an approved Human finding mapping,
 including previews. The supplied Human audit can reuse its approved local
-baseline when available. Baseline JSON files remain untracked and are not
+mapping when available. Mapping JSON files remain untracked and are not
 included in installed package data; fresh checkouts must prepare or supply one.
 For a new Human audit, capture its listed pages first, then prepare a review
 using saved HTML and existing Programmatic checks:
 
 ```bash
-uv run visionaid-evaluate baseline-prepare \
+uv run visionaid-evaluate human-finding-mapping-prepare \
   --human-audit "/path/to/new-audit.xlsx" \
   --snapshots .model-evaluation/new-audit-snapshots/snapshots.json \
   --output-dir .model-evaluation/new-audit-review
@@ -614,24 +621,25 @@ JSON, calculate checksums, or construct DOM selectors.
 Approve the completed review:
 
 ```bash
-uv run visionaid-evaluate baseline-approve \
+uv run visionaid-evaluate human-finding-mapping-approve \
   --review-dir .model-evaluation/new-audit-review \
   --reviewer "Reviewer name and review method"
 ```
 
 Approval validates completeness, unchanged source evidence, classification
 rules, page ownership, unique matches, and finding reuse before writing
-`baseline.json` in the review directory. Use `--output /path/to/new-baseline.json`
-to choose another new filename. Approval refuses to overwrite an existing
-baseline. Errors identify the file and affected Human finding or page; edit the
+`human-finding-mapping.json` in the review directory. Use
+`--output /path/to/new-human-finding-mapping.json` to choose another new filename.
+Approval refuses to overwrite an existing mapping. Errors identify the file and
+affected Human finding or page; edit the
 CSV and retry. Approval records the reviewer's judgment; it does not automate
 the semantic decision that selected findings fully cover the defect.
 
 The CLI generates the audit checksum, stable Human identities, and reusable
 rule/evidence expectations from the saved evidence. References such as
 `P001-F003` are only review aids and do not become run-specific IDs in the
-baseline. The baseline belongs to the Human audit alone; the prepared snapshots
-support its review without becoming baseline selection keys.
+mapping. The mapping belongs to the Human audit alone; the prepared snapshots
+support its review without becoming mapping selection keys.
 
 Use the approved file when preparing each model run:
 
@@ -639,9 +647,15 @@ Use the approved file when preparing each model run:
 uv run visionaid-evaluate run-all \
   --human-audit "/path/to/new-audit.xlsx" \
   --snapshots .model-evaluation/new-audit-snapshots/snapshots.json \
-  --baseline .model-evaluation/new-audit-review/baseline.json \
+  --human-finding-mapping .model-evaluation/new-audit-review/human-finding-mapping.json \
   --model gpt-6-luna --max-cost-usd 5
 ```
+
+The earlier name for Human finding mapping was "Evaluation baseline".
+`baseline-prepare`, `baseline-approve`, and `--baseline` remain supported as
+aliases. The legacy approval command still defaults to `baseline.json`.
+Existing local lookup paths, saved artifact filenames, and manifest keys retain
+their storage names for compatibility.
 
 Add `--live` only when ready for the normal live-run approval. Each fresh run
 copies its approved decisions and leaves only LLM matching rationale and notes
@@ -676,19 +690,19 @@ recommendations do not assign findings. The known `/Contact/` alias maps to
 stop preparation. Each page's review contains its local findings and every
 Global finding, including pages with no local findings.
 
-The Human audit checksum selects an available local Evaluation baseline
+The Human audit checksum selects an available local Human finding mapping
 automatically from `vision_aid/evaluation/baselines/<audit-sha256>.json`.
 That directory is ignored by Git. Newly approved files remain in their review
 directory unless the operator explicitly chooses another output path.
-For another audit, add `--baseline path/to/approved-decisions.json` to select
+For another audit, add `--human-finding-mapping path/to/approved-decisions.json` to select
 approved decisions explicitly. Preparation selects the source once and copies
-the same complete baseline into the parent and every child as
+the same complete mapping into the parent and every child as
 `artifacts/evaluation-baseline.json`, with checksums in their manifests.
 Each page receives the approved classifications and Programmatic explanations;
 expected matches resolve to that child's actual finding IDs. Missing or
 non-unique expected checker evidence stops preparation with the affected Human
 finding and page. Audits without approved decisions must first complete the
-CSV baseline preparation and approval steps above.
+CSV mapping preparation and approval steps above.
 
 Each invocation creates a fresh `.model-evaluation/full-runs/<run-id>/`
 directory. Its `full.json` records ordered membership and preparation status;
@@ -741,12 +755,12 @@ again; it does not resume or reuse previous paid outputs.
 ### Review and report a Full evaluation
 
 After every page completes execution, edit each child's `review.csv` under
-`.model-evaluation/full-runs/<run-id>/pages/`. When an Evaluation baseline is
+`.model-evaluation/full-runs/<run-id>/pages/`. When a Human finding mapping is
 saved, review each page's LLM matches, LLM matching rationale, and notes using
 the one-page full Match requirements below. Keep the populated classifications,
 classification reasons, Programmatic finding IDs, and approved Programmatic
 explanations fixed. Each page includes all Global findings, whose LLM evidence
-is reviewed separately on every page. Baseline creation establishes
+is reviewed separately on every page. Approving the Human finding mapping establishes
 responsibilities independently of what a model happened to catch.
 
 Generate the individual page reports and the combined report:
@@ -761,8 +775,8 @@ uv run visionaid-evaluate report-all \
 page review before writing final combined rates to the parent's `report.html`.
 It verifies that every child uses the exact approved source retained by the
 parent, rejects edits to fixed decisions, and resolves all expectations against
-actual page evidence again. Later edits to the original baseline file do not
-change saved runs. Reports retain baseline approval attribution alongside the
+actual page evidence again. Later edits to the original mapping file do not
+change saved runs. Reports retain mapping approval attribution alongside the
 LLM reviewer and distinguish approved Programmatic explanations from LLM
 matching rationale.
 Open that file in a browser. It is a self-contained offline document with every
@@ -782,14 +796,14 @@ Partial evidence on different pages never earns combined credit. LLM and
 Programmatic catches may come from different pages, but Overall counts that
 Global once. Repeated catches on several pages also count once.
 
-The approved baseline fixes each Global's classification across its pages.
+The approved Human finding mapping fixes each Global's classification across its pages.
 Each original enters its source denominator once, including when that source
 misses it. Not-testable originals remain in Overall. Combined rates use pooled
 finding counts, rather than averages of page percentages. A catch by the other
 source counts in Overall but earns no credit in the expected source's rate.
 
 Missing or incomplete execution, invalid reviews, missing expected evidence,
-inconsistent saved baselines, or conflicting testable Global classifications
+inconsistent saved mappings, or conflicting testable Global classifications
 withhold final combined rates. Restore approved decisions or investigate missing
 checker evidence before running `report-all` again. Regenerating a report
 removes the previous parent HTML and legacy Markdown report before validation,
@@ -925,7 +939,7 @@ compatibility fallback or automatic migration.
 | `normalized-programmatic-findings.json`    | Checker results converted to findings with `finding_id` values for `review.csv`.                                                                                                                                      |
 | `run.json`                                 | Configuration, snapshot checksum, prompt list, completion status, format failures, token usage, and estimated cost. `complete: true` does not imply that every response parsed successfully; check `format_failures`. |
 | `report.html`                              | Self-contained Evaluation report generated after successful reporting; a Full evaluation parent embeds all page matching evidence.                                                                                                                                                                  |
-| `artifacts/evaluation-baseline.json`       | Approved decisions copied into baseline-backed runs, with an integrity checksum recorded in `run.json`; later shared edits do not rewrite historical interpretation. |
+| `artifacts/evaluation-baseline.json`       | Approved Human finding mapping copied into runs, with an integrity checksum recorded in `run.json`; later shared edits do not rewrite historical interpretation. |
 | `artifacts/human-findings.json`            | Canonical imported local and Global Human findings used to validate and score the review.                                                                                                                              |
 | `artifacts/pricing.json`                   | The versioned public model rates and capture date used to estimate this run's cost from reported usage. Older runs retain their original price schedule.                                                              |
 | `artifacts/raw-llm-responses.json`         | Live model replies, request outcomes, and reported token usage, including responses that could not be parsed into findings.                                                                                           |
@@ -955,14 +969,14 @@ inspection of malformed replies, and `review-validation.json` with checks on
 the completed review. The standard `visionaid-evaluate run` command does not
 create those files or perform those extra checks.
 
-### Approved decisions for a single page
+### Human finding mapping for a single page
 
-When present locally, an approved Evaluation baseline is automatically selected
+When present locally, an approved Human finding mapping is automatically selected
 by the SHA-256 of the Excel file. Model and snapshot identities do not select
-the baseline. To select approved decisions for another audit explicitly, add
-`--baseline path/to/approved-decisions.json` to `visionaid-evaluate run`.
-Audits without a local baseline must supply an approved file created through
-`baseline-prepare` and `baseline-approve`.
+the mapping. To select approved decisions for another audit explicitly, add
+`--human-finding-mapping path/to/approved-decisions.json` to `visionaid-evaluate run`.
+Audits without a local mapping must supply an approved file created through
+`human-finding-mapping-prepare` and `human-finding-mapping-approve`.
 For an audit with a `URL list`, `--source-url` selects that page's local Human
 findings and all Globals; an unlisted URL is rejected. Older audits without a
 URL list retain the Home and Global selection.
@@ -981,13 +995,13 @@ Reviewers edit `llm_finding_id`, `match_reason` (LLM reasoning), and
 `review_notes`. Practical semantic matching and complete-coverage requirements
 still apply. Joint matches and cross-catches are supported; not-testable rows
 cannot claim a catch. The report distinguishes approved Programmatic explanations
-and baseline approval attribution from the per-run LLM review.
+and mapping approval attribution from the per-run LLM review.
 
 The run saves its approved source in `artifacts/evaluation-baseline.json` and
 pins its checksum in `run.json`. Reporting uses that saved copy, so a later
-baseline update does not change historical results. To change approved
+mapping update does not change historical results. To change approved
 responsibilities or expectations, prepare a new CSV review, approve it into a new
-baseline file, and prepare new runs. Editing a run's CSV does not update shared
+mapping file, and prepare new runs. Editing a run's CSV does not update shared
 decisions. Programmatic rules are never changed or classifications inferred
 automatically by this workflow.
 
@@ -1011,7 +1025,7 @@ In particular, `source_sheet` and `source_row` point back to the Human audit,
 `element name`. It is not an inferred location on the page.
 
 Keep the populated `classification` and `classification_reason` unchanged.
-During baseline CSV review, use these classifications:
+During Human finding mapping CSV review, use these classifications:
 
 | `classification` value | Use it when                                                                                                                                           |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1020,7 +1034,7 @@ During baseline CSV review, use these classifications:
 | `unavailable_evidence` | The snapshot lacks evidence needed to verify the defect, such as behavior that requires interaction or a browser or assistive technology observation. |
 | `ambiguous`            | The Human finding is too unclear to decide fairly whether a finding covers it.                                                                        |
 
-During baseline review, base classification on the Human finding and available
+During Human finding mapping review, base classification on the Human finding and available
 evidence, independently of model output. Explain the choice in
 `classification_reason`, including missing or unclear evidence. In each run,
 retain that approved explanation.

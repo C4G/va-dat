@@ -1,4 +1,4 @@
-"""Prepare readable audit decisions and export approved CSV choices as a baseline."""
+"""Prepare readable audit decisions and export an approved Human finding mapping."""
 
 from __future__ import annotations
 
@@ -147,7 +147,7 @@ def prepare_baseline_review(human_audit: Path, snapshots: Path, output: Path) ->
         hashlib.sha256(path.read_bytes()).hexdigest() + "\n", encoding="ascii"
     )
     (output / "README.md").write_text(
-        "# Review this Human audit\n\n"
+        "# Review the Human finding mapping\n\n"
         "1. Open classifications.csv in Excel or another CSV editor. For every original Human finding, "
         "fill classification and classification_reason. Classify each original once, including Globals. "
         "Use programmatic only when existing checker findings fully cover the reported defect; "
@@ -164,9 +164,9 @@ def prepare_baseline_review(human_audit: Path, snapshots: Path, output: Path) ->
         "3. Save both edited files as CSV. Keep original evidence, IDs, headers, and every row unchanged. "
         "Row order may change. Inspect the copied snapshots when needed. The findings catalog is "
         "read-only reference material; editing it does not change saved checker evidence.\n\n"
-        "4. Run visionaid-evaluate baseline-approve --review-dir THIS_DIRECTORY "
-        "--reviewer 'Your name'. The CLI validates the decisions and writes baseline.json. "
-        "Use that file with run or run-all --baseline PATH. Approval records your decisions; it does "
+        "4. Run visionaid-evaluate human-finding-mapping-approve --review-dir THIS_DIRECTORY "
+        "--reviewer 'Your name'. The CLI validates the decisions and writes human-finding-mapping.json. "
+        "Use that file with run or run-all --human-finding-mapping PATH. Approval records your decisions; it does "
         "not automatically judge whether the selected evidence semantically covers a defect.\n",
         encoding="utf-8",
     )
@@ -215,14 +215,14 @@ def approve_baseline_review(
 ) -> Path:
     """Validate human CSV decisions and generate portable approved evidence expectations."""
     if not reviewer.strip():
-        raise ValueError("A baseline reviewer description is required")
+        raise ValueError("A Human finding mapping reviewer description is required")
     evidence_path = directory / "evidence.json"
     if (
         hashlib.sha256(evidence_path.read_bytes()).hexdigest()
         != (directory / "evidence.sha256").read_text().strip()
     ):
         raise ValueError(
-            "Prepared baseline evidence checksum changed; prepare a new review"
+            "Prepared Human finding mapping evidence checksum changed; prepare a new review"
         )
     evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
     humans = evidence["human_findings"]
@@ -318,7 +318,7 @@ def approve_baseline_review(
             page["source_url"],
             list(page["findings"].values()),
         )
-    output = output or directory / "baseline.json"
+    output = output or directory / "human-finding-mapping.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("x", encoding="utf-8") as stream:
         stream.write(json.dumps(baseline, ensure_ascii=False, indent=2) + "\n")

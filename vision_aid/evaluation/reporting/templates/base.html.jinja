@@ -19,7 +19,7 @@
 {% if manifest.review_correction.original_llm_reviewers %}
 <p>Original LLM review by: {{ manifest.review_correction.original_llm_reviewers | join('; ') }}</p>
 {% else %}<p>Original LLM reviewer attribution was not recorded in the saved report.</p>{% endif %}
-<p>Approved baseline by: {{ manifest.review_correction.baseline_approved_by }}</p>
+<p>Human finding mapping approved by: {{ manifest.review_correction.baseline_approved_by }}</p>
 <p>Original evidence and reports preserved at: {{ manifest.review_correction.original_backup }}</p>
 {% else %}<p>Review decisions by: {{ reviewer }}</p>{% endif %}
 <button id="print-report" type="button" hidden>Print report</button>

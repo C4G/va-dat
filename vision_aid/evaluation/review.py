@@ -68,7 +68,7 @@ def reviewed_rows(
         if not set(REVIEW_COLUMNS).issubset(reader.fieldnames or ()):
             raise ValueError("Review CSV is missing required columns")
         if approved is not None and not set(LOCKED_COLUMNS).issubset(reader.fieldnames or ()):
-            raise ValueError("Review CSV is missing approved Evaluation baseline columns")
+            raise ValueError("Review CSV is missing approved Human finding mapping columns")
         entered = list(reader)
     expected = {item["human_finding_id"]: item for item in human_findings}
     if len(entered) != len(expected):
@@ -104,9 +104,9 @@ def reviewed_rows(
                     unchanged = actual == required
                 if not unchanged:
                     raise ValueError(
-                        f"Human finding {human_finding_id}: approved Evaluation baseline "
+                        f"Human finding {human_finding_id}: approved Human finding mapping "
                         f"decision changed: {column}. Restore the saved decision; "
-                        "review LLM matches in this run, or approve a new baseline CSV review for future runs."
+                        "review LLM matches in this run, or approve a new Human finding mapping CSV review for future runs."
                     )
         classification = row["classification"].strip()
         if classification not in ELIGIBILITY_VALUES:

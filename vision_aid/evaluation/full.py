@@ -183,7 +183,7 @@ def save_full_baseline(run: Path, baseline: dict[str, Any]) -> None:
     if {item["human_finding_id"] for item in baseline["decisions"]} != {
         item["human_finding_id"] for item in original["human_findings"]
     }:
-        raise ValueError("Full evaluation baseline must contain each original Human finding exactly once")
+        raise ValueError("Full evaluation Human finding mapping must contain each original Human finding exactly once")
     save_baseline_snapshot(run, manifest, baseline)
     write_json(run / "full.json", manifest)
 
@@ -304,11 +304,11 @@ def _validated_full_reviews(
     baseline_path = run / BASELINE_ARTIFACT
     baseline_digest = manifest.get("evaluation_baseline_sha256")
     if baseline_digest:
-        baseline = load_baseline_snapshot(run, manifest, "Saved Full evaluation baseline")
+        baseline = load_baseline_snapshot(run, manifest, "Saved Full evaluation Human finding mapping")
         if {item["human_finding_id"] for item in baseline["decisions"]} != set(identities):
-            raise ValueError("Full evaluation baseline differs from original Human findings")
+            raise ValueError("Full evaluation Human finding mapping differs from original Human findings")
     elif baseline_path.exists():
-        raise ValueError("Saved Full evaluation baseline is missing its parent identity")
+        raise ValueError("Saved Full evaluation Human finding mapping is missing its parent identity")
     reviews = []
     child_ids: set[str] = set()
     tool_ids: set[str] = set()
@@ -336,7 +336,7 @@ def _validated_full_reviews(
         review = validated_page_review(child)
         saved = review.manifest
         if saved.get("evaluation_baseline_sha256") != baseline_digest:
-            raise ValueError(f"Child Evaluation baseline differs from the Full evaluation: {page['source_url']}")
+            raise ValueError(f"Child Human finding mapping differs from the Full evaluation: {page['source_url']}")
         for field, expected_value in (
             ("run_id", page["run_id"]), ("source_url", page["source_url"]),
             ("human_audit_sha256", manifest["human_audit_sha256"]),
