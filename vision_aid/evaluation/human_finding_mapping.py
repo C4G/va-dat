@@ -11,8 +11,8 @@ from typing import Any
 from vision_aid.evaluation.inputs.human_audit import ELIGIBILITY_VALUES
 
 # Preserve storage names for existing local mappings and saved runs.
-BASELINE_DIRECTORY = Path(__file__).with_name("baselines")
-BASELINE_ARTIFACT = "artifacts/evaluation-baseline.json"
+HUMAN_FINDING_MAPPING_DIRECTORY = Path(__file__).with_name("baselines")
+HUMAN_FINDING_MAPPING_ARTIFACT = "artifacts/evaluation-baseline.json"
 LOCKED_COLUMNS = (
     "classification", "classification_reason", "programmatic_finding_id",
     "programmatic_match_reason",
@@ -24,15 +24,15 @@ def _text(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def validate_baseline(baseline: dict[str, Any], audit_sha256: str) -> None:
+def validate_human_finding_mapping(mapping: dict[str, Any], audit_sha256: str) -> None:
     """Reject unrelated audits and incomplete or conflicting approved decisions."""
-    if not isinstance(baseline, dict) or baseline.get("schema_version") != 1:
+    if not isinstance(mapping, dict) or mapping.get("schema_version") != 1:
         raise ValueError("Human finding mapping must use schema_version 1")
-    if baseline.get("human_audit_sha256") != audit_sha256:
+    if mapping.get("human_audit_sha256") != audit_sha256:
         raise ValueError("Human finding mapping Human audit identity differs from the run")
-    if not _text(baseline.get("approved_by")):
+    if not _text(mapping.get("approved_by")):
         raise ValueError("Human finding mapping needs approved_by attribution")
-    decisions = baseline.get("decisions")
+    decisions = mapping.get("decisions")
     if not isinstance(decisions, list) or not decisions:
         raise ValueError("Human finding mapping needs approved decisions")
     seen = set()
@@ -81,20 +81,20 @@ def validate_baseline(baseline: dict[str, Any], audit_sha256: str) -> None:
                         raise ValueError(f"{prefix}, {url}: {field} evidence must be text")
 
 
-def load_baseline(path: Path, audit_sha256: str) -> dict[str, Any]:
+def load_human_finding_mapping(path: Path, audit_sha256: str) -> dict[str, Any]:
     """Read explicitly selected approved decisions for exactly this Human audit."""
-    baseline = json.loads(path.read_text(encoding="utf-8"))
-    validate_baseline(baseline, audit_sha256)
-    return baseline
+    mapping = json.loads(path.read_text(encoding="utf-8"))
+    validate_human_finding_mapping(mapping, audit_sha256)
+    return mapping
 
 
-def select_baseline(path: Path | None, audit_sha256: str) -> dict[str, Any] | None:
+def select_human_finding_mapping(path: Path | None, audit_sha256: str) -> dict[str, Any] | None:
     """Select explicit decisions or a locally stored Human finding mapping for this audit checksum."""
     if path is None:
-        path = BASELINE_DIRECTORY / f"{audit_sha256}.json"
+        path = HUMAN_FINDING_MAPPING_DIRECTORY / f"{audit_sha256}.json"
         if not path.is_file():
             return None
-    return load_baseline(path, audit_sha256)
+    return load_human_finding_mapping(path, audit_sha256)
 
 
 def _contains(actual: Any, expected: Any) -> bool:
@@ -108,12 +108,12 @@ def _contains(actual: Any, expected: Any) -> bool:
 
 
 def resolved_decisions(
-    baseline: dict[str, Any], human_audit: dict[str, Any], source_url: str,
+    mapping: dict[str, Any], human_audit: dict[str, Any], source_url: str,
     programmatic: list[dict[str, Any]],
 ) -> dict[str, dict[str, str]]:
     """Resolve each approved complete match uniquely without run-dependent keys."""
-    validate_baseline(baseline, human_audit["human_audit_sha256"])
-    decisions = {item["human_finding_id"]: item for item in baseline["decisions"]}
+    validate_human_finding_mapping(mapping, human_audit["human_audit_sha256"])
+    decisions = {item["human_finding_id"]: item for item in mapping["decisions"]}
     resolved = {}
     used = set()
     for human in human_audit["human_findings"]:
@@ -153,39 +153,39 @@ def resolved_decisions(
     return resolved
 
 
-def save_baseline_snapshot(
-    run: Path, manifest: dict[str, Any], baseline: dict[str, Any],
+def save_human_finding_mapping_snapshot(
+    run: Path, manifest: dict[str, Any], mapping: dict[str, Any],
 ) -> None:
     """Save approved decisions and pin their bytes and attribution in a manifest."""
-    path = run / BASELINE_ARTIFACT
+    path = run / HUMAN_FINDING_MAPPING_ARTIFACT
     path.parent.mkdir(exist_ok=True)
-    path.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(mapping, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     manifest["evaluation_baseline_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
-    manifest["evaluation_baseline_approved_by"] = baseline["approved_by"]
+    manifest["evaluation_baseline_approved_by"] = mapping["approved_by"]
 
 
-def load_baseline_snapshot(
+def load_human_finding_mapping_snapshot(
     run: Path, manifest: dict[str, Any], label: str = "Saved Human finding mapping",
 ) -> dict[str, Any]:
     """Load a pinned approved source only after verifying its bytes and attribution."""
-    path = run / BASELINE_ARTIFACT
+    path = run / HUMAN_FINDING_MAPPING_ARTIFACT
     digest = manifest["evaluation_baseline_sha256"]
     if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
         raise ValueError(f"{label} is missing or its checksum changed")
-    baseline = load_baseline(path, manifest["human_audit_sha256"])
-    if manifest.get("evaluation_baseline_approved_by") != baseline["approved_by"]:
+    mapping = load_human_finding_mapping(path, manifest["human_audit_sha256"])
+    if manifest.get("evaluation_baseline_approved_by") != mapping["approved_by"]:
         raise ValueError(f"{label} approval attribution changed")
-    return baseline
+    return mapping
 
 
-def apply_baseline(run: Path, baseline: dict[str, Any]) -> None:
+def apply_human_finding_mapping(run: Path, mapping: dict[str, Any]) -> None:
     """Populate fixed decisions and save their source, preserving per-run LLM review."""
     manifest = json.loads((run / "run.json").read_text())
     human = json.loads((run / "artifacts/human-findings.json").read_text())
     programmatic = json.loads((run / "normalized-programmatic-findings.json").read_text())
     if human["human_audit_sha256"] != manifest["human_audit_sha256"]:
         raise ValueError("Human audit identity differs from the run")
-    decisions = resolved_decisions(baseline, human, manifest["source_url"], programmatic)
+    decisions = resolved_decisions(mapping, human, manifest["source_url"], programmatic)
     path = run / "review.csv"
     with path.open(encoding="utf-8-sig", newline="") as stream:
         reader = csv.DictReader(stream)
@@ -204,22 +204,22 @@ def apply_baseline(run: Path, baseline: dict[str, Any]) -> None:
         writer = csv.DictWriter(stream, fieldnames=columns)
         writer.writeheader()
         writer.writerows(rows)
-    save_baseline_snapshot(run, manifest, baseline)
+    save_human_finding_mapping_snapshot(run, manifest, mapping)
     (run / "run.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def saved_baseline_decisions(
+def saved_human_finding_mapping_decisions(
     run: Path, manifest: dict[str, Any], human: dict[str, Any],
     programmatic: list[dict[str, Any]],
 ) -> dict[str, dict[str, str]] | None:
     """Load only the run's frozen decisions and verify their saved identity."""
-    path = run / BASELINE_ARTIFACT
+    path = run / HUMAN_FINDING_MAPPING_ARTIFACT
     digest = manifest.get("evaluation_baseline_sha256")
     if not digest:
         if path.exists():
             raise ValueError("Saved Human finding mapping is missing its run identity")
-        if (BASELINE_DIRECTORY / f"{manifest['human_audit_sha256']}.json").is_file():
+        if (HUMAN_FINDING_MAPPING_DIRECTORY / f"{manifest['human_audit_sha256']}.json").is_file():
             raise ValueError("This Human audit requires its approved Human finding mapping; prepare a new run with --human-finding-mapping PATH")
         return None
-    baseline = load_baseline_snapshot(run, manifest)
-    return resolved_decisions(baseline, human, manifest["source_url"], programmatic)
+    mapping = load_human_finding_mapping_snapshot(run, manifest)
+    return resolved_decisions(mapping, human, manifest["source_url"], programmatic)

@@ -1,15 +1,15 @@
 """Construct historical review fixtures while exercising approved new-run execution.
 
 Older scoring tests deliberately review responsibilities per run. Their fixtures
-start through today's CLI with an explicit baseline, then remove that source to
-represent an already-saved evaluation from before shared baselines existed.
-Current baseline tests supply their own source and never use this conversion.
+start through today's CLI with an explicit Human finding mapping, then remove
+that source to represent a saved evaluation from before shared mappings existed.
+Current mapping tests supply their own source and never use this conversion.
 """
 
 import csv
 import json
 
-from vision_aid.evaluation import baseline
+from vision_aid.evaluation import human_finding_mapping
 from vision_aid.evaluation.cli import main
 from vision_aid.evaluation.inputs.human_audit import (
     import_all_human_findings,
@@ -35,7 +35,7 @@ def _historical_review(run):
         manifest.pop("evaluation_baseline_sha256", None)
         manifest.pop("evaluation_baseline_approved_by", None)
         manifest_path.write_text(json.dumps(manifest))
-        source = manifest_path.parent / baseline.BASELINE_ARTIFACT
+        source = manifest_path.parent / human_finding_mapping.HUMAN_FINDING_MAPPING_ARTIFACT
         source.unlink(missing_ok=True)
     for path in run.rglob("review.csv"):
         with path.open(newline="") as stream:
@@ -76,7 +76,7 @@ def historical_run_cli(workspace, arguments):
     except (OSError, ValueError, KeyError):
         return main(arguments)
     checksum = next(iter(audits.values())).human_audit_sha256
-    if (baseline.BASELINE_DIRECTORY / f"{checksum}.json").is_file():
+    if (human_finding_mapping.HUMAN_FINDING_MAPPING_DIRECTORY / f"{checksum}.json").is_file():
         return main(arguments)
     decisions = {}
     for url, audit in audits.items():
@@ -94,7 +94,7 @@ def historical_run_cli(workspace, arguments):
                 "expectations": [],
                 "reason": "Historical fixture setup",
             }
-    source = workspace / "historical-setup-baseline.json"
+    source = workspace / "historical-setup-human-finding-mapping.json"
     source.write_text(
         json.dumps(
             {
@@ -112,7 +112,7 @@ def historical_run_cli(workspace, arguments):
     )
     previous = set(root.iterdir()) if root.exists() else set()
     try:
-        return main([*arguments, "--baseline", str(source)])
+        return main([*arguments, "--human-finding-mapping", str(source)])
     finally:
         for run in (set(root.iterdir()) if root.exists() else set()) - previous:
             _historical_review(run)

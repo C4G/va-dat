@@ -21,7 +21,7 @@ def rows(path):
 
 def prepare(workspace, *, legacy=False):
     """Prepare a Human finding mapping review independently of model selection and execution."""
-    directory = workspace / "baseline-review"
+    directory = workspace / "human-finding-mapping-review"
     assert main([
         "baseline-prepare" if legacy else "human-finding-mapping-prepare",
         "--human-audit", str(workspace / "human-audit.xlsx"),
@@ -130,8 +130,8 @@ def test_csv_approval_builds_reusable_expectations_consumed_by_new_full_run(
     directory = prepare(full_workspace, legacy=legacy)
     fill_review(directory)
     assert approve(directory, legacy=legacy) == 0
-    baseline = directory / ("baseline.json" if legacy else "human-finding-mapping.json")
-    approved = json.loads(baseline.read_text())
+    mapping = directory / ("baseline.json" if legacy else "human-finding-mapping.json")
+    approved = json.loads(mapping.read_text())
     assert approved["approved_by"] == "Human CSV reviewer"
     assert len(approved["decisions"]) == 5
     assert sum(len(d["programmatic_by_page"]) for d in approved["decisions"]) == 9
@@ -141,15 +141,15 @@ def test_csv_approval_builds_reusable_expectations_consumed_by_new_full_run(
     assert {
         e["rule"] for e in first["programmatic_by_page"][URLS[0]]["expectations"]
     } == {"LANG_001", "HEAD_003"}
-    assert '"run_id"' not in baseline.read_text()
-    assert "baseline-review" not in baseline.read_text()
+    assert '"run_id"' not in mapping.read_text()
+    assert "human-finding-mapping-review" not in mapping.read_text()
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic")
     recording_provider_usage(monkeypatch, "gpt-6-luna")
     assert (
         preview(
             full_workspace,
             "--baseline" if legacy else "--human-finding-mapping",
-            str(baseline),
+            str(mapping),
             "--model",
             "gpt-6-luna",
             "--live",
@@ -297,7 +297,7 @@ def test_catalog_edits_cannot_replace_checker_evidence_and_approval_never_overwr
     for row in catalog:
         row.update(rule="INVENTED_RULE", problem="Invented checker evidence")
     save_rows(directory / "programmatic-findings.csv", catalog)
-    output = full_workspace / "approved/baseline.json"
+    output = full_workspace / "approved/human-finding-mapping.json"
     arguments = [
         "human-finding-mapping-approve",
         "--review-dir",

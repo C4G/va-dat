@@ -15,11 +15,6 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from vision_aid.evaluation.baseline import select_baseline
-from vision_aid.evaluation.baseline_review import (
-    approve_baseline_review,
-    prepare_baseline_review,
-)
 from vision_aid.evaluation.execution.llm_audit import (
     DEFAULT_MODEL,
     MODEL_PRESETS,
@@ -35,6 +30,11 @@ from vision_aid.evaluation.full import (
     load_full_inputs,
     prepare_full_evaluation,
     report_full_evaluation,
+)
+from vision_aid.evaluation.human_finding_mapping import select_human_finding_mapping
+from vision_aid.evaluation.human_finding_mapping_review import (
+    approve_human_finding_mapping_review,
+    prepare_human_finding_mapping_review,
 )
 from vision_aid.evaluation.inputs.human_audit import import_page_human_findings
 from vision_aid.evaluation.page import prepare_page, report_page
@@ -181,7 +181,7 @@ def _new_run_directory(kind: str = "runs") -> Path:
 
 def _required_human_finding_mapping(path: Path | None, audit_sha256: str) -> dict[str, Any]:
     """Require approved decisions before preparing any new Evaluation run."""
-    mapping = select_baseline(path, audit_sha256)
+    mapping = select_human_finding_mapping(path, audit_sha256)
     if mapping is None:
         raise ValueError(
             "New Evaluation runs require an approved Human finding mapping. Use "
@@ -341,14 +341,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command in {"human-finding-mapping-prepare", "baseline-prepare"}:
-            prepare_baseline_review(args.human_audit, args.snapshots, args.output_dir)
+            prepare_human_finding_mapping_review(args.human_audit, args.snapshots, args.output_dir)
             print(f"Human finding mapping review CSVs and instructions: {args.output_dir.resolve()}")
             return 0
         if args.command in {"human-finding-mapping-approve", "baseline-approve"}:
             output = args.output
             if output is None and args.command == "baseline-approve":
                 output = args.review_dir / "baseline.json"
-            mapping = approve_baseline_review(args.review_dir, args.reviewer, output)
+            mapping = approve_human_finding_mapping_review(args.review_dir, args.reviewer, output)
             print(f"Approved Human finding mapping: {mapping.resolve()}")
             return 0
         if args.command == "capture":

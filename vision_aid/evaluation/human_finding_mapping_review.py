@@ -13,11 +13,14 @@ from typing import Any
 from processing_scripts.programmatic.forms_checklist_02 import audit_forms
 from processing_scripts.programmatic.nontext_checklist_03 import audit_nontext
 from processing_scripts.programmatic.semantic_checklist_01 import audit_html_file
-from vision_aid.evaluation.baseline import resolved_decisions, validate_baseline
 from vision_aid.evaluation.execution.normalization import (
     normalize_programmatic_findings,
 )
 from vision_aid.evaluation.full import load_full_inputs
+from vision_aid.evaluation.human_finding_mapping import (
+    resolved_decisions,
+    validate_human_finding_mapping,
+)
 from vision_aid.evaluation.inputs.human_audit import ELIGIBILITY_VALUES, HEADERS
 
 IDENTITY_COLUMNS = (
@@ -64,7 +67,7 @@ def _human_columns(finding: dict[str, Any]) -> dict[str, Any]:
     } | finding["raw_evidence"]
 
 
-def prepare_baseline_review(human_audit: Path, snapshots: Path, output: Path) -> None:
+def prepare_human_finding_mapping_review(human_audit: Path, snapshots: Path, output: Path) -> None:
     """Run existing checks on saved pages and prepare two editable decision CSVs."""
     audits, html_files = load_full_inputs(human_audit, snapshots)
     output.mkdir(parents=True)
@@ -83,7 +86,7 @@ def prepare_baseline_review(human_audit: Path, snapshots: Path, output: Path) ->
             + audit_nontext(str(saved))
         )
         findings = normalize_programmatic_findings(
-            raw, run_id="baseline-review", page_url=url
+            raw, run_id="human-finding-mapping-review", page_url=url
         )
         evidence = {}
         for position, item in enumerate(findings, start=1):
@@ -210,7 +213,7 @@ def _read_review(
     return result
 
 
-def approve_baseline_review(
+def approve_human_finding_mapping_review(
     directory: Path, reviewer: str, output: Path | None = None
 ) -> Path:
     """Validate human CSV decisions and generate portable approved evidence expectations."""
@@ -299,16 +302,16 @@ def approve_baseline_review(
                 "expectations": expectations,
                 "reason": reason,
             }
-    baseline = {
+    mapping = {
         "schema_version": 1,
         "human_audit_sha256": evidence["human_audit_sha256"],
         "approved_by": reviewer.strip(),
         "decisions": list(decisions.values()),
     }
-    validate_baseline(baseline, evidence["human_audit_sha256"])
+    validate_human_finding_mapping(mapping, evidence["human_audit_sha256"])
     for page in evidence["pages"]:
         resolved_decisions(
-            baseline,
+            mapping,
             {
                 "human_audit_sha256": evidence["human_audit_sha256"],
                 "human_findings": [
@@ -321,5 +324,5 @@ def approve_baseline_review(
     output = output or directory / "human-finding-mapping.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("x", encoding="utf-8") as stream:
-        stream.write(json.dumps(baseline, ensure_ascii=False, indent=2) + "\n")
+        stream.write(json.dumps(mapping, ensure_ascii=False, indent=2) + "\n")
     return output

@@ -18,7 +18,7 @@ from test_full_report import (
 )
 
 __all__ = ["full_workspace"]
-BASELINE_ARTIFACT = "artifacts/evaluation-baseline.json"
+HUMAN_FINDING_MAPPING_ARTIFACT = "artifacts/evaluation-baseline.json"
 
 
 def load(path):
@@ -76,36 +76,36 @@ def full_approved(full_workspace):
                 for url in pages
             },
         })
-    baseline = {"schema_version": 1, "human_audit_sha256": original["human_audit_sha256"],
+    mapping = {"schema_version": 1, "human_audit_sha256": original["human_audit_sha256"],
                 "approved_by": "Independent Full audit reviewer", "decisions": decisions}
-    baseline_path = full_workspace / "approved-baseline.json"
-    save_json(baseline_path, baseline)
-    return baseline_path, seed
+    human_finding_mapping_path = full_workspace / "approved-human-finding-mapping.json"
+    save_json(human_finding_mapping_path, mapping)
+    return human_finding_mapping_path, seed
 
 
-def approved_run(workspace, baseline, *extra):
+def approved_run(workspace, mapping, *extra):
     """Create a separate Full evaluation with the selected approved decisions."""
     root = workspace / ".model-evaluation/full-runs"
     before = set(root.iterdir())
-    assert preview(workspace, "--baseline", str(baseline), *extra) == 0
+    assert preview(workspace, "--human-finding-mapping", str(mapping), *extra) == 0
     (run,) = set(root.iterdir()) - before
     return run, load(run / "full.json")
 
 
-def test_full_preparation_saves_one_baseline_and_resolves_each_pages_own_ids(
+def test_full_preparation_saves_one_human_finding_mapping_and_resolves_each_pages_own_ids(
     full_workspace, full_approved,
 ):
     """Every child, including a Globals-only page, uses the parent's frozen source."""
     path, seed = full_approved
     run, manifest = approved_run(full_workspace, path)
-    baseline = load(path)
-    assert load(run / BASELINE_ARTIFACT) == baseline
-    assert manifest["evaluation_baseline_sha256"] == hashlib.sha256((run / BASELINE_ARTIFACT).read_bytes()).hexdigest()
+    mapping = load(path)
+    assert load(run / HUMAN_FINDING_MAPPING_ARTIFACT) == mapping
+    assert manifest["evaluation_baseline_sha256"] == hashlib.sha256((run / HUMAN_FINDING_MAPPING_ARTIFACT).read_bytes()).hexdigest()
     assert load(run / "human-findings.json") == load(seed / "human-findings.json")
     previous = load(seed / "full.json")
     ids = set()
     for (child, saved), old_page in zip(children(run, manifest), previous["pages"], strict=True):
-        assert load(child / BASELINE_ARTIFACT) == baseline
+        assert load(child / HUMAN_FINDING_MAPPING_ARTIFACT) == mapping
         assert saved["evaluation_baseline_sha256"] == manifest["evaluation_baseline_sha256"]
         assert load(child / "artifacts/human-findings.json") == load(seed / old_page["run_dir"] / "artifacts/human-findings.json")
         local_ids = {item["finding_id"] for item in load(child / "normalized-programmatic-findings.json")}
@@ -147,11 +147,11 @@ def test_combined_reporting_rejects_a_child_with_different_saved_approved_decisi
     run, manifest = completed_approved
     assert report_all(run) == 0
     child = run / manifest["pages"][2]["run_dir"]
-    path = child / BASELINE_ARTIFACT
-    baseline = load(path)
+    path = child / HUMAN_FINDING_MAPPING_ARTIFACT
+    mapping = load(path)
     # This local finding does not appear on child three, so its review still validates.
-    baseline["decisions"][0]["classification_reason"] = "Different approved responsibility"
-    path.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + "\n")
+    mapping["decisions"][0]["classification_reason"] = "Different approved responsibility"
+    path.write_text(json.dumps(mapping, ensure_ascii=False, indent=2) + "\n")
     saved = load(child / "run.json")
     saved["evaluation_baseline_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
     save_json(child / "run.json", saved)
@@ -205,8 +205,8 @@ def test_combined_and_child_reports_keep_complete_matches_and_source_denominator
     ("programmatic_finding_id", "decision changed: programmatic_finding_id"),
     ("missing_evidence", "resolved to 0 findings"),
     ("foreign_id", "decision changed: programmatic_finding_id"),
-    ("missing_child_baseline", "Human finding mapping"),
-    ("missing_parent_baseline", "Human finding mapping"),
+    ("missing_child_mapping", "Human finding mapping"),
+    ("missing_parent_mapping", "Human finding mapping"),
     ("parent_source", "checksum changed"),
 ])
 def test_combined_report_rejects_changed_approved_decisions_or_missing_expected_evidence(
@@ -221,11 +221,11 @@ def test_combined_report_rejects_changed_approved_decisions_or_missing_expected_
     if change == "missing_evidence":
         path = child / "normalized-programmatic-findings.json"
         save_json(path, [item for item in load(path) if item["problem_family"] != "PAGE_TITLE_001"])
-    elif change in {"missing_child_baseline", "missing_parent_baseline"}:
-        target = child if change == "missing_child_baseline" else run
-        (target / BASELINE_ARTIFACT).unlink()
+    elif change in {"missing_child_mapping", "missing_parent_mapping"}:
+        target = child if change == "missing_child_mapping" else run
+        (target / HUMAN_FINDING_MAPPING_ARTIFACT).unlink()
     elif change == "parent_source":
-        path = run / BASELINE_ARTIFACT
+        path = run / HUMAN_FINDING_MAPPING_ARTIFACT
         path.write_text(path.read_text() + " ")
     else:
         if change == "foreign_id":
@@ -274,20 +274,20 @@ def test_different_models_keep_equal_combined_programmatic_counts_with_independe
     assert "Future manual update" not in first_report.get_text() + second_report.get_text()
 
 
-def test_full_preparation_automatically_selects_the_audits_bundled_baseline(
+def test_full_preparation_automatically_selects_the_audits_bundled_human_finding_mapping(
     full_workspace, full_approved, monkeypatch,
 ):
     """The audit checksum selects shared decisions once for all pages without a flag."""
     path, _ = full_approved
-    baseline = load(path)
-    directory = full_workspace / "bundled-baselines"
+    mapping = load(path)
+    directory = full_workspace / "bundled-mappings"
     directory.mkdir()
-    (directory / f"{baseline['human_audit_sha256']}.json").write_bytes(path.read_bytes())
-    monkeypatch.setattr("vision_aid.evaluation.baseline.BASELINE_DIRECTORY", directory)
+    (directory / f"{mapping['human_audit_sha256']}.json").write_bytes(path.read_bytes())
+    monkeypatch.setattr("vision_aid.evaluation.human_finding_mapping.HUMAN_FINDING_MAPPING_DIRECTORY", directory)
     before = set((full_workspace / ".model-evaluation/full-runs").iterdir())
     assert preview(full_workspace) == 0
     (run,) = set((full_workspace / ".model-evaluation/full-runs").iterdir()) - before
     manifest = load(run / "full.json")
-    assert load(run / BASELINE_ARTIFACT) == baseline
+    assert load(run / HUMAN_FINDING_MAPPING_ARTIFACT) == mapping
     assert all(saved["evaluation_baseline_sha256"] == manifest["evaluation_baseline_sha256"]
                for _, saved in children(run, manifest))

@@ -44,7 +44,7 @@ def approved(workspace):
         [{"rule": "HEAD_003", "evidence": {
             "problem": "The page does not contain an <h1> element."}}],
     ]
-    baseline = {
+    mapping = {
         "schema_version": 1,
         "human_audit_sha256": human["human_audit_sha256"],
         "approved_by": "Independent synthetic audit review",
@@ -63,8 +63,8 @@ def approved(workspace):
             ))
         ],
     }
-    path = workspace / "baseline.json"
-    path.write_text(json.dumps(baseline))
+    path = workspace / "human-finding-mapping.json"
+    path.write_text(json.dumps(mapping))
     return path, seed
 
 
@@ -74,8 +74,8 @@ def review_rows(run):
         return sorted(csv.DictReader(stream), key=lambda row: int(row["source_row"]))
 
 
-def baseline_run(workspace, path, *extra):
-    """Prepare a baseline-backed run through the normal command."""
+def human_finding_mapping_run(workspace, path, *extra):
+    """Prepare a mapping-backed run through the normal command."""
     root = workspace / ".model-evaluation/runs"
     before = set(root.iterdir())
     assert run_cli(workspace, "--human-finding-mapping", str(path), *extra) == 0
@@ -89,7 +89,7 @@ def test_preparation_populates_approved_decisions_and_preserves_human_evidence(
     """Preview resolves joint and cross-catches and keeps source evidence intact."""
     path, seed = approved
     monkeypatch.setattr("anthropic.Anthropic", lambda **_: pytest.fail("paid request"))
-    run = baseline_run(workspace, path)
+    run = human_finding_mapping_run(workspace, path)
     original = review_rows(seed)
     rows = review_rows(run)
     assert [row["classification"] for row in rows] == [
@@ -124,9 +124,9 @@ def test_models_share_fixed_decisions_but_keep_independent_llm_review(
         {"success": True, "response": '{"issues": ["Missing h1"]}', "usage": {}},
         {"success": True, "response": '[{"text": "Click here", "is_clear": false, "issues": ["Vague link"]}]', "usage": {}},
     )
-    first = baseline_run(workspace, path, "--live", "--approve-live")
+    first = human_finding_mapping_run(workspace, path, "--live", "--approve-live")
     fake_client(monkeypatch)
-    second = baseline_run(workspace, path, "--model", "claude-sonnet-5-5", "--live", "--approve-live")
+    second = human_finding_mapping_run(workspace, path, "--model", "claude-sonnet-5-5", "--live", "--approve-live")
     llm = load(first, "normalized-llm-findings.json")
     assert len(llm) == 2
     edit_review(first,
@@ -149,9 +149,9 @@ def test_models_share_fixed_decisions_but_keep_independent_llm_review(
         if a["programmatic_finding_id"]:
             assert a["programmatic_finding_id"] != b["programmatic_finding_id"]
     # Later deliberate shared edits must not change either saved interpretation.
-    baseline = json.loads(path.read_text())
-    baseline["decisions"][0]["classification_reason"] = "A later manual update"
-    path.write_text(json.dumps(baseline))
+    mapping = json.loads(path.read_text())
+    mapping["decisions"][0]["classification_reason"] = "A later manual update"
+    path.write_text(json.dumps(mapping))
     first_report, second_report = report(first), report(second)
     assert "Independent synthetic audit review" in first_report
     assert "Complete page defect" in first_report
@@ -177,7 +177,7 @@ def test_reporting_rejects_edited_approved_decisions_and_removes_stale_report(
     """Editable review cells cannot rewrite fixed decisions or original evidence."""
     path, _ = approved
     fake_client(monkeypatch)
-    run = baseline_run(workspace, path, "--live", "--approve-live")
+    run = human_finding_mapping_run(workspace, path, "--live", "--approve-live")
     report(run)
     edit_review(run, {column: value})
     message = refused(run, capsys)
@@ -200,26 +200,26 @@ def test_preparation_rejects_invalid_or_unresolved_approved_expectations(
 ):
     """Missing decisions and evidence fail with useful finding/page context."""
     path, _ = approved
-    baseline = json.loads(path.read_text())
+    mapping = json.loads(path.read_text())
     if change == "audit":
-        baseline["human_audit_sha256"] = "unrelated-audit"
+        mapping["human_audit_sha256"] = "unrelated-audit"
     elif change == "decision":
-        baseline["decisions"].pop(0)
+        mapping["decisions"].pop(0)
     elif change == "reason":
-        baseline["decisions"][0]["classification_reason"] = ""
+        mapping["decisions"][0]["classification_reason"] = ""
     elif change == "page":
-        baseline["decisions"][0]["programmatic_by_page"]["https://elsewhere.test/"] = baseline["decisions"][0]["programmatic_by_page"].pop(URL)
+        mapping["decisions"][0]["programmatic_by_page"]["https://elsewhere.test/"] = mapping["decisions"][0]["programmatic_by_page"].pop(URL)
     elif change == "missing":
-        baseline["decisions"][0]["programmatic_by_page"][URL]["expectations"][0]["evidence"] = {"element": "unreported-element"}
+        mapping["decisions"][0]["programmatic_by_page"][URL]["expectations"][0]["evidence"] = {"element": "unreported-element"}
     elif change == "reuse":
-        baseline["decisions"][1]["programmatic_by_page"][URL]["expectations"] = baseline["decisions"][0]["programmatic_by_page"][URL]["expectations"]
+        mapping["decisions"][1]["programmatic_by_page"][URL]["expectations"] = mapping["decisions"][0]["programmatic_by_page"][URL]["expectations"]
     elif change == "programmatic_absence":
-        baseline["decisions"][0]["programmatic_by_page"][URL]["expectations"] = []
+        mapping["decisions"][0]["programmatic_by_page"][URL]["expectations"] = []
     elif change == "not_testable":
-        baseline["decisions"][0]["classification"] = "unavailable_evidence"
-    path.write_text(json.dumps(baseline))
+        mapping["decisions"][0]["classification"] = "unavailable_evidence"
+    path.write_text(json.dumps(mapping))
     with pytest.raises(SystemExit) as caught:
-        run_cli(workspace, "--baseline", str(path))
+        run_cli(workspace, "--human-finding-mapping", str(path))
     assert caught.value.code == 2
     assert error in capsys.readouterr().err
 
@@ -231,7 +231,7 @@ def test_reporting_requires_unique_actual_checker_evidence(
     """A saved expected catch cannot manufacture credit after evidence is lost."""
     path, _ = approved
     fake_client(monkeypatch)
-    run = baseline_run(workspace, path, "--live", "--approve-live")
+    run = human_finding_mapping_run(workspace, path, "--live", "--approve-live")
     findings = load(run, "normalized-programmatic-findings.json")
     if change == "missing":
         findings = [item for item in findings if item["problem_family"] != "PAGE_TITLE_001"]
@@ -254,7 +254,7 @@ def test_reporting_rejects_llm_credit_for_not_testable_findings(
     fake_client(monkeypatch,
         {"success": True, "response": '{"issues": ["A concrete defect"]}', "usage": {}},
     )
-    run = baseline_run(workspace, path, "--live", "--approve-live")
+    run = human_finding_mapping_run(workspace, path, "--live", "--approve-live")
     identity = load(run, "normalized-llm-findings.json")[0]["finding_id"]
     edit_review(run, {}, {}, {}, {"llm_finding_id": identity, "match_reason": "Claimed catch"})
     assert "not testable" in refused(run, capsys)
@@ -266,24 +266,24 @@ def test_reporting_rejects_modified_saved_approved_source(
     """Historical interpretation is pinned to the copy saved with the run."""
     path, _ = approved
     fake_client(monkeypatch)
-    run = baseline_run(workspace, path, "--live", "--approve-live")
+    run = human_finding_mapping_run(workspace, path, "--live", "--approve-live")
     copied = run / "artifacts/evaluation-baseline.json"
-    baseline = json.loads(copied.read_text())
-    baseline["decisions"][0]["classification_reason"] = "Rewritten history"
-    copied.write_text(json.dumps(baseline))
+    mapping = json.loads(copied.read_text())
+    mapping["decisions"][0]["classification_reason"] = "Rewritten history"
+    copied.write_text(json.dumps(mapping))
     assert "checksum changed" in refused(run, capsys)
 
 
-def test_bundled_baseline_is_automatic_and_cannot_be_removed_to_unlock_reporting(
+def test_bundled_human_finding_mapping_is_automatic_and_cannot_be_removed_to_unlock_reporting(
     workspace, approved, monkeypatch, capsys,
 ):
     """Known audits automatically use approved decisions and require saved approval."""
     path, _ = approved
-    baseline = json.loads(path.read_text())
-    bundled = workspace / "bundled-baselines"
+    mapping = json.loads(path.read_text())
+    bundled = workspace / "bundled-mappings"
     bundled.mkdir()
-    (bundled / f"{baseline['human_audit_sha256']}.json").write_text(path.read_text())
-    monkeypatch.setattr("vision_aid.evaluation.baseline.BASELINE_DIRECTORY", bundled)
+    (bundled / f"{mapping['human_audit_sha256']}.json").write_text(path.read_text())
+    monkeypatch.setattr("vision_aid.evaluation.human_finding_mapping.HUMAN_FINDING_MAPPING_DIRECTORY", bundled)
     fake_client(monkeypatch)
     before = set((workspace / ".model-evaluation/runs").iterdir())
     assert run_cli(workspace, "--live", "--approve-live") == 0
@@ -303,7 +303,7 @@ def test_bundled_baseline_is_automatic_and_cannot_be_removed_to_unlock_reporting
     ("source", "Unknown LLM finding ID"),
     ("reuse", "Conflicting LLM finding ID"),
 ])
-def test_baseline_does_not_relax_llm_identity_or_reuse_validation(
+def test_human_finding_mapping_does_not_relax_llm_identity_or_reuse_validation(
     workspace, approved, monkeypatch, capsys, change, error,
 ):
     """Editable LLM choices must still belong to this run and one Human finding."""
@@ -311,7 +311,7 @@ def test_baseline_does_not_relax_llm_identity_or_reuse_validation(
     fake_client(monkeypatch,
         {"success": True, "response": '{"issues": ["A concrete defect"]}', "usage": {}},
     )
-    run = baseline_run(workspace, path, "--live", "--approve-live")
+    run = human_finding_mapping_run(workspace, path, "--live", "--approve-live")
     llm = load(run, "normalized-llm-findings.json")[0]["finding_id"]
     if change == "unknown":
         identity = "llm-another-run"
@@ -347,7 +347,7 @@ def test_single_page_uses_listed_page_local_findings_and_globals(
     seed = only_run(workspace)
     human = load(seed, "artifacts/human-findings.json")
     assert [finding["source_row"] for finding in human["human_findings"]] == [3, 4, 5, 6, 7, 8]
-    path = workspace / "careers-baseline.json"
+    path = workspace / "careers-human-finding-mapping.json"
     path.write_text(json.dumps({
         "schema_version": 1, "human_audit_sha256": human["human_audit_sha256"],
         "approved_by": "Non-home reviewer", "decisions": [
@@ -358,7 +358,7 @@ def test_single_page_uses_listed_page_local_findings_and_globals(
             } for item in human["human_findings"]
         ],
     }))
-    run = baseline_run(workspace, path, "--source-url", careers)
+    run = human_finding_mapping_run(workspace, path, "--source-url", careers)
     assert [row["source_row"] for row in review_rows(run)] == ["3", "4", "5", "6", "7", "8"]
     assert all(row["classification"] == "llm_eligible" for row in review_rows(run))
     with pytest.raises(SystemExit):

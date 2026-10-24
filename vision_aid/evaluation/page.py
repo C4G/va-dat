@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from entry_points.run_pipeline import run_pipeline
-from vision_aid.evaluation.baseline import apply_baseline, saved_baseline_decisions
 from vision_aid.evaluation.execution.llm_audit import (
     USAGE_KEYS,
     LLMRequestConfig,
@@ -22,6 +21,10 @@ from vision_aid.evaluation.execution.normalization import (
     normalize_programmatic_findings,
 )
 from vision_aid.evaluation.execution.pricing import DEFAULT_SCHEDULE, PriceSchedule
+from vision_aid.evaluation.human_finding_mapping import (
+    apply_human_finding_mapping,
+    saved_human_finding_mapping_decisions,
+)
 from vision_aid.evaluation.reporting.html_report import write_page_report
 from vision_aid.evaluation.review import create_review, reviewed_rows
 from vision_aid.evaluation.schemas import HumanAudit
@@ -45,7 +48,7 @@ def prepare_page(
     human_audit: HumanAudit,
     request_config: LLMRequestConfig,
     limit: Decimal,
-    baseline: dict[str, Any] | None = None,
+    mapping: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Save a page's inputs, checks, prompts and blank review without paid requests.
 
@@ -110,8 +113,8 @@ def prepare_page(
         "skipped_prompts": production["prompts_skipped"],
     }
     write_json(run / "run.json", manifest)
-    if baseline is not None:
-        apply_baseline(run, baseline)
+    if mapping is not None:
+        apply_human_finding_mapping(run, mapping)
         manifest = json.loads((run / "run.json").read_text())
     return manifest
 
@@ -140,7 +143,7 @@ def validated_page_review(run: Path) -> PageReview:
         ):
             label = kind.upper() if kind == "llm" else kind.title()
             raise ValueError(f"{label} findings do not belong to this run")
-    approved = saved_baseline_decisions(run, manifest, human_audit, programmatic)
+    approved = saved_human_finding_mapping_decisions(run, manifest, human_audit, programmatic)
     rows = reviewed_rows(
         run / "review.csv", human_audit["human_findings"], llm, programmatic, approved
     )

@@ -225,7 +225,7 @@ def test_one_page_selection_and_human_ids_remain_compatible(full_workspace):
         "run", "--human-audit", str(full_workspace / "human-audit.xlsx"),
         "--html", str(full_workspace / "snapshots/page-001.html"),
         "--source-url", URLS[0], "--max-cost-usd", "2",
-        "--baseline", str(full_workspace / "historical-setup-baseline.json"),
+        "--human-finding-mapping", str(full_workspace / "historical-setup-human-finding-mapping.json"),
     ]) == 0
     (page_run,) = (full_workspace / ".model-evaluation/runs").iterdir()
     evidence = json.loads((page_run / "artifacts/human-findings.json").read_text())
