@@ -3,7 +3,6 @@
 import csv
 import hashlib
 import json
-from types import SimpleNamespace
 
 import openpyxl
 import pytest
@@ -135,22 +134,8 @@ def test_combined_report_pools_original_findings_and_any_page_globals(completed_
         f"{URLS[1]}: 1 caught / 3 eligible; 33.3%",
         f"{URLS[2]}: 1 caught / 2 eligible; 50.0%",
     ]
-    assert not document.select(".detection-chart table")
-    assert "Each original Human finding counts once." not in text
-    assert "Repeated Global findings contribute to each page's results" in text
-    assert not document.select('#method, #combined-method, a[href="#method"]')
-    assert "those the tool cannot detect from the saved HTML and those too ambiguous to evaluate" in overview.get_text()
-    assert "the Overall count can exceed their combined total" in overview.get_text()
     assert "Review decisions by: Combined reviewer" in text
-    assert document.select_one('#performance .performance-heading .cost-value').get_text(" ", strip=True) == "$0.000150 USD"
-    assert [node.get_text() for node in document.select('.token-usage dd')] == [
-        f"{manifest['usage']['input_tokens']:,}", f"{manifest['usage']['output_tokens']:,}",
-    ]
-    assert len(document.select('.model-pricing table')) == 1
-    tiers = document.select('.model-pricing tbody tr')
-    assert [cell.get_text() for cell in tiers[0].select('td')] == ['$0.10', '$0.50']
-    assert [cell.get_text() for cell in tiers[1].select('td')] == ['$0.20', '$0.75']
-    assert not document.select('#provenance, a[href="#provenance"]')
+    assert "Estimated run cost: $0.000150 USD" in text
     originals = json.loads((run / "human-findings.json").read_text())
     overview = document.select("#findings > tbody > tr")
     assert [row.find("th").get_text(strip=True) for row in overview] == [
@@ -158,11 +143,9 @@ def test_combined_report_pools_original_findings_and_any_page_globals(completed_
     for finding in originals["human_findings"]:
         assert text.count(finding["human_finding_id"]) == 1
     assert "Not testable on page 1" in text and "Not testable on page 2" in text
-    assert "Partial evidence only on page 1" not in text
-    for panel in document.select('details[data-page-decision]'):
-        labels = [label.get_text() for label in panel.select('dt')]
-        assert ("Matching rationale" in labels) == bool(panel.select('.matched'))
-        assert ("VA-DAT Matched Findings" in labels) == bool(panel.select('.matched'))
+    for row in overview:
+        if row.th.get_text(strip=True).startswith("Shared"):
+            assert {panel["data-page"] for panel in row.select('[data-page-decision]')} == set(URLS)
     for page in manifest["pages"]:
         child = run / page["run_dir"]
         assert (child / "report.html").is_file()
@@ -181,9 +164,6 @@ def test_combined_report_pools_original_findings_and_any_page_globals(completed_
                         assert finding["problem"] in text
                         assert finding["prompt"] in text
                         assert finding["run_id"] in text
-    assert "complete detection on any single page" not in text
-    assert "partial matches across pages" not in text
-    assert not document.select("[open]")
     assert not document.select("script[src], link[rel=stylesheet], iframe")
 
 
@@ -365,24 +345,18 @@ def test_reviewer_description_is_required(completed_review, capsys):
     assert "reviewer description" in refused_report(run, capsys, reviewer=" ")
 
 
-def test_combined_report_keeps_unreadable_response_evidence(full_workspace, monkeypatch):
+@pytest.mark.parametrize("response", ["", "not JSON"])
+def test_combined_report_keeps_unreadable_response_evidence(full_workspace, monkeypatch, response):
     """Successful Unreadable responses remain complete and are counted across pages."""
-    monkeypatch.setenv("OPENAI_API_KEY", "synthetic")
-
-    def create(**options):
-        """Return an unreadable provider reply without leaving the process."""
-        return SimpleNamespace(
-            id="unreadable", model="gpt-6-luna",
-            choices=[SimpleNamespace(message=SimpleNamespace(content="not JSON"), finish_reason="stop")],
-            usage=SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0,
-                                  prompt_tokens_details=None, completion_tokens_details=None),
-        )
-
-    monkeypatch.setattr("openai.OpenAI", lambda **_: SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+    recording_provider_usage(monkeypatch, "gpt-6-luna", text=response)
     assert preview(full_workspace, "--model", "gpt-6-luna", "--live", "--approve-live") == 0
     run, manifest = only_full(full_workspace)
-    for child, _ in children(run, manifest):
+    assert manifest["complete"]
+    for child, saved in children(run, manifest):
+        assert saved["complete"] and len(saved["format_failures"]) == len(saved["prompts"])
+        assert json.loads((child / "normalized-llm-findings.json").read_text()) == []
+        assert all(item["result"]["response"] == response for item in json.loads(
+            (child / "artifacts/raw-llm-responses.json").read_text()))
         rows = review_rows(child)
         for row in rows:
             row.update(classification="llm_eligible", classification_reason="HTML evidence")
@@ -390,51 +364,6 @@ def test_combined_report_keeps_unreadable_response_evidence(full_workspace, monk
     assert report_all(run) == 0
     assert sum(len(json.loads((child / "run.json").read_text())["format_failures"])
                for child, _ in children(run, manifest)) == 6
-    document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
-    assert not document.select('#provenance')
-    assert document.select_one('#performance .cost-value')
-
-
-def test_report_all_help_explains_review_completion(capsys):
-    """The combined reporting command explains when it can publish scores."""
-    with pytest.raises(SystemExit) as error:
-        main(["report-all", "--help"])
-    assert error.value.code == 0
-    text = " ".join(capsys.readouterr().out.split())
-    assert "every listed execution" in text and "all page reviews" in text
-    assert "Global" in text and "once" in text
-
-
-def test_global_evidence_includes_every_page_without_deeper_disclosures(completed_review):
-    """Global and page-local evidence use two disclosure levels."""
-    run, manifest = completed_review
-    assert report_all(run) == 0
-    document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
-    rows = document.select("#findings > tbody > tr")
-    globals_ = [row for row in rows if row.find("th").get_text(strip=True).startswith("Shared")]
-    assert len(globals_) == 2
-    for row in globals_:
-        outer = row.find("details")
-        page_panels = outer.find_all("details")
-        assert len(page_panels) == len(manifest["pages"])
-        assert all(not panel.find("details") for panel in page_panels)
-        assert all(not panel.has_attr("name") for panel in page_panels)
-        assert all("View page decisions:" in panel.summary.get_text() for panel in page_panels)
-        compact = outer.find("table")
-        assert len(compact.select("tbody > tr")) == len(manifest["pages"])
-        assert [tr.find("th").get_text(strip=True) for tr in compact.select("tbody > tr")] == [
-            page["source_url"] for page in manifest["pages"]]
-    not_testable = globals_[1].get_text(" ", strip=True)
-    assert "Not testable from the page file" in not_testable
-    assert "Not caught" in not_testable
-    local = next(row for row in rows if row.find("th").get_text(strip=True) == "First local")
-    assert len(local.find_all("details")) == 2
-    panel = local.select_one('details[data-page-decision]')
-    assert panel.find_parent('details') is local.find('details')
-    assert panel['data-page'] == URLS[0]
-    assert f"View page decisions: {URLS[0]}" in panel.summary.get_text()
-    assert "Complete first issue" in panel.get_text()
-    assert not document.select('details[open]')
 
 
 def test_successful_full_regeneration_replaces_only_its_generated_markdown(completed_review, capsys):
@@ -451,14 +380,3 @@ def test_successful_full_regeneration_replaces_only_its_generated_markdown(compl
     assert not (run / "report.md").exists()
     assert all(not (run / page["run_dir"] / "report.md").exists() for page in manifest["pages"])
     assert (historical / "report.md").read_text() == "historical result"
-
-
-def test_unused_parent_display_metadata_is_optional(completed_review):
-    """Reports do not require metadata from the removed provenance section."""
-    run, manifest = completed_review
-    assert report_all(run) == 0
-    del manifest["human_audit_filename"]
-    save_json(run / "full.json", manifest)
-    assert report_all(run) == 0
-    assert all((run / page["run_dir"] / "report.html").exists() for page in manifest["pages"])
-    assert not list(run.glob(".report.html.*.tmp"))

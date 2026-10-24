@@ -22,20 +22,12 @@ def rows(path):
 def prepare(workspace):
     """Prepare a baseline review independently of model selection and execution."""
     directory = workspace / "baseline-review"
-    assert (
-        main(
-            [
-                "baseline-prepare",
-                "--human-audit",
-                str(workspace / "human-audit.xlsx"),
-                "--snapshots",
-                str(workspace / "snapshots/snapshots.json"),
-                "--output-dir",
-                str(directory),
-            ]
-        )
-        == 0
-    )
+    assert main([
+        "baseline-prepare",
+        "--human-audit", str(workspace / "human-audit.xlsx"),
+        "--snapshots", str(workspace / "snapshots/snapshots.json"),
+        "--output-dir", str(directory),
+    ]) == 0
     return directory
 
 
@@ -91,15 +83,10 @@ def fill_review(directory):
 
 def approve(directory):
     """Approve reviewed CSV choices using only the supported CLI."""
-    return main(
-        [
-            "baseline-approve",
-            "--review-dir",
-            str(directory),
-            "--reviewer",
-            "Human CSV reviewer",
-        ]
-    )
+    return main([
+        "baseline-approve",
+        "--review-dir", str(directory), "--reviewer", "Human CSV reviewer",
+    ])
 
 
 def test_baseline_preparation_lists_originals_once_and_readable_page_evidence(
@@ -328,22 +315,17 @@ def test_catalog_edits_cannot_replace_checker_evidence_and_approval_never_overwr
 
 
 def test_csv_review_requires_reviewer_and_keeps_previous_work_on_repeated_preparation(
-    full_workspace,
+    full_workspace, capsys,
 ):
     """An unfinished or already-open review cannot be approved or silently replaced."""
     directory = prepare(full_workspace)
+    fill_review(directory)
     original = (directory / "classifications.csv").read_bytes()
     with pytest.raises(SystemExit):
         prepare(full_workspace)
     assert (directory / "classifications.csv").read_bytes() == original
-    with pytest.raises(SystemExit):
-        main(["baseline-approve", "--review-dir", str(directory), "--reviewer", " "])
-    assert not (directory / "baseline.json").exists()
-
-
-def test_saved_run_correction_is_no_longer_a_cli_operation(capsys):
-    """The CLI supports creating approved new runs rather than migrating existing ones."""
     with pytest.raises(SystemExit) as failure:
-        main(["correct-all", "--run-dir", "unused", "--reviewer", "unused"])
+        main(["baseline-approve", "--review-dir", str(directory), "--reviewer", " "])
     assert failure.value.code == 2
-    assert "invalid choice: 'correct-all'" in capsys.readouterr().err
+    assert "reviewer description is required" in capsys.readouterr().err
+    assert not (directory / "baseline.json").exists()

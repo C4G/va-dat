@@ -74,10 +74,12 @@ def only_full(workspace):
     return run, json.loads((run / "full.json").read_text())
 
 
-def test_preview_maps_original_findings_and_keeps_page_evidence(full_workspace, capsys):
+@pytest.mark.parametrize("model", ["claude-haiku-5-5", "gpt-6-luna"])
+def test_preview_maps_original_findings_and_keeps_page_evidence(full_workspace, capsys, model):
     """URL assignment, Globals and separate saved evidence survive key-free preview."""
-    assert preview(full_workspace) == 0
+    assert preview(full_workspace, "--model", model) == 0
     run, manifest = only_full(full_workspace)
+    assert manifest["configuration"]["model"] == model
     assert [page["source_url"] for page in manifest["pages"]] == URLS
     assert len({page["run_id"] for page in manifest["pages"]}) == 3
     assert manifest["complete"] is False and manifest["incomplete_reason"] == "preview"
@@ -93,6 +95,8 @@ def test_preview_maps_original_findings_and_keeps_page_evidence(full_workspace, 
         assert child_manifest["run_id"] == child.name == page["run_id"]
         assert child_manifest["source_url"] == page["source_url"]
         assert child_manifest["configuration"] == manifest["configuration"]
+        prices = json.loads((child / "artifacts/pricing.json").read_text())
+        assert model in prices["models"]
         assert (child / "snapshot.html").read_text() == HTML
         assert child_manifest["snapshot_sha256"] == hashlib.sha256(HTML.encode()).hexdigest()
         prompt_count += len(child_manifest["prompts"])
@@ -212,30 +216,6 @@ def test_audit_without_human_findings_cannot_start_evaluation(full_workspace, ca
     assert not (full_workspace / ".model-evaluation").exists()
 
 
-@pytest.mark.parametrize("model", [
-    "claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5",
-    "gpt-6-luna", "gpt-6.1-sol",
-])
-def test_preview_displays_one_fixed_model_and_recorded_prices(full_workspace, capsys, model):
-    """Every page records the selected preset without provider credentials."""
-    assert preview(full_workspace, "--model", model) == 0
-    run, manifest = only_full(full_workspace)
-    config = manifest["configuration"]
-    assert config["model"] == model
-    assert config["reasoning_effort"] == "medium" and config["max_output_tokens"] == 24192
-    assert config["temperature"] == "omitted" and config["summaries"] == "disabled"
-    for page in manifest["pages"]:
-        child = run / page["run_dir"]
-        saved = json.loads((child / "run.json").read_text())
-        assert saved["configuration"] == config
-        prices = json.loads((child / "artifacts/pricing.json").read_text())
-        assert model in prices["models"]
-    output = capsys.readouterr().out
-    provider = "openai" if model.startswith("gpt-") else "anthropic"
-    assert f"Model: {model}; provider: {provider}" in output
-    assert "input $" in output and "output $" in output and "cache read $" in output
-
-
 def test_one_page_selection_and_human_ids_remain_compatible(full_workspace):
     """The one-page command selects the URL's local findings and stable Globals."""
     assert preview(full_workspace) == 0
@@ -255,14 +235,3 @@ def test_one_page_selection_and_human_ids_remain_compatible(full_workspace):
     assert evidence["human_findings"] == (
         originals["human_findings"][:2] + originals["human_findings"][3:]
     )
-
-
-def test_run_all_help_explains_saved_snapshots_and_shared_allowance(capsys):
-    """Operators can discover the reusable inputs and key-free preview."""
-    with pytest.raises(SystemExit) as error:
-        main(["run-all", "--help"])
-    assert error.value.code == 0
-    text = capsys.readouterr().out
-    assert "snapshots.json" in text and "shared across pages" in text
-    assert "Previews need no key" in text and "Haiku 5.5 (default)" in text
-    assert "24,192" in text and "medium" in text

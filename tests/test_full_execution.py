@@ -252,31 +252,3 @@ def test_parent_sums_all_reported_usage_categories(full_workspace, monkeypatch):
         "cached_input_tokens": 1_000, "cache_creation_input_tokens": 1_000,
     }
     assert manifest["estimated_cost_usd"] == "0.000645"
-
-
-def test_unreadable_successful_responses_preserve_execution_completion(
-    full_workspace, monkeypatch,
-):
-    """Unreadable responses yield no findings while retaining current completion semantics."""
-    from types import SimpleNamespace
-
-    monkeypatch.setenv("OPENAI_API_KEY", "synthetic")
-
-    def create(**options):
-        """Return a successful provider response that yields no readable findings."""
-        return SimpleNamespace(
-            id="synthetic-unreadable", model="gpt-6-luna",
-            choices=[SimpleNamespace(message=SimpleNamespace(content="unreadable"),
-                                     finish_reason="stop")],
-            usage=SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0,
-                                  prompt_tokens_details=None, completion_tokens_details=None),
-        )
-
-    monkeypatch.setattr("openai.OpenAI", lambda **_: SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
-    assert preview(full_workspace, "--model", "gpt-6-luna", "--live", "--approve-live") == 0
-    run, manifest = only_full(full_workspace)
-    assert manifest["complete"]
-    for child, saved in children(run, manifest):
-        assert saved["complete"] and len(saved["format_failures"]) == len(saved["prompts"])
-        assert json.loads((child / "normalized-llm-findings.json").read_text()) == []

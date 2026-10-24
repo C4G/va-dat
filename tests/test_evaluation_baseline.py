@@ -34,7 +34,7 @@ def approved(workspace):
     expectations = [
         [
             {"rule": "PAGE_TITLE_001", "evidence": {
-                "problem": "The page does not contain a <title> element."}},
+                "raw_source": {"location": {"tag": "head"}}}},
             {"rule": "LANG_001", "evidence": {
                 "problem": "<html> element missing lang attribute."}},
         ],
@@ -96,7 +96,14 @@ def test_preparation_populates_approved_decisions_and_preserves_human_evidence(
         "programmatic", "llm_eligible", "llm_eligible",
         "unavailable_evidence", "ambiguous", "programmatic",
     ]
-    assert len(rows[0]["programmatic_finding_id"].split(";")) == 2
+    findings = {
+        item["finding_id"]: item
+        for item in load(run, "normalized-programmatic-findings.json")
+    }
+    title_id, lang_id = rows[0]["programmatic_finding_id"].split(";")
+    assert findings[title_id]["problem_family"] == "PAGE_TITLE_001"
+    assert findings[title_id]["raw_source"]["location"]["tag"] == "head"
+    assert findings[lang_id]["problem_family"] == "LANG_001"
     assert rows[1]["programmatic_finding_id"]
     assert all(not row["programmatic_finding_id"] for row in rows[2:5])
     assert rows[0]["programmatic_match_reason"] == "Complete page defect"
@@ -317,20 +324,6 @@ def test_baseline_does_not_relax_llm_identity_or_reuse_validation(
         {"llm_finding_id": llm, "match_reason": "Reused match"} if change == "reuse" else {},
     )
     assert error in refused(run, capsys)
-
-
-def test_expectations_can_identify_relevant_raw_element_evidence(workspace, approved):
-    """Rule and nested checker location identify evidence without run-specific IDs."""
-    path, _ = approved
-    baseline = json.loads(path.read_text())
-    baseline["decisions"][0]["programmatic_by_page"][URL]["expectations"][0]["evidence"] = {
-        "raw_source": {"location": {"tag": "head"}},
-    }
-    path.write_text(json.dumps(baseline))
-    run = baseline_run(workspace, path)
-    ids = review_rows(run)[0]["programmatic_finding_id"].split(";")
-    findings = {item["finding_id"]: item for item in load(run, "normalized-programmatic-findings.json")}
-    assert findings[ids[0]]["raw_source"]["location"]["tag"] == "head"
 
 
 def test_single_page_uses_listed_page_local_findings_and_globals(

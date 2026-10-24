@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-from types import SimpleNamespace
 
 import openpyxl
 import pytest
@@ -245,18 +244,7 @@ def test_different_models_keep_equal_combined_programmatic_counts_with_independe
     first, first_manifest = completed_approved
     path, _ = full_approved
 
-    def create(**options):
-        """Return a successful model response with no defects, without external requests."""
-        return SimpleNamespace(
-            id="no-defects", model=options["model"], usage=SimpleNamespace(
-                prompt_tokens=0, completion_tokens=0, total_tokens=0,
-                prompt_tokens_details=None, completion_tokens_details=None,
-            ),
-            choices=[SimpleNamespace(message=SimpleNamespace(content='{"issues": []}'), finish_reason="stop")],
-        )
-
-    monkeypatch.setattr("openai.OpenAI", lambda **_: SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+    recording_provider_usage(monkeypatch, "gpt-6.1-sol", text='{"issues": []}')
     second, second_manifest = approved_run(full_workspace, path, "--model", "gpt-6.1-sol", "--live", "--approve-live")
     # Changing the original selected file does not rewrite either saved interpretation.
     source = load(path)
