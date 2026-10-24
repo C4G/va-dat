@@ -6,7 +6,7 @@ import json
 
 import openpyxl
 import pytest
-from legacy_evaluation import historical_run_cli
+from evaluation_fixtures import run_with_mapping
 
 from vision_aid.evaluation.cli import main
 from vision_aid.evaluation.inputs.human_audit import HEADERS
@@ -60,8 +60,8 @@ def full_workspace(tmp_path, monkeypatch):
 
 
 def preview(workspace, *extra):
-    """Preview with explicit approval, converting only historical review fixtures."""
-    return historical_run_cli(workspace, [
+    """Preview with approved fixture decisions retained in every saved run."""
+    return run_with_mapping(workspace, [
         "run-all", "--human-audit", str(workspace / "human-audit.xlsx"),
         "--snapshots", str(workspace / "snapshots/snapshots.json"),
         "--max-cost-usd", "2", *extra,
@@ -105,7 +105,7 @@ def test_preview_maps_original_findings_and_keeps_page_evidence(full_workspace, 
         memberships.append([row["Issue Title"] for row in rows])
         globals_by_page.append({row["human_finding_id"] for row in rows if row["page_scope"] == "global"})
         assert all(row["actual result"] == "Original\nevidence" for row in rows)
-        assert all(not row["classification"] for row in rows)
+        assert all(row["classification"] == "llm_eligible" for row in rows)
         findings = json.loads((child / "normalized-programmatic-findings.json").read_text())
         assert findings and all(item["page_url"] == page["source_url"] for item in findings)
         assert not programmatic_ids.intersection(item["finding_id"] for item in findings)
@@ -225,7 +225,7 @@ def test_one_page_selection_and_human_ids_remain_compatible(full_workspace):
         "run", "--human-audit", str(full_workspace / "human-audit.xlsx"),
         "--html", str(full_workspace / "snapshots/page-001.html"),
         "--source-url", URLS[0], "--max-cost-usd", "2",
-        "--human-finding-mapping", str(full_workspace / "historical-setup-human-finding-mapping.json"),
+        "--human-finding-mapping", str(full_workspace / "fixture-human-finding-mapping.json"),
     ]) == 0
     (page_run,) = (full_workspace / ".model-evaluation/runs").iterdir()
     evidence = json.loads((page_run / "artifacts/human-findings.json").read_text())

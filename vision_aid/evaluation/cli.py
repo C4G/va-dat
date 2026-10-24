@@ -48,21 +48,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="visionaid-evaluate")
     commands = parser.add_subparsers(dest="command", required=True)
     mapping_prepare = commands.add_parser(
-        "human-finding-mapping-prepare", aliases=["baseline-prepare"],
+        "human-finding-mapping-prepare",
         help="prepare Human finding eligibility and Programmatic match review CSVs",
     )
     mapping_prepare.add_argument("--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT)
     mapping_prepare.add_argument("--snapshots", type=Path, required=True)
     mapping_prepare.add_argument("--output-dir", type=Path, required=True)
     mapping_approve = commands.add_parser(
-        "human-finding-mapping-approve", aliases=["baseline-approve"],
+        "human-finding-mapping-approve",
         help="validate reviewed CSVs and export an approved Human finding mapping",
     )
     mapping_approve.add_argument("--review-dir", type=Path, required=True)
     mapping_approve.add_argument("--reviewer", required=True)
     mapping_approve.add_argument(
         "--output", type=Path,
-        help="new JSON filename; defaults to review-dir/human-finding-mapping.json (baseline.json for the legacy alias)",
+        help="new JSON filename; defaults to review-dir/human-finding-mapping.json",
     )
     capture = commands.add_parser(
         "capture", help="download each Human audit URL to a saved Benchmark snapshot",
@@ -94,7 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT, help="Human audit"
     )
     run.add_argument(
-        "--human-finding-mapping", "--baseline", dest="human_finding_mapping", type=Path,
+        "--human-finding-mapping", type=Path,
         help="approved eligibility classifications and Programmatic matches; defaults to this audit's local Human finding mapping",
     )
     run.add_argument("--html", type=Path, required=True, help="local Benchmark HTML")
@@ -121,7 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT, help="Human audit"
     )
     run_all.add_argument(
-        "--human-finding-mapping", "--baseline", dest="human_finding_mapping", type=Path,
+        "--human-finding-mapping", type=Path,
         help="approved eligibility classifications and Programmatic matches; defaults to this audit's local Human finding mapping",
     )
     run_all.add_argument(
@@ -340,15 +340,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        if args.command in {"human-finding-mapping-prepare", "baseline-prepare"}:
+        if args.command == "human-finding-mapping-prepare":
             prepare_human_finding_mapping_review(args.human_audit, args.snapshots, args.output_dir)
             print(f"Human finding mapping review CSVs and instructions: {args.output_dir.resolve()}")
             return 0
-        if args.command in {"human-finding-mapping-approve", "baseline-approve"}:
-            output = args.output
-            if output is None and args.command == "baseline-approve":
-                output = args.review_dir / "baseline.json"
-            mapping = approve_human_finding_mapping_review(args.review_dir, args.reviewer, output)
+        if args.command == "human-finding-mapping-approve":
+            mapping = approve_human_finding_mapping_review(args.review_dir, args.reviewer, args.output)
             print(f"Approved Human finding mapping: {mapping.resolve()}")
             return 0
         if args.command == "capture":

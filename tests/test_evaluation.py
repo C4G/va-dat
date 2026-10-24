@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import openpyxl
 import pytest
 from bs4 import BeautifulSoup
-from legacy_evaluation import historical_run_cli
+from evaluation_fixtures import run_with_mapping
 
 from processing_scripts.llm.registry import PROMPT_REGISTRY
 from vision_aid.evaluation.cli import main
@@ -68,8 +68,8 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def run_cli(workspace: Path, *extra: str) -> int:
-    """Exercise new-run execution, then represent historical editable review evidence."""
-    return historical_run_cli(workspace, [
+    """Exercise the public CLI with approved fixture decisions."""
+    return run_with_mapping(workspace, [
         "run", "--human-audit", str(workspace / "human-audit.xlsx"),
         "--html", str(workspace / "home.html"),
         "--source-url", "https://example.test/", "--max-cost-usd", "1", *extra,
@@ -230,7 +230,7 @@ def test_preview_preserves_evidence_without_provider_access(workspace, monkeypat
         rows = list(csv.DictReader(stream))
     assert [row["source_row"] for row in rows] == ["2", "3", "4", "5", "6", "7"]
     assert rows[0]["actual result"] == "Vague link\nfor everyone"
-    assert all(not row["classification"] for row in rows)
+    assert all(row["classification"] == "llm_eligible" for row in rows)
 
 
 @pytest.mark.parametrize("model", [MODELS[0], "gpt-6-luna"])
@@ -328,7 +328,6 @@ def test_presets_stream_every_category_and_report_saved_prices(
     assert findings and all(finding["model"] == model for finding in findings)
     assert all(finding["problem"] == "Synthetic failure" for finding in findings)
     assert all(finding["finding_id"].startswith("llm-") for finding in findings)
-    edit_review(run, *[{"classification": "llm_eligible"}] * 6)
     text = report(run)
     assert model in text and run.name in text
     assert f"Estimated run cost: ${Decimal(cost):.6f} USD" in text
@@ -394,7 +393,6 @@ def test_gpt_presets_use_openai_key_and_save_response_identity(
         assert "thinking" not in result["request"]
     findings = load(run, "normalized-llm-findings.json")
     assert findings and all(item["model"] == model for item in findings)
-    edit_review(run, *[{"classification": "llm_eligible"}] * 6)
     text = report(run)
     assert f"Estimated run cost: ${Decimal(cost):.6f} USD" in text
 
@@ -516,117 +514,7 @@ def test_stream_failure_retains_observed_tiered_cost_and_partial_usage(workspace
         "cache_creation_input_tokens": 100, "output_tokens": 10,
     }
     assert len(load(run, "normalized-llm-findings.json")) == 1
-    edit_review(run, *[{"classification": "llm_eligible"}] * 6)
     assert "Incomplete" in refused(run, capsys)
-
-
-def test_historical_reports_keep_saved_prices_and_stored_estimate(workspace, monkeypatch):
-    """Saved evidence reports with its original prices and stored estimate."""
-    response = {"success": True, "response": '{"issues": []}',
-                "usage": {"input_tokens": 10000, "output_tokens": 1000}}
-    fake_client(monkeypatch, *[response] * len(CATEGORIES))
-    assert run_cli(workspace, "--live", "--approve-live") == 0
-    run = only_run(workspace)
-    # Turn the saved artifacts into a historical fixture with its original rates.
-    schedule = {
-        "version": "historical-public-2025-10-01", "published_at": "2025-10-01",
-        "source": "https://platform.claude.com/docs/en/about-claude/pricing",
-        "models": {MODELS[0]: {
-            "input_per_million_usd": "20", "output_per_million_usd": "100",
-            "cached_input_per_million_usd": "2", "cache_creation_input_per_million_usd": "25",
-        }},
-    }
-    price_path = run / "artifacts/pricing.json"
-    price_path.write_text(json.dumps(schedule))
-    manifest = load(run, "run.json")
-    manifest.update(pricing_version=schedule["version"],
-                    pricing_sha256=hashlib.sha256(price_path.read_bytes()).hexdigest(),
-                    estimated_cost_usd="5.4")
-    (run / "run.json").write_text(json.dumps(manifest))
-    raw = load(run, "artifacts/raw-llm-responses.json")
-    for item in raw:
-        item.pop("estimated_cost_usd")
-        item.pop("billable_usage")
-    (run / "artifacts/raw-llm-responses.json").write_text(json.dumps(raw))
-    edit_review(run, *[{"classification": "llm_eligible"}] * 6)
-    originals = {path: path.read_bytes() for path in (price_path, run / "run.json",
-                 run / "artifacts/raw-llm-responses.json")}
-    text = report(run)
-    assert "Estimated run cost: $5.40" in text
-    document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
-    pricing = document.select_one('.model-pricing')
-    assert [cell.get_text() for cell in pricing.select('tbody tr td')] == ['$20', '$100']
-    assert all(path.read_bytes() == saved for path, saved in originals.items())
-
-
-def test_review_validation_and_report_metrics(workspace, monkeypatch, capsys):
-    """Known decisions yield hand-calculated rates, cross-catches, and exclusions."""
-    fake_client(
-        monkeypatch,
-        {"success": True, "response": "not JSON", "usage": {}},
-        {"success": True, "response": '{"issues": []}', "usage": {}},
-        # The API reads the first fenced block and ignores trailing prose.
-        {"success": True, "usage": {}, "response": (
-            '```json\n[{"text": "Click here", "is_clear": false, "reason": "Fenced with a note"}]'
-            '\n```\n\n**Note:** Context was limited.'
-        )},
-        {"success": True, "response": "[]", "usage": {}},
-        {"success": True, "response": "[]", "usage": {}},
-        {"success": True, "response": '{"issues": []}', "usage": {}},
-    )
-    assert run_cli(workspace, "--live", "--approve-live") == 0
-    run = only_run(workspace)
-    manifest = load(run, "run.json")
-    assert manifest["complete"] is True and manifest["format_failures"] == ["page_title"]
-    findings = load(run, "normalized-llm-findings.json")
-    assert findings[0]["problem"] == "Fenced with a note"
-    llm = [item["finding_id"] for item in findings]
-    assert len(llm) == 11
-    programmatic = load(run, "normalized-programmatic-findings.json")[0]["finding_id"]
-    assert "classification" in refused(run, capsys)
-    decisions = [
-        {"classification": "llm_eligible", "llm_finding_id": llm[0], "match_reason": "Full issue"},
-        {"classification": "programmatic", "programmatic_finding_id": programmatic,
-         "match_reason": "HTML check"},
-        {"classification": "programmatic", "llm_finding_id": llm[1], "match_reason": "Cross-catch"},
-        {"classification": "unavailable_evidence", "classification_reason": "Needs a browser",
-         "llm_finding_id": "", "match_reason": ""},
-        {"classification": "ambiguous", "classification_reason": "Needs judgment"},
-        {"classification": "llm_eligible", "review_notes": "No full finding"},
-    ]
-    edit_review(run, *decisions)
-    refused(run, capsys, reviewer=" ")
-    edit_review(run, {"match_reason": ""})
-    assert "needs a match reason" in refused(run, capsys)
-    edit_review(run, {"llm_finding_id": programmatic, "match_reason": "Full issue"})
-    assert "Unknown LLM finding ID" in refused(run, capsys)
-    edit_review(run, *decisions[:3], {"llm_finding_id": llm[2], "match_reason": "Claimed"})
-    assert "cannot claim coverage" in refused(run, capsys)
-    edit_review(run, *decisions)
-    text = report(run)
-    document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
-    chart = document.find("figure", attrs={"aria-labelledby": "detection-chart-title"})
-    assert chart is not None
-    assert [item.get_text(" ", strip=True) for item in chart.select(".chart-value")] == [
-        "LLM: 1 caught / 2 eligible; 50.0%",
-        "Programmatic: 1 caught / 2 eligible; 50.0%",
-        "Overall: 3 caught / 6 eligible; 50.0%",
-    ]
-    rows = document.select("#findings tbody > tr")
-    assert [cell.get_text(" ", strip=True) for cell in rows[2].find_all(["th", "td"], recursive=False)[:5]] == [
-        "Skipped heading", "1.3.1", "Programmatic checks", "Caught", "Not caught",
-    ]
-    assert "Full issue" in rows[0].details.get_text()
-    assert "No full finding" not in rows[5].details.get_text()
-    assert "Needs a browser" in rows[3].details.get_text()
-    assert "Needs judgment" in rows[4].details.get_text()
-    assert load(run, "run.json")["format_failures"] == ["page_title"]
-    assert llm[0] in text and llm[1] in text and programmatic in text
-    assert llm[2] not in text
-    edit_review(run, *[{"classification": "ambiguous", "llm_finding_id": "",
-                        "programmatic_finding_id": "", "match_reason": ""}] * 6)
-    text = report(run)
-    assert "Overall: 0 caught / 6 eligible; 0.0%" in text
 
 
 @pytest.mark.parametrize("failure,calls,cost,reason", [
@@ -651,7 +539,6 @@ def test_failure_or_exhaustion_stops_and_keeps_partial_evidence(
     assert manifest["estimated_cost_usd"] == cost
     assert len(load(run, "artifacts/raw-llm-responses.json")) == calls
     assert len(load(run, "normalized-llm-findings.json")) == 1
-    edit_review(run, *[{"classification": "llm_eligible"}] * 6)
     assert "Incomplete" in refused(run, capsys)
 
 
@@ -669,7 +556,6 @@ def test_report_rejects_unrelated_or_missing_evidence(
     fake_client(monkeypatch)
     assert run_cli(workspace, "--live", "--approve-live") == 0
     run = only_run(workspace)
-    edit_review(run, *[{"classification": "llm_eligible"}] * 6)
     if field is None:
         (run / name).unlink()
     else:
@@ -748,8 +634,8 @@ def test_llm_findings_follow_the_tools_rules(workspace, monkeypatch):
     media = findings[-1]
     assert media["raw_source"]["issues"] == ["No captions track"]
     edit_review(
-        run, *[{"classification": "llm_eligible"}] * 5,
-        {"classification": "llm_eligible", "llm_finding_id": media["finding_id"],
+        run, *[{}] * 5,
+        {"llm_finding_id": media["finding_id"],
          "match_reason": "No captions on the video"},
     )
     text = report(run)
@@ -763,7 +649,6 @@ def test_single_page_report_is_standalone_html(workspace, monkeypatch):
     assert run_cli(workspace, "--source-url", "https://example.test/contact/",
                    "--live", "--approve-live") == 0
     run = only_run(workspace)
-    edit_review(run, *[{"classification": "llm_eligible"}] * 6)
     legacy = run / "report.md"
     legacy.write_text("Superseded report")
     assert main(["report", "--run-dir", str(run), "--reviewer", REVIEWER]) == 0
@@ -789,16 +674,14 @@ def test_report_embeds_canonical_and_complete_matching_evidence(workspace, monke
     findings[0].update(problem=hostile, element="<a href='x'>", location="Footer", checklist="Synthetic checklist 42")
     (run / "normalized-llm-findings.json").write_text(json.dumps(findings))
     edit_review(run, {
-        "classification": "llm_eligible", "llm_finding_id": ";".join(item["finding_id"] for item in findings[:match_count]),
+        "llm_finding_id": ";".join(item["finding_id"] for item in findings[:match_count]),
         "match_reason": "Together they fully cover the link", "review_notes": hostile,
-        "actual result": "Editable evidence replacement", "Issue Title": "Edited title",
-    }, *[{"classification": "ambiguous"}] * 5)
+    }, *[{}] * 5)
     monkeypatch.setattr(llm_audit, "LLMRequestClient", lambda **_: pytest.fail("report made a paid request"))
     assert main(["report", "--run-dir", str(run), "--reviewer", hostile]) == 0
     document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
     evidence = document.select_one("#findings tbody tr details")
     text = evidence.get_text(" ", strip=True)
-    assert "Editable evidence replacement" not in text and "Edited title" not in text
     assert "Vague link\nfor everyone" in text and "Unclear link" in text
     assert hostile in text and not document.select("header script, #findings script, img, [onerror]")
     assert "Synthetic checklist 42" in text
@@ -814,7 +697,6 @@ def test_report_requires_complete_rendering_data(workspace, monkeypatch, capsys)
     fake_client(monkeypatch)
     assert run_cli(workspace, "--live", "--approve-live") == 0
     run = only_run(workspace)
-    edit_review(run, *[{"classification": "llm_eligible"}] * 6)
     manifest = load(run, "run.json")
     del manifest["configuration"]["model"]
     (run / "run.json").write_text(json.dumps(manifest))
@@ -823,27 +705,3 @@ def test_report_requires_complete_rendering_data(workspace, monkeypatch, capsys)
     assert "Cannot render complete report" in refused(run, capsys)
     assert legacy.read_text() == "Previous report"
     assert not list(run.glob(".report.html.*.tmp"))
-
-
-def test_report_with_no_human_findings_has_no_false_zero_rates(workspace, monkeypatch):
-    """An empty saved review explains absent denominators in words."""
-    fake_client(monkeypatch)
-    assert run_cli(workspace, "--live", "--approve-live") == 0
-    run = only_run(workspace)
-    audit = load(run, "artifacts/human-findings.json")
-    audit["human_findings"] = []
-    (run / "artifacts/human-findings.json").write_text(json.dumps(audit))
-    with (run / "review.csv").open() as stream:
-        header = next(csv.reader(stream))
-    with (run / "review.csv").open("w", newline="") as stream:
-        csv.writer(stream).writerow(header)
-    text = report(run)
-    assert "No Human findings were imported for this page" in text
-    document = BeautifulSoup((run / "report.html").read_text(), "html.parser")
-    assert [item.get_text(strip=True) for item in document.select(".chart-percentage")] == [
-        "Not defined: no imported Human findings" if index == 2 else "Not defined: no eligible Human findings"
-        for index in range(3)
-    ]
-    chart = document.find("figure", attrs={"aria-labelledby": "detection-chart-title"})
-    assert "0.0%" not in chart.get_text(" ", strip=True)
-    assert not document.select("#findings tbody tr")

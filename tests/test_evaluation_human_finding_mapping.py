@@ -112,7 +112,7 @@ def test_preparation_populates_approved_decisions_and_preserves_human_evidence(
                       "source_element", "actual result", "Issue Title"):
             assert current[field] == previous[field]
     assert load(run, "artifacts/human-findings.json") == load(seed, "artifacts/human-findings.json")
-    assert load(run, "artifacts/evaluation-baseline.json") == json.loads(path.read_text())
+    assert load(run, "artifacts/human-finding-mapping.json") == json.loads(path.read_text())
 
 
 def test_models_share_fixed_decisions_but_keep_independent_llm_review(
@@ -267,15 +267,16 @@ def test_reporting_rejects_modified_saved_approved_source(
     path, _ = approved
     fake_client(monkeypatch)
     run = human_finding_mapping_run(workspace, path, "--live", "--approve-live")
-    copied = run / "artifacts/evaluation-baseline.json"
+    copied = run / "artifacts/human-finding-mapping.json"
     mapping = json.loads(copied.read_text())
     mapping["decisions"][0]["classification_reason"] = "Rewritten history"
     copied.write_text(json.dumps(mapping))
     assert "checksum changed" in refused(run, capsys)
 
 
+@pytest.mark.parametrize("retain_local_source", [False, True])
 def test_bundled_human_finding_mapping_is_automatic_and_cannot_be_removed_to_unlock_reporting(
-    workspace, approved, monkeypatch, capsys,
+    workspace, approved, monkeypatch, capsys, retain_local_source,
 ):
     """Known audits automatically use approved decisions and require saved approval."""
     path, _ = approved
@@ -290,10 +291,12 @@ def test_bundled_human_finding_mapping_is_automatic_and_cannot_be_removed_to_unl
     (run,) = set((workspace / ".model-evaluation/runs").iterdir()) - before
     assert review_rows(run)[0]["classification"] == "programmatic"
     report(run)
-    (run / "artifacts/evaluation-baseline.json").unlink()
+    (run / "artifacts/human-finding-mapping.json").unlink()
     manifest = load(run, "run.json")
-    manifest.pop("evaluation_baseline_sha256")
-    manifest.pop("evaluation_baseline_approved_by")
+    manifest.pop("human_finding_mapping_sha256")
+    manifest.pop("human_finding_mapping_approved_by")
+    if not retain_local_source:
+        (bundled / f"{mapping['human_audit_sha256']}.json").unlink()
     (run / "run.json").write_text(json.dumps(manifest))
     assert "prepare a new run with --human-finding-mapping PATH" in refused(run, capsys)
 

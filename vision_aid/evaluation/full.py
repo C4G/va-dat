@@ -19,7 +19,6 @@ from vision_aid.evaluation.execution.llm_audit import (
     write_json,
 )
 from vision_aid.evaluation.human_finding_mapping import (
-    HUMAN_FINDING_MAPPING_ARTIFACT,
     load_human_finding_mapping_snapshot,
     save_human_finding_mapping_snapshot,
     validate_human_finding_mapping,
@@ -103,7 +102,7 @@ def prepare_full_evaluation(
     snapshots: dict[str, Path],
     request_config: LLMRequestConfig,
     limit: Decimal,
-    mapping: dict[str, Any] | None = None,
+    mapping: dict[str, Any],
 ) -> dict[str, Any]:
     """Prepare all listed pages, retaining membership and progress on failure."""
     first_audit = next(iter(audits.values()))
@@ -147,10 +146,9 @@ def prepare_full_evaluation(
         "source_urls": list(audits),
     })
     write_json(run / "full.json", manifest)
-    if mapping is not None:
-        save_full_human_finding_mapping(run, mapping)
-        manifest = json.loads((run / "full.json").read_text())
-        pages = manifest["pages"]
+    save_full_human_finding_mapping(run, mapping)
+    manifest = json.loads((run / "full.json").read_text())
+    pages = manifest["pages"]
     for page in pages:
         child = run / page["run_dir"]
         try:
@@ -301,14 +299,10 @@ def _validated_full_reviews(
     locals_ = {item["human_finding_id"] for item in findings if item["page_scope"] != "global"}
     if set(assignments) != locals_ or any(url not in urls for url in assignments.values()):
         raise ValueError("Full evaluation has invalid original page assignments")
-    mapping_path = run / HUMAN_FINDING_MAPPING_ARTIFACT
-    mapping_digest = manifest.get("evaluation_baseline_sha256")
-    if mapping_digest:
-        mapping = load_human_finding_mapping_snapshot(run, manifest, "Saved Full evaluation Human finding mapping")
-        if {item["human_finding_id"] for item in mapping["decisions"]} != set(identities):
-            raise ValueError("Full evaluation Human finding mapping differs from original Human findings")
-    elif mapping_path.exists():
-        raise ValueError("Saved Full evaluation Human finding mapping is missing its parent identity")
+    mapping = load_human_finding_mapping_snapshot(run, manifest, "Saved Full evaluation Human finding mapping")
+    mapping_digest = manifest["human_finding_mapping_sha256"]
+    if {item["human_finding_id"] for item in mapping["decisions"]} != set(identities):
+        raise ValueError("Full evaluation Human finding mapping differs from original Human findings")
     reviews = []
     child_ids: set[str] = set()
     tool_ids: set[str] = set()
@@ -335,7 +329,7 @@ def _validated_full_reviews(
             raise ValueError("Child Human finding evidence differs from the original page selection")
         review = validated_page_review(child)
         saved = review.manifest
-        if saved.get("evaluation_baseline_sha256") != mapping_digest:
+        if saved.get("human_finding_mapping_sha256") != mapping_digest:
             raise ValueError(f"Child Human finding mapping differs from the Full evaluation: {page['source_url']}")
         for field, expected_value in (
             ("run_id", page["run_id"]), ("source_url", page["source_url"]),

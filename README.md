@@ -651,11 +651,8 @@ uv run visionaid-evaluate run-all \
   --model gpt-6-luna --max-cost-usd 5
 ```
 
-The earlier name for Human finding mapping was "Evaluation baseline".
-`baseline-prepare`, `baseline-approve`, and `--baseline` remain supported as
-aliases. The legacy approval command still defaults to `baseline.json`.
-Existing local lookup paths, saved artifact filenames, and manifest keys retain
-their storage names for compatibility.
+Saved runs require the current Human finding mapping artifact and manifest fields.
+Prepare a new run when saved evidence uses an older format.
 
 Add `--live` only when ready for the normal live-run approval. Each fresh run
 copies its approved decisions and leaves only LLM matching rationale and notes
@@ -691,13 +688,13 @@ stop preparation. Each page's review contains its local findings and every
 Global finding, including pages with no local findings.
 
 The Human audit checksum selects an available local Human finding mapping
-automatically from `vision_aid/evaluation/baselines/<audit-sha256>.json`.
+automatically from `vision_aid/evaluation/human_finding_mappings/<audit-sha256>.json`.
 That directory is ignored by Git. Newly approved files remain in their review
 directory unless the operator explicitly chooses another output path.
 For another audit, add `--human-finding-mapping path/to/approved-decisions.json` to select
 approved decisions explicitly. Preparation selects the source once and copies
 the same complete mapping into the parent and every child as
-`artifacts/evaluation-baseline.json`, with checksums in their manifests.
+`artifacts/human-finding-mapping.json`, with checksums in their manifests.
 Each page receives the approved classifications and Programmatic explanations;
 expected matches resolve to that child's actual finding IDs. Missing or
 non-unique expected checker evidence stops preparation with the affected Human
@@ -939,7 +936,7 @@ compatibility fallback or automatic migration.
 | `normalized-programmatic-findings.json`    | Checker results converted to findings with `finding_id` values for `review.csv`.                                                                                                                                      |
 | `run.json`                                 | Configuration, snapshot checksum, prompt list, completion status, format failures, token usage, and estimated cost. `complete: true` does not imply that every response parsed successfully; check `format_failures`. |
 | `report.html`                              | Self-contained Evaluation report generated after successful reporting; a Full evaluation parent embeds all page matching evidence.                                                                                                                                                                  |
-| `artifacts/evaluation-baseline.json`       | Approved Human finding mapping copied into runs, with an integrity checksum recorded in `run.json`; later shared edits do not rewrite historical interpretation. |
+| `artifacts/human-finding-mapping.json`       | Approved Human finding mapping copied into runs, with an integrity checksum recorded in `run.json`; later shared edits do not rewrite historical interpretation. |
 | `artifacts/human-findings.json`            | Canonical imported local and Global Human findings used to validate and score the review.                                                                                                                              |
 | `artifacts/pricing.json`                   | The versioned public model rates and capture date used to estimate this run's cost from reported usage. Older runs retain their original price schedule.                                                              |
 | `artifacts/raw-llm-responses.json`         | Live model replies, request outcomes, and reported token usage, including responses that could not be parsed into findings.                                                                                           |
@@ -997,7 +994,7 @@ still apply. Joint matches and cross-catches are supported; not-testable rows
 cannot claim a catch. The report distinguishes approved Programmatic explanations
 and mapping approval attribution from the per-run LLM review.
 
-The run saves its approved source in `artifacts/evaluation-baseline.json` and
+The run saves its approved source in `artifacts/human-finding-mapping.json` and
 pins its checksum in `run.json`. Reporting uses that saved copy, so a later
 mapping update does not change historical results. To change approved
 responsibilities or expectations, prepare a new CSV review, approve it into a new

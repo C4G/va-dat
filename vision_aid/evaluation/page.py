@@ -48,7 +48,7 @@ def prepare_page(
     human_audit: HumanAudit,
     request_config: LLMRequestConfig,
     limit: Decimal,
-    mapping: dict[str, Any] | None = None,
+    mapping: dict[str, Any],
 ) -> dict[str, Any]:
     """Save a page's inputs, checks, prompts and blank review without paid requests.
 
@@ -113,9 +113,8 @@ def prepare_page(
         "skipped_prompts": production["prompts_skipped"],
     }
     write_json(run / "run.json", manifest)
-    if mapping is not None:
-        apply_human_finding_mapping(run, mapping)
-        manifest = json.loads((run / "run.json").read_text())
+    apply_human_finding_mapping(run, mapping)
+    manifest = json.loads((run / "run.json").read_text())
     return manifest
 
 

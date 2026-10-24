@@ -132,7 +132,7 @@ def page_data(review: PageReview, reviewer: str) -> dict[str, Any]:
         rows.append(
             {
                 "human": human,
-                "human_finding_mapping_approved_by": manifest.get("evaluation_baseline_approved_by"),
+                "human_finding_mapping_approved_by": manifest["human_finding_mapping_approved_by"],
                 "decision": decision,
                 "source_url": manifest["source_url"],
                 "run_id": manifest["run_id"],

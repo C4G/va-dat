@@ -19,11 +19,11 @@ def rows(path):
         return list(csv.DictReader(stream))
 
 
-def prepare(workspace, *, legacy=False):
+def prepare(workspace):
     """Prepare a Human finding mapping review independently of model selection and execution."""
     directory = workspace / "human-finding-mapping-review"
     assert main([
-        "baseline-prepare" if legacy else "human-finding-mapping-prepare",
+        "human-finding-mapping-prepare",
         "--human-audit", str(workspace / "human-audit.xlsx"),
         "--snapshots", str(workspace / "snapshots/snapshots.json"),
         "--output-dir", str(directory),
@@ -81,10 +81,10 @@ def fill_review(directory):
     save_rows(directory / "programmatic-review.csv", list(reversed(matches)))
 
 
-def approve(directory, *, legacy=False):
+def approve(directory):
     """Approve reviewed CSV choices using only the supported CLI."""
     return main([
-        "baseline-approve" if legacy else "human-finding-mapping-approve",
+        "human-finding-mapping-approve",
         "--review-dir", str(directory), "--reviewer", "Human CSV reviewer",
     ])
 
@@ -122,15 +122,14 @@ def test_human_finding_mapping_preparation_lists_originals_once_and_readable_pag
     assert all((directory / page["snapshot"]).is_file() for page in evidence["pages"])
 
 
-@pytest.mark.parametrize("legacy", [False, True])
 def test_csv_approval_builds_reusable_expectations_consumed_by_new_full_run(
-    full_workspace, monkeypatch, legacy
+    full_workspace, monkeypatch
 ):
     """A reviewer never authors JSON or selectors; the approved result drives run scoring."""
-    directory = prepare(full_workspace, legacy=legacy)
+    directory = prepare(full_workspace)
     fill_review(directory)
-    assert approve(directory, legacy=legacy) == 0
-    mapping = directory / ("baseline.json" if legacy else "human-finding-mapping.json")
+    assert approve(directory) == 0
+    mapping = directory / "human-finding-mapping.json"
     approved = json.loads(mapping.read_text())
     assert approved["approved_by"] == "Human CSV reviewer"
     assert len(approved["decisions"]) == 5
@@ -148,7 +147,7 @@ def test_csv_approval_builds_reusable_expectations_consumed_by_new_full_run(
     assert (
         preview(
             full_workspace,
-            "--baseline" if legacy else "--human-finding-mapping",
+            "--human-finding-mapping",
             str(mapping),
             "--model",
             "gpt-6-luna",

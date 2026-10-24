@@ -18,7 +18,7 @@ from test_full_report import (
 )
 
 __all__ = ["full_workspace"]
-HUMAN_FINDING_MAPPING_ARTIFACT = "artifacts/evaluation-baseline.json"
+HUMAN_FINDING_MAPPING_ARTIFACT = "artifacts/human-finding-mapping.json"
 
 
 def load(path):
@@ -100,13 +100,13 @@ def test_full_preparation_saves_one_human_finding_mapping_and_resolves_each_page
     run, manifest = approved_run(full_workspace, path)
     mapping = load(path)
     assert load(run / HUMAN_FINDING_MAPPING_ARTIFACT) == mapping
-    assert manifest["evaluation_baseline_sha256"] == hashlib.sha256((run / HUMAN_FINDING_MAPPING_ARTIFACT).read_bytes()).hexdigest()
+    assert manifest["human_finding_mapping_sha256"] == hashlib.sha256((run / HUMAN_FINDING_MAPPING_ARTIFACT).read_bytes()).hexdigest()
     assert load(run / "human-findings.json") == load(seed / "human-findings.json")
     previous = load(seed / "full.json")
     ids = set()
     for (child, saved), old_page in zip(children(run, manifest), previous["pages"], strict=True):
         assert load(child / HUMAN_FINDING_MAPPING_ARTIFACT) == mapping
-        assert saved["evaluation_baseline_sha256"] == manifest["evaluation_baseline_sha256"]
+        assert saved["human_finding_mapping_sha256"] == manifest["human_finding_mapping_sha256"]
         assert load(child / "artifacts/human-findings.json") == load(seed / old_page["run_dir"] / "artifacts/human-findings.json")
         local_ids = {item["finding_id"] for item in load(child / "normalized-programmatic-findings.json")}
         rows = review_rows(child)
@@ -153,7 +153,7 @@ def test_combined_reporting_rejects_a_child_with_different_saved_approved_decisi
     mapping["decisions"][0]["classification_reason"] = "Different approved responsibility"
     path.write_text(json.dumps(mapping, ensure_ascii=False, indent=2) + "\n")
     saved = load(child / "run.json")
-    saved["evaluation_baseline_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    saved["human_finding_mapping_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
     save_json(child / "run.json", saved)
     assert "human finding mapping" in refused_report(run, capsys).lower()
 
@@ -289,5 +289,5 @@ def test_full_preparation_automatically_selects_the_audits_bundled_human_finding
     (run,) = set((full_workspace / ".model-evaluation/full-runs").iterdir()) - before
     manifest = load(run / "full.json")
     assert load(run / HUMAN_FINDING_MAPPING_ARTIFACT) == mapping
-    assert all(saved["evaluation_baseline_sha256"] == manifest["evaluation_baseline_sha256"]
+    assert all(saved["human_finding_mapping_sha256"] == manifest["human_finding_mapping_sha256"]
                for _, saved in children(run, manifest))

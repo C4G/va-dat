@@ -10,9 +10,8 @@ from typing import Any
 
 from vision_aid.evaluation.inputs.human_audit import ELIGIBILITY_VALUES
 
-# Preserve storage names for existing local mappings and saved runs.
-HUMAN_FINDING_MAPPING_DIRECTORY = Path(__file__).with_name("baselines")
-HUMAN_FINDING_MAPPING_ARTIFACT = "artifacts/evaluation-baseline.json"
+HUMAN_FINDING_MAPPING_DIRECTORY = Path(__file__).with_name("human_finding_mappings")
+HUMAN_FINDING_MAPPING_ARTIFACT = "artifacts/human-finding-mapping.json"
 LOCKED_COLUMNS = (
     "classification", "classification_reason", "programmatic_finding_id",
     "programmatic_match_reason",
@@ -160,8 +159,8 @@ def save_human_finding_mapping_snapshot(
     path = run / HUMAN_FINDING_MAPPING_ARTIFACT
     path.parent.mkdir(exist_ok=True)
     path.write_text(json.dumps(mapping, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    manifest["evaluation_baseline_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
-    manifest["evaluation_baseline_approved_by"] = mapping["approved_by"]
+    manifest["human_finding_mapping_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest["human_finding_mapping_approved_by"] = mapping["approved_by"]
 
 
 def load_human_finding_mapping_snapshot(
@@ -169,11 +168,13 @@ def load_human_finding_mapping_snapshot(
 ) -> dict[str, Any]:
     """Load a pinned approved source only after verifying its bytes and attribution."""
     path = run / HUMAN_FINDING_MAPPING_ARTIFACT
-    digest = manifest["evaluation_baseline_sha256"]
+    digest = manifest.get("human_finding_mapping_sha256")
+    if not digest:
+        raise ValueError(f"{label} is missing its run identity; prepare a new run with --human-finding-mapping PATH")
     if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
         raise ValueError(f"{label} is missing or its checksum changed")
     mapping = load_human_finding_mapping(path, manifest["human_audit_sha256"])
-    if manifest.get("evaluation_baseline_approved_by") != mapping["approved_by"]:
+    if manifest.get("human_finding_mapping_approved_by") != mapping["approved_by"]:
         raise ValueError(f"{label} approval attribution changed")
     return mapping
 
@@ -211,15 +212,7 @@ def apply_human_finding_mapping(run: Path, mapping: dict[str, Any]) -> None:
 def saved_human_finding_mapping_decisions(
     run: Path, manifest: dict[str, Any], human: dict[str, Any],
     programmatic: list[dict[str, Any]],
-) -> dict[str, dict[str, str]] | None:
-    """Load only the run's frozen decisions and verify their saved identity."""
-    path = run / HUMAN_FINDING_MAPPING_ARTIFACT
-    digest = manifest.get("evaluation_baseline_sha256")
-    if not digest:
-        if path.exists():
-            raise ValueError("Saved Human finding mapping is missing its run identity")
-        if (HUMAN_FINDING_MAPPING_DIRECTORY / f"{manifest['human_audit_sha256']}.json").is_file():
-            raise ValueError("This Human audit requires its approved Human finding mapping; prepare a new run with --human-finding-mapping PATH")
-        return None
+) -> dict[str, dict[str, str]]:
+    """Load the run's required frozen decisions and verify their saved identity."""
     mapping = load_human_finding_mapping_snapshot(run, manifest)
     return resolved_decisions(mapping, human, manifest["source_url"], programmatic)
