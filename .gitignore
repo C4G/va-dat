@@ -233,3 +233,6 @@ web/prisma/generated/
 
 # Local architecture decision records
 /docs/adr/
+
+# Local agent context
+CONTEXT.md
