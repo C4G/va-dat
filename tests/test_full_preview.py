@@ -19,8 +19,8 @@ HTML = '<html><head><title>Test</title></head><body><img src="x"></body></html>'
 @pytest.fixture
 def full_workspace(tmp_path, monkeypatch):
     """Save a synthetic Human audit and reusable captured snapshot mapping."""
-    book = openpyxl.Workbook()
-    sheet = book.active
+    human_audit_excel = openpyxl.Workbook()
+    sheet = human_audit_excel.active
     sheet.title = "Defect report"
     sheet.append(HEADERS)
     for number, page_name, title, steps in (
@@ -32,11 +32,11 @@ def full_workspace(tmp_path, monkeypatch):
     ):
         sheet.append([number, "Element", "Chrome", page_name, title, steps,
                       "Original\nevidence", "Expected", f"Read {URLS[2]}", "1.1.1"])
-    urls = book.create_sheet("URL list")
+    urls = human_audit_excel.create_sheet("URL list")
     urls.append(["Page name", "URL"])
     for url in URLS:
         urls.append(["Repeated name", url])
-    book.save(tmp_path / "human-audit.xlsx")
+    human_audit_excel.save(tmp_path / "human-audit.xlsx")
     saved = tmp_path / "snapshots"
     saved.mkdir()
     snapshots = []
@@ -136,9 +136,9 @@ def test_preview_maps_original_findings_and_keeps_page_evidence(full_workspace, 
 def change_audit(workspace, steps):
     """Replace a reproduction URL and refresh its captured identity."""
     path = workspace / "human-audit.xlsx"
-    book = openpyxl.load_workbook(path)
-    book["Defect report"].cell(2, 6, steps)
-    book.save(path)
+    human_audit_excel = openpyxl.load_workbook(path)
+    human_audit_excel["Defect report"].cell(2, 6, steps)
+    human_audit_excel.save(path)
     mapping_path = workspace / "snapshots/snapshots.json"
     mapping = json.loads(mapping_path.read_text())
     mapping["human_audit_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -209,9 +209,9 @@ def test_page_preparation_failure_retains_parent_and_earlier_evidence(full_works
 def test_audit_without_human_findings_cannot_start_evaluation(full_workspace, capsys):
     """Listed pages alone provide no Human findings to score."""
     path = full_workspace / "human-audit.xlsx"
-    book = openpyxl.load_workbook(path)
-    book["Defect report"].delete_rows(2, 5)
-    book.save(path)
+    human_audit_excel = openpyxl.load_workbook(path)
+    human_audit_excel["Defect report"].delete_rows(2, 5)
+    human_audit_excel.save(path)
     mapping_path = full_workspace / "snapshots/snapshots.json"
     mapping = json.loads(mapping_path.read_text())
     mapping["human_audit_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()

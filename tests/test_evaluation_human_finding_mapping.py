@@ -336,16 +336,16 @@ def test_single_page_uses_listed_page_local_findings_and_globals(
     import openpyxl
 
     careers = "https://example.test/careers/"
-    book = openpyxl.load_workbook(workspace / "human-audit.xlsx")
-    sheet = book["Defect report"]
+    human_audit_excel = openpyxl.load_workbook(workspace / "human-audit.xlsx")
+    sheet = human_audit_excel["Defect report"]
     sheet.cell(2, 6, f"Open {URL}")
     sheet.cell(8, 6, f"Open {careers}")
-    urls = book.create_sheet("URL list")
+    urls = human_audit_excel.create_sheet("URL list")
     urls.append(["URL"])
     urls.append([URL])
     urls.append([careers])
-    book.save(workspace / "human-audit.xlsx")
-    book.close()
+    human_audit_excel.save(workspace / "human-audit.xlsx")
+    human_audit_excel.close()
     assert run_cli(workspace, "--source-url", careers) == 0
     seed = only_run(workspace)
     human = load(seed, "artifacts/human-findings.json")

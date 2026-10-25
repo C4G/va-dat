@@ -41,9 +41,9 @@ def _source_findings(
 ) -> tuple[str, tuple[HumanFinding, ...]]:
     """Read original Human finding evidence with stable source identities."""
     checksum = hashlib.sha256(path.read_bytes()).hexdigest()
-    book = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    human_audit_excel = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
-        sheet = book[SHEET]
+        sheet = human_audit_excel[SHEET]
         rows = sheet.iter_rows(values_only=True)
         headers = tuple(str(value or "") for value in next(rows))
         if headers[: len(HEADERS)] != HEADERS:
@@ -76,7 +76,7 @@ def _source_findings(
                 )
             )
     finally:
-        book.close()
+        human_audit_excel.close()
     return checksum, tuple(human_findings)
 
 
@@ -132,9 +132,9 @@ def import_all_human_findings(path: Path) -> dict[str, HumanAudit]:
 
 def list_audit_urls(path: Path) -> tuple[str, ...]:
     """Read the Human audit's explicit target URLs in source order."""
-    book = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    human_audit_excel = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
-        sheet = book["URL list"]
+        sheet = human_audit_excel["URL list"]
         rows = sheet.iter_rows(values_only=True)
         headers = tuple(str(value or "").strip() for value in next(rows))
         if "URL" not in headers:
@@ -146,7 +146,7 @@ def list_audit_urls(path: Path) -> tuple[str, ...]:
             if len(row) > index and row[index] is not None and str(row[index]).strip()
         )
     finally:
-        book.close()
+        human_audit_excel.close()
     if not urls:
         raise ValueError("Human audit URL list has no target URLs")
     return urls
@@ -154,11 +154,11 @@ def list_audit_urls(path: Path) -> tuple[str, ...]:
 
 def import_page_human_findings(path: Path, source_url: str) -> HumanAudit:
     """Select a listed page's local findings and Globals, retaining older Home audits."""
-    book = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    human_audit_excel = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
-        has_urls = "URL list" in book.sheetnames
+        has_urls = "URL list" in human_audit_excel.sheetnames
     finally:
-        book.close()
+        human_audit_excel.close()
     if not has_urls:
         return import_homepage_human_findings(path, source_url)
     pages = import_all_human_findings(path)

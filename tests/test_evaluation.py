@@ -43,8 +43,8 @@ HTML = (
 @pytest.fixture
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Build a Human audit and Benchmark snapshot with credentials available."""
-    book = openpyxl.Workbook()
-    sheet = book.active
+    human_audit_excel = openpyxl.Workbook()
+    sheet = human_audit_excel.active
     sheet.title = "Defect report"
     sheet.append([
         "Sr. #", "element name", "Browser Combination", "Page name", "Issue Title",
@@ -60,7 +60,7 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     ):
         sheet.append([number, "Element", "Chrome", "Global", title, "", "", "", "", wcag])
     sheet.append([7, "Other", "Chrome", "Careers", "Outside scope"])
-    book.save(tmp_path / "human-audit.xlsx")
+    human_audit_excel.save(tmp_path / "human-audit.xlsx")
     (tmp_path / "home.html").write_text(HTML)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic")

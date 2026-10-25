@@ -76,6 +76,7 @@ HTML file (e.g. 1.9 MB)
 │
 ├── vision_aid/
 │   ├── evaluation/                             # Evaluation workflows, review, and shared schemas
+│   │   ├── README.md                           # Detailed evaluator guide and command reference
 │   │   ├── cli.py                              # CLI commands and operator interaction
 │   │   ├── full.py                             # Full evaluation across all audited pages
 │   │   ├── page.py                             # Shared page preparation and review validation
@@ -417,684 +418,140 @@ The pipeline skips prompts with empty payloads (e.g., no forms on the page = no 
 | nfulton99     | HTML ingestion, packaging                                              | `vision_aid/ingestion/pull_html.py`, `pyproject.toml`                                                     |
 | ColeANiblett  | Pipeline orchestration, prompt system, report generator                | `processing_scripts/llm/{registry,slicers,templates}.py`, `entry_points/`, `docs/`                        |
 
-## Model Evaluation
+## Model evaluation
 
-### Choose an evaluation model
+The evaluator measures how many findings from an existing human accessibility
+audit va-dat catches. It runs programmatic checks and one selected LLM against
+saved page HTML, then uses reviewed matches to produce an offline HTML report
+with LLM, Programmatic, and Overall detection rates.
 
-Each Evaluation run uses one fixed model through Anthropic Messages or OpenAI
-Chat Completions.
-Choose it with `--model`; omitting the flag selects Haiku 5.5. The evaluator
-accepts only these exact IDs:
+There are two reviews: approve the audit's classifications and programmatic
+matches once, then review LLM matches after each model run. The evaluator
+validates the saved evidence and calculates scores; the reviewer decides
+whether findings describe the same defect.
 
-| Model | `--model` value | Provider endpoint | Thinking / reasoning | Effort |
-| --- | --- | --- | --- | --- |
-| Haiku 5.5, default | `claude-haiku-5-5` | Anthropic Messages | Adaptive thinking | Medium |
-| Opus 5.5 | `claude-opus-5-5` | Anthropic Messages | Adaptive thinking | Medium |
-| Sonnet 5.5 | `claude-sonnet-5-5` | Anthropic Messages | Adaptive thinking | Medium |
-| GPT-6 Luna | `gpt-6-luna` | OpenAI Chat Completions | Reasoning | Medium |
-| GPT-6.1 Sol | `gpt-6.1-sol` | OpenAI Chat Completions | Reasoning | Medium |
+The [evaluator guide](vision_aid/evaluation/README.md) covers input formats,
+matching rules, scoring, model settings, saved files, and troubleshooting.
 
-For example, add `--model gpt-6-luna` to the run command below to evaluate
-GPT-6 Luna. Friendly names and aliases are rejected. Settings are fixed presets,
-and all five models use a 24,192-token output cap that includes reasoning/thinking
-and final text. Adaptive thinking does not reserve a fixed number of tokens for
-final text. Matching effort labels and output caps do not imply equal computation
-between providers. Temperature is omitted and summaries are disabled. The selected
-model, provider, endpoint, and settings are saved with each run.
+### Evaluator quick start
 
-Preview any preset without either API key by omitting `--live`. The preview shows
-its provider, endpoint, settings, public token rates, and cost guardrail. Live
-requests run sequentially without retries or fallback models.
+This section assumed all evaluator commands are run from the repository root. Complete [setup](#setup) first.
+All relative paths in the examples are relative to that directory.
 
-### Get a final report with the supplied Human audit
+The human audited Excel file, `Pristine Accessibility Defect Report.xlsx`,
+belongs directly in the repository root, alongside this README. The examples
+expect it at `./Pristine Accessibility Defect Report.xlsx`. The file and
+approved mappings are private local inputs, excluded from Git. If the file
+is missing, obtain it from your project team and place it there, or supply your
+own audit in the [supported format](vision_aid/evaluation/README.md#human-audited-excel-file-format)
+and update `AUDIT` below.
 
-From the repository root, use the supplied `Pristine Accessibility Defect Report.xlsx`
-(16 Home and Global defects). Keep the Excel file and its approved Human finding
-mapping available locally. A fresh checkout must create a Human finding mapping
-through the CSV workflow below or supply an existing file with
-`--human-finding-mapping PATH`.
+This walkthrough evaluates every URL listed in the audit. Keep the same saved
+HTML when comparing models. If you already have snapshots and an approved
+mapping for this audit, set their paths below and skip steps 1 and 2.
 
-1. **Save a Benchmark snapshot.** For the one-page workflow,
-   create the ignored directory and save the homepage HTML there:
+```bash
+AUDIT='./Pristine Accessibility Defect Report.xlsx'
+SNAPSHOTS='.model-evaluation/pristine-snapshots/snapshots.json'
+REVIEW_DIR='.model-evaluation/pristine-mapping-review'
+MAPPING="$REVIEW_DIR/human-finding-mapping.json"
+MODEL='claude-haiku-5-5'
+MAX_COST_USD=5.00  # Choose your total allowance for all pages.
+```
+
+1. **Capture the pages.** The output directory must be new. Capture downloads
+   server HTML without rendering JavaScript; inspect the saved pages before review.
+   It requires no model API key.
 
    ```bash
-   mkdir -p .model-evaluation
-   curl --fail --location --silent --show-error \
-     --output .model-evaluation/pristine-home.html https://pristineai.com/
-   test -s .model-evaluation/pristine-home.html
+   uv run visionaid-evaluate capture \
+     --human-audit "$AUDIT" \
+     --output-dir .model-evaluation/pristine-snapshots
    ```
 
-   Check that the file contains the intended homepage. `curl` saves server HTML;
-   if the browser builds the content, save rendered HTML there instead. Use
-   `https://pristineai.com/` as its source URL.
-
-2. **Set up live access and choose a limit.** Set `OPENAI_API_KEY` for GPT models
-   or `ANTHROPIC_API_KEY` for Claude models in your environment or the ignored
-   repository-root `.env`. Only the selected provider's key is required.
-   Set `MAX_COST_USD` to a positive amount you approve. The limit is checked before each paid request;
-   a request in progress can put the final cost above it.
-
-3. **Start a live Evaluation run.** Run this command in a terminal:
+2. **Prepare and approve the reusable mapping.** This makes no model requests.
+   The review directory must be new.
 
    ```bash
-   MAX_COST_USD=1.00  # Example; replace with the amount you approve.
-   uv run visionaid-evaluate run \
-     --human-audit "Pristine Accessibility Defect Report.xlsx" \
-     --html .model-evaluation/pristine-home.html \
-     --source-url https://pristineai.com/ \
-     --max-cost-usd "$MAX_COST_USD" \
-     --live
+   uv run visionaid-evaluate human-finding-mapping-prepare \
+     --human-audit "$AUDIT" --snapshots "$SNAPSHOTS" \
+     --output-dir "$REVIEW_DIR"
    ```
 
-   The CLI shows the selected model's provider, endpoint, thinking/reasoning settings,
-   effort, output token cap, prompt count, token rates, pricing version, snapshot
-   checksum, and limit.
-   The cost guardrail is checked between requests; a request underway can exceed it.
-   Estimated run cost sums each request's reported token usage at its applicable
-   public price tier. GPT models use the higher tier above 272,000 total input
-   tokens; Haiku 5.5 uses it above 100,000. Equality uses the lower tier, and
-   input counts from separate requests are never combined to select a tier.
-   OpenAI cache reads and writes replace ordinary input charges, and completion
-   usage already includes reasoning. Anthropic's cache categories are separate
-   input counts; its write rate is for five-minute caching.
-   Type `yes` to approve
-   paid requests; `--approve-live` skips the prompt. It copies the snapshot,
-   imports Human findings, runs checks, and saves responses and usage.
-
-4. **Check completion and review the findings.** Use the printed run directory:
+   Follow the generated README: fill `classifications.csv` and
+   `programmatic-review.csv`, using `programmatic-findings.csv` as the checker
+   catalog. The [mapping review guide](vision_aid/evaluation/README.md#approve-a-human-finding-mapping)
+   explains the classification values and complete-match requirements. Then approve:
 
    ```bash
-   RUN_DIR='.model-evaluation/runs/<RUN_ID>'
+   uv run visionaid-evaluate human-finding-mapping-approve \
+     --human-audit "$AUDIT" --snapshots "$SNAPSHOTS" \
+     --review-dir "$REVIEW_DIR" --reviewer "Your name and review method"
    ```
 
-   Confirm `"complete": true` in `$RUN_DIR/run.json`; otherwise, address the
-   failure or cost limit and start a new live run. Failed requests are not
-   retried. Use `$RUN_DIR/normalized-llm-findings.json` and
-   `$RUN_DIR/artifacts/normalized-programmatic-findings.json` for finding IDs and evidence.
-   `$RUN_DIR/artifacts/raw-llm-responses.json` has model responses, unchanged raw
-   provider usage, and each request's billable categories and estimated cost;
-   `$RUN_DIR/artifacts/raw-programmatic-findings.json` has the original checker output.
-
-5. **Review the LLM matches in one CSV.** Open `$RUN_DIR/review.csv` in
-   Excel or a CSV-aware text editor. An approved Human finding mapping populates
-   classifications, reasons, and Programmatic matches. Review the LLM finding IDs,
-   `match_reason`, and `review_notes` using the guide below. Keep the approved
-   classification and Programmatic fields fixed. Save the file as CSV.
-
-6. **Generate the final report.** Run `report` after completing the review,
-   naming whoever made the decisions:
+3. **Preview the evaluation.** Inspect the pages, prompt count, model settings,
+   and prices without an API key or paid requests. A preview cannot produce a
+   final report.
 
    ```bash
-   uv run visionaid-evaluate report --run-dir "$RUN_DIR" --reviewer "Your name or agent description"
+   uv run visionaid-evaluate run-all \
+     --human-audit "$AUDIT" --snapshots "$SNAPSHOTS" \
+     --human-finding-mapping "$MAPPING" \
+     --model "$MODEL" --max-cost-usd "$MAX_COST_USD"
    ```
 
-   Open `$RUN_DIR/report.html` in a browser. This self-contained offline report
-   identifies the evaluated page, model, run ID, and reviewer, and leads with the
-   LLM detection rate. Programmatic and Overall detection rates show exact counts
-   and explain their denominators. Cost, recorded tokens, and saved pricing
-   provenance are included.
-
-   The findings table follows the Human audit's original order. Each **View
-   evidence** control opens the original Human evidence, Eligibility classification,
-   explanation, matched finding text and IDs, check identity, rationale, and notes.
-   These native controls work with a keyboard and with JavaScript disabled. A copied
-   HTML file needs no neighboring run files or internet connection.
-
-   Not-testable findings remain in Overall while staying outside source-specific
-   denominators. Reporting rejects incomplete runs, missing classifications, and
-   invalid or reused finding IDs. Successful regeneration replaces that report's
-   superseded Markdown file. It never repeats paid model calls.
-
-### Capture the Human audit's listed pages
-
-Save one Benchmark snapshot for each URL in the Human audit's `URL list` sheet:
-
-```bash
-uv run visionaid-evaluate capture \
-  --human-audit "Pristine Accessibility Defect Report.xlsx" \
-  --output-dir .model-evaluation/pristine-snapshots
-```
-
-The output directory must be new. Capture downloads only the listed URLs in
-source order and follows redirects, retaining each originally listed URL as
-the page identity. It saves separate `page-001.html`, `page-002.html`, and later
-HTML files, then writes `snapshots.json` with the Human audit checksum and
-source URLs mapped to relative HTML filenames. Resolve those filenames beside
-`snapshots.json` when reusing the saved inputs.
-
-Capture needs no model API key or Live-run approval. It saves server HTML and
-does not render JavaScript or discover more pages. An HTTP or network error
-stops capture immediately. Earlier HTML files remain, but capture writes no
-snapshot mapping until every download succeeds. Start another capture in a
-new directory after addressing the failure.
-
-### Create a Human finding mapping through CSV review
-
-The Human finding mapping pins each Human finding's eligibility classification
-and its approved Programmatic matches or explained absence of matches. The four
-classifications are LLM eligible, Programmatic eligible, unavailable evidence,
-and ambiguous. The mapping is reused across model runs; LLM matches are
-reviewed separately for each run.
-
-New `run` and `run-all` invocations require an approved Human finding mapping,
-including previews. The supplied Human audit can reuse its approved local
-mapping when available. Mapping JSON files remain untracked and are not
-included in installed package data; fresh checkouts must prepare or supply one.
-For a new Human audit, capture its listed pages first, then prepare a review
-using saved HTML and existing Programmatic checks:
-
-```bash
-uv run visionaid-evaluate human-finding-mapping-prepare \
-  --human-audit "/path/to/new-audit.xlsx" \
-  --snapshots .model-evaluation/new-audit-snapshots/snapshots.json \
-  --output-dir .model-evaluation/new-audit-review
-```
-
-The output directory must be new. Preparation makes no model requests or
-network downloads and requires no model choice, credentials, or cost limit.
-It creates only three CSVs and a README. The original audit workbook and saved
-snapshots remain the source inputs for approval. Open the CSVs in Excel or
-another CSV editor:
-
-| File | What the reviewer does |
-| --- | --- |
-| `classifications.csv` | One row per original Human finding, including each Global once. Fill `classification` and `classification_reason`. |
-| `programmatic-review.csv` | One row per applicable Human finding and page. Fill `programmatic_finding_refs` and `programmatic_reason`. |
-| `programmatic-findings.csv` | Read-only catalog of checker findings with short references, page URLs, rule IDs, descriptions, element text, targets, and locations. |
-
-Use the four classification values described below. Programmatic responsibility
-is limited to existing rules that fully cover the original defect. In the page
-review, copy references such as `P001-F003` from the catalog. Separate joint
-matches with semicolons, for example `P001-F003;P001-F004`, and explain how they
-together cover the complete defect. Select only that page's findings, and use
-each reference for at most one Human finding. A shared WCAG criterion alone is
-not a match. For no complete match, leave references blank and explain the
-absence in `programmatic_reason`. Every page row needs a deliberate decision.
-Programmatic classifications require complete matches on every applicable page;
-LLM classifications may have Programmatic cross-catches; not-testable
-classifications cannot claim matches.
-
-Keep the original evidence, identities, headers, and all rows unchanged. Rows
-may be sorted. Save the two edited files as CSV. The generated `README.md`
-provides the review instructions beside the files. No reviewer needs to write
-JSON, calculate checksums, or construct DOM selectors.
-
-Approve the completed review:
-
-```bash
-uv run visionaid-evaluate human-finding-mapping-approve \
-  --human-audit "/path/to/new-audit.xlsx" \
-  --snapshots .model-evaluation/new-audit-snapshots/snapshots.json \
-  --review-dir .model-evaluation/new-audit-review \
-  --reviewer "Reviewer name and review method"
-```
-
-Approval rereads the same audit workbook and snapshot mapping, reruns the
-Programmatic checks, and verifies that the catalog and original CSV evidence
-still match those inputs. Keep the snapshots and checker code unchanged while
-reviewing; changed checker results require preparing a new review. Approval
-validates completeness, classification rules, page ownership, unique matches,
-and finding reuse before writing
-`human-finding-mapping.json` in the review directory. Use
-`--output /path/to/new-human-finding-mapping.json` to choose another new filename.
-Approval refuses to overwrite an existing mapping. Errors identify the file and
-affected Human finding or page; edit the
-CSV and retry. Approval records the reviewer's judgment; it does not automate
-the semantic decision that selected findings fully cover the defect.
-
-The CLI generates the audit checksum, stable Human identities, and reusable
-rule/evidence expectations from the original audit and saved snapshots.
-References such as
-`P001-F003` are only review aids and do not become run-specific IDs in the
-mapping. The mapping belongs to the Human audit alone; the prepared snapshots
-support its review without becoming mapping selection keys.
-
-Use the approved file when preparing each model run:
-
-```bash
-uv run visionaid-evaluate run-all \
-  --human-audit "/path/to/new-audit.xlsx" \
-  --snapshots .model-evaluation/new-audit-snapshots/snapshots.json \
-  --human-finding-mapping .model-evaluation/new-audit-review/human-finding-mapping.json \
-  --model gpt-6-luna --max-cost-usd 5
-```
-
-Saved runs require the current Human finding mapping artifact and manifest fields.
-Prepare a new run when saved evidence uses an older format.
-
-Add `--live` only when ready for the normal live-run approval. Each fresh run
-copies its approved decisions and leaves only LLM matching rationale and notes
-editable. Rule changes require deliberate new CSV review and approval. Editing
-an Excel audit changes its checksum and Human identities, so prepare a new
-review for the changed audit. The saved-run `correct-all` command has been
-removed; new runs start with approved decisions. Existing saved evidence and
-reports remain historical artifacts.
-
-### Preview a Full evaluation
-
-Prepare every listed page from the saved Benchmark snapshots:
-
-```bash
-uv run visionaid-evaluate run-all \
-  --human-audit "Pristine Accessibility Defect Report.xlsx" \
-  --snapshots .model-evaluation/pristine-snapshots/snapshots.json \
-  --model gpt-6-luna \
-  --max-cost-usd 5
-```
-
-The snapshot mapping must match the supplied Human audit's checksum and every
-listed URL in source order. HTML filenames resolve beside the mapping. The
-preview uses saved HTML without downloading again and needs no model API key.
-It displays all pages, the total prompt count, one fixed model preset, saved
-token prices, and one positive allowance shared across the Full evaluation.
-
-Local Human findings map to pages by the listed target URL in Steps to
-Reproduce, preserving original text and identities. Page names and URLs in
-recommendations do not assign findings. The known `/Contact/` alias maps to
-`/contact/`; other paths retain their case. Missing or ambiguous assignments
-stop preparation. Each page's review contains its local findings and every
-Global finding, including pages with no local findings.
-
-The Human audit checksum selects an available local Human finding mapping
-automatically from `vision_aid/evaluation/human_finding_mappings/<audit-sha256>.json`.
-That directory is ignored by Git. Newly approved files remain in their review
-directory unless the operator explicitly chooses another output path.
-For another audit, add `--human-finding-mapping path/to/approved-decisions.json` to select
-approved decisions explicitly. Preparation selects the source once and copies
-the same complete mapping into the parent and every child as
-`artifacts/human-finding-mapping.json`, with checksums in their manifests.
-Each page receives the approved classifications and Programmatic explanations;
-expected matches resolve to that child's actual finding IDs. Missing or
-non-unique expected checker evidence stops preparation with the affected Human
-finding and page. Audits without approved decisions must first complete the
-CSV mapping preparation and approval steps above.
-
-Each invocation creates a fresh `.model-evaluation/full-runs/<run-id>/`
-directory with a brief `README.md` for review and reporting.
-Its `full.json` records ordered membership and preparation status;
-`human-findings.json` retains unique originals and their page assignments.
-Each child under `pages/` keeps the existing Evaluation run files, including
-its copied snapshot, prompts, pricing, Programmatic findings and review CSV.
-Preview leaves execution incomplete and makes no paid requests. A preparation
-failure stops later pages and retains earlier and partial evidence with its
-stopping reason.
-
-### Execute a Full evaluation
-
-Add `--live` to the preview command to execute all prepared pages with the
-selected provider's API key:
-
-```bash
-uv run visionaid-evaluate run-all \
-  --human-audit "Pristine Accessibility Defect Report.xlsx" \
-  --snapshots .model-evaluation/pristine-snapshots/snapshots.json \
-  --model gpt-6-luna \
-  --max-cost-usd 5 \
-  --live
-```
-
-Every page is prepared before the CLI displays the full scope and asks for
-one Live-run approval. Type `yes` to approve all listed pages, or add
-`--approve-live` for explicit noninteractive approval. That option requires
-`--live`. Declined approval makes no model requests. GPT models require
-`OPENAI_API_KEY`; Claude models require `ANTHROPIC_API_KEY`.
-
-Pages execute in URL-list order, using the same model preset throughout.
-The allowance covers the entire Full evaluation. Before each page, the CLI
-subtracts prior reported estimated cost and passes the remainder to that
-page's executor, which checks the limit before each request. A request underway
-can exceed the limit. If it completes all remaining work, execution still
-completes; otherwise the CLI starts no further requests once the allowance
-is exhausted. Request failures also stop later work, without retries.
-
-The parent `full.json` saves page completion, stopping reason, estimated cost,
-and reported usage, including usage from failed requests and partial pages.
-Completed and partial child evidence remain available. A completed execution
-still needs human review before final scoring. Completed page runs can use
-the existing `report` command even if a later page fails.
-
-Start a fresh invocation after failure. Each invocation creates new parent
-and child directories and repeats every model request, including pages that
-completed in a previous attempt. It reuses captured HTML without downloading
-again; it does not resume or reuse previous paid outputs.
-
-### Review and report a Full evaluation
-
-After every page completes execution, edit each child's `review.csv` under
-`.model-evaluation/full-runs/<run-id>/pages/`. When a Human finding mapping is
-saved, review each page's LLM matches, LLM matching rationale, and notes using
-the one-page full Match requirements below. Keep the populated classifications,
-classification reasons, Programmatic finding IDs, and approved Programmatic
-explanations fixed. Each page includes all Global findings, whose LLM evidence
-is reviewed separately on every page. Approving the Human finding mapping establishes
-responsibilities independently of what a model happened to catch.
-
-Generate the individual page reports and the combined report:
-
-```bash
-uv run visionaid-evaluate report-all \
-  --run-dir .model-evaluation/full-runs/<run-id> \
-  --reviewer "Name and how the page decisions were reviewed"
-```
-
-`report-all` validates every listed execution, child evidence identity, and
-page review before writing final combined rates to the parent's `report.html`.
-It verifies that every child uses the exact approved source retained by the
-parent, rejects edits to fixed decisions, and resolves all expectations against
-actual page evidence again. Later edits to the original mapping file do not
-change saved runs. Reports retain mapping approval attribution alongside the
-LLM reviewer and distinguish approved Programmatic explanations from LLM
-matching rationale.
-Open that file in a browser. It is a self-contained offline document with every
-original Human finding once, the reviewer attribution, and embedded readable
-matching evidence. Global findings show a compact table of every page's decision,
-including misses and findings Not testable from the page file. Open the independent
-page evidence controls to compare the matches, check identities, rationale, and
-notes for several pages. The parent needs no child reports or neighboring files.
-The command also generates each child's `report.html` and totals saved estimated
-cost, provider-reported usage, and Unreadable responses. The supplied
-audit has 86 originals across 17 pages; repeated Globals produce 198 review
-rows, while the combined Overall denominator stays 86.
-
-A Global earns combined credit when one page's selected findings fully cover
-it. Several findings from one source on that page may jointly cover it.
-Partial evidence on different pages never earns combined credit. LLM and
-Programmatic catches may come from different pages, but Overall counts that
-Global once. Repeated catches on several pages also count once.
-
-The approved Human finding mapping fixes each Global's classification across its pages.
-Each original enters its source denominator once, including when that source
-misses it. Not-testable originals remain in Overall. Combined rates use pooled
-finding counts, rather than averages of page percentages. A catch by the other
-source counts in Overall but earns no credit in the expected source's rate.
-
-Missing or incomplete execution, invalid reviews, missing expected evidence,
-inconsistent saved mappings, or conflicting testable Global classifications
-withhold final combined rates. Restore approved decisions or investigate missing
-checker evidence before running `report-all` again. Regenerating a report
-removes the previous parent HTML and legacy Markdown report before validation,
-so invalid revised reviews cannot leave stale combined rates. Available individual
-reports and evidence remain. Each HTML file is published only after rendering
-succeeds. Successful reporting removes superseded generated Markdown for the
-regenerated reports; unrelated historical runs remain untouched. To report one
-completed child after a later page failure, use:
-
-```bash
-uv run visionaid-evaluate report \
-  --run-dir .model-evaluation/full-runs/<run-id>/pages/<child-run-id> \
-  --reviewer "Name and how this page was reviewed"
-```
-
-### Reading the detection charts
-
-Both report scopes lead with an LLM detection bar, followed by Programmatic and
-Overall results. Bar length uses a common 0% to 100% scale. Every bar shows its
-caught count, eligible count and percentage, with the same values in a labelled
-semantic table. A rate with no eligible findings has an explanation and no bar.
-The Overall denominator includes all imported Human findings, including findings
-Not testable from the page file. Source-specific rates count only catches by that
-source among the findings expected from it; cross-catches still earn Overall
-credit.
-
-Full reports also compare page LLM results in Human audit page order. Page
-eligibility varies, and Global findings repeat in page results while counting
-once in the combined result. Do not add page counts or average page percentages
-to calculate the combined result. The comparison is not a controlled ranking of
-pages or model quality. Individual reports omit this comparison.
-
-Charts and their exact-data tables work offline without JavaScript. Labels and
-values convey the results without relying on color; tables have their own
-horizontal scroll regions on narrow screens.
-
-### How the evaluator reads LLM responses
-
-The evaluator reads each LLM response using va-dat's own parsing and reporting
-code. This keeps the evaluation consistent with how va-dat produces its CSV
-report.
-
-**Parsing.** The evaluator parses each response with va-dat's JSON parser,
-including its code-fence and repair steps. If va-dat cannot parse a response,
-or the check's rule cannot read its structure, it counts as an Unreadable
-response. Examples include one object where a list is expected, or text where
-`issues`, `vague_headings`, or `header_clarity_issues` should be a list.
-An Unreadable response gives no LLM findings. The evaluator lists the check
-under `format_failures` in `run.json` and continues with the next check.
-
-**What counts as a finding.** For the 12 checks covered by va-dat's CSV report,
-the evaluator applies va-dat's per-check rules. Each row those rules would
-produce becomes one LLM finding:
-
-- Page title and landmarks: one finding per entry in `issues`. Yes/no answers
-  such as `is_descriptive` are ignored.
-- Headings: one finding per entry in `issues`, plus one per entry in
-  `vague_headings`.
-- Link clarity, iframe titles, label quality, and decorative verification: one
-  finding per item whose verdict (`is_clear`, `is_descriptive`, or
-  `likely_decorative`) is `false`. A missing verdict counts as a pass.
-- Required field indicators, informative alt quality, actionable image alt,
-  SVGs, and icon fonts: one finding per item with a non-empty `issues` list,
-  with its issues joined. An item the model judged acceptable gives no
-  finding, even if a yes/no answer such as `has_accessible_name` is `false`.
-
-Each finding's problem, element, and location use the text va-dat would
-write in its CSV row. `raw_source` keeps the full item, or for page title,
-headings, and landmarks the whole response plus the specific issue.
-
-**What is skipped.** The evaluator skips va-dat's false-positive filter and LLM
-deduplication. The filter guesses from the page HTML and can remove a finding
-other than the one it matched. Deduplication costs extra LLM calls and is not
-repeatable. Evaluation counts therefore measure what the model reported and
-will not match the rows in va-dat's downloadable CSV report.
-
-**Checks shown on screen only.** Six checks have no rule in va-dat's CSV
-report. Their results appear only in the web app's on-screen panel:
-`table_semantics`, `placeholder_as_label`, `group_labels`, `form_instructions`,
-`complex_descriptions`, and `media_captions`. The evaluator still reads them,
-giving at most one finding per item, and only when the item's `issues` list is
-non-empty (for tables, `issues` or `header_clarity_issues`). Every
-`placeholder_as_label` item is a finding, because that check only receives
-placeholder-only fields. Yes/no answers never create a finding on their own.
-A table response may be one object or a list. These findings have
-`"screen_only": true`. The individual Evaluation report, `report.html`, labels them as shown
-on screen only and absent from va-dat's CSV report.
-
-### Evaluation run files
-
-The run root holds the review evidence and scored results. Supporting files
-are together under `$RUN_DIR/artifacts/`, including normalized Programmatic findings.
-Each run includes a brief `README.md` with review steps and its report command.
-Without `--live`, the command prepares
-the prompts but makes no model requests; neither LLM output file exists yet.
-The `report` command adds `report.html` at an individual run root. The Full
-evaluation `report-all` command adds `report.html` at the parent and each child
-run root. Reports can regenerate from saved reviewed evidence without model calls;
-both commands require explicit reviewer attribution.
-
-Reports embed all evidence, styling and controls for offline use. Search includes
-collapsed Human and matched tool evidence, recorded explanations, rationale and
-notes. Each matching excerpt has a Show match control that opens its evidence
-panel. Full reports can filter by page; selected-page outcomes appear beside the
-combined outcomes without changing the complete-run detection results.
-
-The LLM and Programmatic missed filters include only findings eligible for that
-source. Caught filters include cross-catches by that source. Clear filters restores
-all original findings. Expand all visible evidence and Collapse all visible
-evidence affect the filtered rows and their visible page panels. With JavaScript
-disabled, all findings and native evidence disclosures remain available.
-
-Use **Print report** in either report to print the report header, cost and
-detection results through the last bar chart. The findings table, detailed
-evidence and scoring explanations after the charts are omitted. Printing works
-offline and preserves filters and opened disclosures without changing scores
-or saved reviews.
-
-The browser's Print command uses the same summary layout, including when
-JavaScript is disabled. Printed output and browser PDF
-export are not verified accessible PDFs; accessible PDF production is outside
-this feature's scope.
-
-New runs and reporting use only this layout. Existing run directories remain
-untouched and require manual reorganization before the updated `report` command
-can read them. Move their supporting files into `artifacts/`, including the
-`prompts/` and `payloads/` directories, preserving filenames. There is no
-compatibility fallback or automatic migration.
-
-| File                                       | Role                                                                                                                                                                                                                  |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `README.md`                               | Brief instructions for reviewing the run and generating its report. |
-| `review.csv`                               | Original Human audit evidence, source sheet and row, stable IDs, and the decision columns the reviewer edits.                                                                                                         |
-| `snapshot.html`                            | The full Benchmark snapshot used to judge testability and coverage.                                                                                                                                                   |
-| `normalized-llm-findings.json`             | LLM findings with `finding_id` values for `review.csv`, read as described above. An Unreadable response can appear in `artifacts/raw-llm-responses.json` without producing a finding here.                            |
-| `artifacts/normalized-programmatic-findings.json`    | Checker results converted to findings with `finding_id` values for `review.csv`.                                                                                                                                      |
-| `run.json`                                 | Configuration, snapshot checksum, prompt list, completion status, format failures, token usage, and estimated cost. `complete: true` does not imply that every response parsed successfully; check `format_failures`. |
-| `report.html`                              | Self-contained Evaluation report generated after successful reporting; a Full evaluation parent embeds all page matching evidence.                                                                                                                                                                  |
-| `artifacts/human-finding-mapping.json`       | Approved Human finding mapping copied into runs, with an integrity checksum recorded in `run.json`; later shared edits do not rewrite historical interpretation. |
-| `artifacts/human-findings.json`            | Canonical imported local and Global Human findings used to validate and score the review.                                                                                                                              |
-| `artifacts/pricing.json`                   | The versioned public model rates and capture date used to estimate this run's cost from reported usage. Older runs retain their original price schedule.                                                              |
-| `artifacts/raw-llm-responses.json`         | Live model replies, request outcomes, and reported token usage, including responses that could not be parsed into findings.                                                                                           |
-| `artifacts/raw-programmatic-findings.json` | Original output from the Programmatic checks.                                                                                                                                                                         |
-| `artifacts/prompts/*.json`                 | The exact `prompt_text` and filtered `payload_slice` prepared for each model request. These files do not hold model replies in an Evaluation run.                                                                     |
-| `artifacts/payloads/cl01_payload.json`     | Extracted headings, links, landmarks, tables, and other semantic page structure.                                                                                                                                      |
-| `artifacts/payloads/cl02_payload.json`     | Extracted forms, fields, and labels.                                                                                                                                                                                  |
-| `artifacts/payloads/cl03_payload.json`     | Extracted images, SVGs, icons, and media.                                                                                                                                                                             |
-
-The payload files show extracted page data before filtering. The prompt files
-show what the model actually received after filtering and slicing. To review a
-Human finding, compare its original evidence in `review.csv` with the two
-normalized findings files and inspect `snapshot.html` for the full Benchmark
-evidence. Check
-`artifacts/raw-llm-responses.json` when an LLM finding is missing or malformed, and
-check the file under `artifacts/prompts/` to see whether the model received the
-relevant evidence.
-Record decisions in `review.csv`; the `report` command reads that CSV and the
-run evidence to write `report.html`. The pipeline briefly writes
-`artifacts/manifest.json`, but the Evaluation command removes it and keeps the
-relevant metadata in
-`run.json`.
-
-Earlier private experiments may also contain `preflight.json` with advance
-token counts and a spending plan, `format-diagnostics.json` with an offline
-inspection of malformed replies, and `review-validation.json` with checks on
-the completed review. The standard `visionaid-evaluate run` command does not
-create those files or perform those extra checks.
-
-### Human finding mapping for a single page
-
-When present locally, an approved Human finding mapping is automatically selected
-by the SHA-256 of the Excel file. Model and snapshot identities do not select
-the mapping. To select approved decisions for another audit explicitly, add
-`--human-finding-mapping path/to/approved-decisions.json` to `visionaid-evaluate run`.
-Audits without a local mapping must supply an approved file created through
-`human-finding-mapping-prepare` and `human-finding-mapping-approve`.
-For an audit with a `URL list`, `--source-url` selects that page's local Human
-findings and all Globals; an unlisted URL is rejected. Older audits without a
-URL list retain the Home and Global selection.
-
-Preparation fills `classification`, `classification_reason`,
-`programmatic_finding_id`, and `programmatic_match_reason`. These are approved
-fields: reporting rejects edits to them. Expected catches identify an existing
-rule and relevant element or page evidence, then resolve to the actual finding
-IDs in this run. Missing or non-unique evidence stops preparation or reporting
-with the Human finding, page, rule, and evidence to investigate. A Programmatic
-classification requires a complete expected catch; classification alone never
-awards coverage. An empty expectations list records an explained absence,
-including for LLM-eligible findings that have no Programmatic cross-catch.
-
-Reviewers edit `llm_finding_id`, `match_reason` (LLM reasoning), and
-`review_notes`. Practical semantic matching and complete-coverage requirements
-still apply. Joint matches and cross-catches are supported; not-testable rows
-cannot claim a catch. The report distinguishes approved Programmatic explanations
-and mapping approval attribution from the per-run LLM review.
-
-The run saves its approved source in `artifacts/human-finding-mapping.json` and
-pins its checksum in `run.json`. Reporting uses that saved copy, so a later
-mapping update does not change historical results. To change approved
-responsibilities or expectations, prepare a new CSV review, approve it into a new
-mapping file, and prepare new runs. Editing a run's CSV does not update shared
-decisions. Programmatic rules are never changed or classifications inferred
-automatically by this workflow.
-
-The generated JSON records the audit checksum, reviewer attribution, and one
-decision per original Human finding, with explicit Programmatic expectations or
-absences for every applicable page. The CLI derives stable rule/evidence
-selectors from the selected checker findings. Run preparation resolves those
-expectations against its own evidence; missing or non-unique evidence fails
-rather than manufacturing a catch. Changed-page-evidence policy and checker-rule
-changes remain outside this workflow.
-
-### Fill in `review.csv`
-
-The CSV has one row for each applicable Human finding. The supplied Home page
-has 16 Home or Global findings. Keep
-the header, all rows, and their `human_finding_id` values. The columns from
-`human_finding_id` through `comment` identify the Human finding and preserve its
-original evidence. Use them to understand the defect, but do not edit them.
-In particular, `source_sheet` and `source_row` point back to the Human audit,
-`page_scope` says Home or Global, and `source_element` copies the Human audit's
-`element name`. It is not an inferred location on the page.
-
-Keep the populated `classification` and `classification_reason` unchanged.
-During Human finding mapping CSV review, use these classifications:
-
-| `classification` value | Use it when                                                                                                                                           |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `llm_eligible`         | The Benchmark snapshot contains enough evidence to judge the defect, and the issue calls for the LLM's judgment.                                      |
-| `programmatic`         | A Programmatic check can establish the defect from the available evidence. Classification alone does not mean the checker found it.                   |
-| `unavailable_evidence` | The snapshot lacks evidence needed to verify the defect, such as behavior that requires interaction or a browser or assistive technology observation. |
-| `ambiguous`            | The Human finding is too unclear to decide fairly whether a finding covers it.                                                                        |
-
-During Human finding mapping review, base classification on the Human finding and available
-evidence, independently of model output. Explain the choice in
-`classification_reason`, including missing or unclear evidence. In each run,
-retain that approved explanation.
-
-Then complete the remaining decision columns for that row:
-
-| Column                    | What to enter                                                                                                                                                                                                                  |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `llm_finding_id`          | Copy `finding_id` values from `$RUN_DIR/normalized-llm-findings.json` only when the selected LLM findings **jointly cover the whole Human finding**. Separate multiple IDs with semicolons (`;`). Otherwise leave blank.       |
-| `programmatic_finding_id` | Keep the approved, automatically resolved value unchanged. |
-| `match_reason`            | Explain how the selected LLM findings fully cover the Human defect. Keep Programmatic explanations in their approved separate column.                                      |
-| `programmatic_match_reason` | Keep the approved explanation for the Programmatic match or deliberate absence unchanged. |
-| `review_notes`            | Optional context, such as a more precise location or a finding that covers only part of the defect. Notes do not award coverage.                                                                                               |
-
-You may use findings from both files for one row. Each finding ID must exist in
-the named file and can be assigned to only one Human finding. Leave the LLM ID
-cell blank when no LLM findings fully cover the row; that records a miss, even if
-you describe partial evidence in `review_notes`. For `unavailable_evidence` and
-`ambiguous` rows, leave both ID cells blank. The report command checks these
-rules and requires a `match_reason` whenever you enter an LLM ID.
-
-#### Using Codex or Claude Code for the review
-
-If you use Codex or Claude Code to fill out `review.csv` and generate the
-report, give it the following prompt to guide semantic matching and avoid
-incorrectly rejecting valid matches:
-
-```text
-Review LLM matches in the latest run, fill out its LLM decision columns in `review.csv`, and generate the report. Keep approved classification and Programmatic fields unchanged. Use practical semantic matching.
-Count a match when a finding identifies the same underlying accessibility problem in the same element or relevant section, even if its wording, certainty, examples, or recommended fix differ from the Human audit.
-Treat examples in a Human finding as illustrations of the problem unless they clearly describe separate defects. A different remediation recommendation does not invalidate detection of the problem.
-Conditional or tentative findings can count when they identify the reported defect and the Human audit supplies the context needed to support that interpretation. Use the saved HTML to confirm the location.
-Allow multiple findings together to cover a Human finding. Reject matches that merely share a WCAG criterion, concern a different element, or leave a distinct part of the reported problem undetected.
-Record qualifications in `review_notes` rather than automatically withholding credit. Apply this interpretation of full coverage consistently.
-```
-
-The run directory and Human audit are excluded from version control.
-This one-homepage result does not establish broad model equivalence.
-
-### Start a run without `--live`
-
-Save the Benchmark snapshot in step 1, then run this from the repository root:
-
-```bash
-uv run visionaid-evaluate run --html .model-evaluation/pristine-home.html \
-  --source-url https://pristineai.com/ --max-cost-usd 1.00
-```
-
-This needs no API key or approval. It creates an incomplete run with
-`artifacts/raw-programmatic-findings.json`, `artifacts/normalized-programmatic-findings.json`,
-LLM prompts, and `review.csv`. Use the normalized file's `finding_id` values
-for programmatic matches. It makes no model requests and cannot produce a
-final report. `--max-cost-usd` must be positive but is not spent without
-`--live`. Start a new live run at step 3 to finish the evaluation.
+4. **Run the model.** Put `ANTHROPIC_API_KEY` for Claude or `OPENAI_API_KEY` for
+   GPT in your environment or the repository-root `.env`. Only the selected
+   provider's key is required. Repeat the command with `--live`:
+
+   ```bash
+   uv run visionaid-evaluate run-all \
+     --human-audit "$AUDIT" --snapshots "$SNAPSHOTS" \
+     --human-finding-mapping "$MAPPING" \
+     --model "$MODEL" --max-cost-usd "$MAX_COST_USD" --live
+   ```
+
+   Type `yes` when prompted. The allowance is checked between requests; a request
+   underway can exceed it. This creates a fresh run instead of executing the
+   preview directory. Requests run sequentially without retries. Restarting after
+   failure repeats all requests, including previously completed pages.
+
+5. **Review the LLM matches.** Use the new directory printed by the live command:
+
+   ```bash
+   RUN_DIR='.model-evaluation/full-runs/<live-run-id>'
+   ```
+
+   Confirm `"complete": true` in `full.json`, and check each child's `run.json`
+   for `format_failures`. Follow each page's README under `$RUN_DIR/pages/`.
+   Compare `normalized-llm-findings.json`, `review.csv`, and `snapshot.html`.
+   Edit only `llm_finding_id`, `match_reason`, and `review_notes`. Leave an LLM ID
+   blank for a miss; record IDs only when they fully cover the human finding.
+   Keep approved classification and programmatic fields unchanged.
+   See the [matching rules](vision_aid/evaluation/README.md#review-llm-matches).
+
+6. **Generate the reports.** After saving every page's review CSV:
+
+   ```bash
+   uv run visionaid-evaluate report-all \
+     --run-dir "$RUN_DIR" --reviewer "Your name and review method"
+   ```
+
+   Open `$RUN_DIR/report.html` for combined results. Each page also gets a
+   `report.html`. Reports work offline and can regenerate without model calls.
+
+Choose `claude-haiku-5-5`, `claude-opus-5-5`, `claude-sonnet-5-5`,
+`gpt-6-luna`, or `gpt-6.1-sol` as `MODEL`. Haiku is the default when `--model`
+is omitted. Each run uses one model; compare models with separate runs using
+the same audit, snapshots, and mapping.
+
+To evaluate just one page, use `run` with `--html` and `--source-url`, then
+`report`. See the [single-page commands](vision_aid/evaluation/README.md#evaluate-one-page).
+For command options, use `uv run visionaid-evaluate --help` or add `--help`
+after a command name.
+
+The rates measure coverage of the supplied human audit. Findings that cannot
+be tested from saved HTML remain in Overall, so perfect coverage of testable
+findings can still produce an Overall rate below 100%. Read the
+[scoring guide](vision_aid/evaluation/README.md#how-scoring-works) before interpreting
+or comparing results.

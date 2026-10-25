@@ -124,9 +124,9 @@ def test_report_requires_complete_membership_and_owned_evidence(completed_review
 def test_empty_page_without_globals_still_has_a_report(full_workspace, monkeypatch):
     """A listed page with no Human findings can complete its empty review."""
     path = full_workspace / "human-audit.xlsx"
-    book = openpyxl.load_workbook(path)
-    book["Defect report"].delete_rows(5, 2)
-    book.save(path)
+    human_audit_excel = openpyxl.load_workbook(path)
+    human_audit_excel["Defect report"].delete_rows(5, 2)
+    human_audit_excel.save(path)
     mapping_path = full_workspace / "snapshots/snapshots.json"
     mapping = json.loads(mapping_path.read_text())
     mapping["human_audit_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()

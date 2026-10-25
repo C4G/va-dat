@@ -30,13 +30,13 @@ def load(path):
 def full_approved(full_workspace):
     """Eight originals: two Programmatic, four LLM, and two not testable."""
     path = full_workspace / "human-audit.xlsx"
-    book = openpyxl.load_workbook(path)
-    sheet = book["Defect report"]
+    human_audit_excel = openpyxl.load_workbook(path)
+    sheet = human_audit_excel["Defect report"]
     for number, title in enumerate(("Shared model defect", "Unclear defect", "Partial defect"), start=6):
         sheet.append([number, "Element", "Chrome", "Global", title, f"Open {URLS[0]}",
                       "Original\nevidence", "Expected", "", "1.1.1"])
-    book.save(path)
-    book.close()
+    human_audit_excel.save(path)
+    human_audit_excel.close()
     mapping_path = full_workspace / "snapshots/snapshots.json"
     mapping = load(mapping_path)
     mapping["human_audit_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()

@@ -13,13 +13,13 @@ from vision_aid.evaluation.cli import main
 
 def audit(path: Path, *urls: str | None) -> Path:
     """Create a synthetic URL list without private Human audit evidence."""
-    book = openpyxl.Workbook()
-    sheet = book.active
+    human_audit_excel = openpyxl.Workbook()
+    sheet = human_audit_excel.active
     sheet.title = "URL list"
     sheet.append(["#", "Web page name", "URL", "Status"])
     for number, url in enumerate(urls, start=1):
         sheet.append([number, "Repeated name", url, ""])
-    book.save(path)
+    human_audit_excel.save(path)
     return path
 
 
