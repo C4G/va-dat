@@ -435,7 +435,9 @@ matching rules, scoring, model settings, saved files, and troubleshooting.
 
 ### Evaluator quick start
 
-This section assumed all evaluator commands are run from the repository root. Complete [setup](#setup) first.
+Complete [setup](#setup) first.
+
+**Run all commands in this guide from the repository root**, the va-dat/ directory containing pyproject.toml and the root README.
 All relative paths in the examples are relative to that directory.
 
 The human audited Excel file, `Pristine Accessibility Defect Report.xlsx`,
