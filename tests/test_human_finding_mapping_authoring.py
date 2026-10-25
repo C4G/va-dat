@@ -85,6 +85,8 @@ def approve(directory):
     """Approve reviewed CSV choices using only the supported CLI."""
     return main([
         "human-finding-mapping-approve",
+        "--human-audit", str(directory.parent / "human-audit.xlsx"),
+        "--snapshots", str(directory.parent / "snapshots/snapshots.json"),
         "--review-dir", str(directory), "--reviewer", "Human CSV reviewer",
     ])
 
@@ -117,9 +119,9 @@ def test_human_finding_mapping_preparation_lists_originals_once_and_readable_pag
     assert any(row["element"] == "img" and row["target"] == "x" for row in findings)
     assert len({row["finding_ref"] for row in findings}) == len(findings)
     assert (directory / "README.md").is_file()
-    evidence = json.loads((directory / "evidence.json").read_text())
-    assert len(evidence["pages"]) == 3
-    assert all((directory / page["snapshot"]).is_file() for page in evidence["pages"])
+    assert {path.name for path in directory.iterdir()} == {
+        "classifications.csv", "programmatic-review.csv", "programmatic-findings.csv", "README.md",
+    }
 
 
 def test_csv_approval_builds_reusable_expectations_consumed_by_new_full_run(
@@ -222,8 +224,7 @@ def test_new_evaluations_require_approved_decisions_before_creating_a_run(
         ("duplicate_ref", "finding ID reuse"),
         ("programmatic_absence", "requires expected coverage"),
         ("not_testable_catch", "not testable"),
-        ("evidence", "evidence checksum changed"),
-        ("snapshot", "snapshot changed"),
+        ("snapshot", "programmatic-findings.csv"),
     ],
 )
 def test_csv_approval_rejects_incomplete_or_conflicting_reviews(
@@ -272,11 +273,8 @@ def test_csv_approval_rejects_incomplete_or_conflicting_reviews(
         next(row for row in classifications if row["Issue Title"] == "First local")[
             "classification"
         ] = "unavailable_evidence"
-    elif change == "evidence":
-        path = directory / "evidence.json"
-        path.write_text(path.read_text() + " ")
     elif change == "snapshot":
-        (directory / "snapshots/page-001.html").write_text("changed snapshot")
+        (full_workspace / "snapshots/page-001.html").write_text("changed snapshot")
     save_rows(directory / "classifications.csv", classifications)
     save_rows(directory / "programmatic-review.csv", matches)
     with pytest.raises(SystemExit) as failure:
@@ -286,19 +284,20 @@ def test_csv_approval_rejects_incomplete_or_conflicting_reviews(
     assert not (directory / "human-finding-mapping.json").exists()
 
 
-def test_catalog_edits_cannot_replace_checker_evidence_and_approval_never_overwrites(
+def test_catalog_edits_are_rejected_and_approval_never_overwrites(
     full_workspace, capsys
 ):
-    """Only selected review references and explanations affect export; saved evidence stays authoritative."""
+    """The catalog must match rerun checkers, and approval cannot replace an existing mapping."""
     directory = prepare(full_workspace)
     fill_review(directory)
     catalog = rows(directory / "programmatic-findings.csv")
-    for row in catalog:
-        row.update(rule="INVENTED_RULE", problem="Invented checker evidence")
-    save_rows(directory / "programmatic-findings.csv", catalog)
+    edited = [row | {"rule": "INVENTED_RULE", "problem": "Invented checker evidence"} for row in catalog]
+    save_rows(directory / "programmatic-findings.csv", edited)
     output = full_workspace / "approved/human-finding-mapping.json"
     arguments = [
         "human-finding-mapping-approve",
+        "--human-audit", str(full_workspace / "human-audit.xlsx"),
+        "--snapshots", str(full_workspace / "snapshots/snapshots.json"),
         "--review-dir",
         str(directory),
         "--reviewer",
@@ -306,6 +305,11 @@ def test_catalog_edits_cannot_replace_checker_evidence_and_approval_never_overwr
         "--output",
         str(output),
     ]
+    with pytest.raises(SystemExit):
+        main(arguments)
+    assert "original Programmatic finding evidence changed" in capsys.readouterr().err
+    assert not output.exists()
+    save_rows(directory / "programmatic-findings.csv", catalog)
     assert main(arguments) == 0
     original = output.read_bytes()
     assert b"INVENTED_RULE" not in original
@@ -326,7 +330,12 @@ def test_csv_review_requires_reviewer_and_keeps_previous_work_on_repeated_prepar
         prepare(full_workspace)
     assert (directory / "classifications.csv").read_bytes() == original
     with pytest.raises(SystemExit) as failure:
-        main(["human-finding-mapping-approve", "--review-dir", str(directory), "--reviewer", " "])
+        main([
+            "human-finding-mapping-approve",
+            "--human-audit", str(full_workspace / "human-audit.xlsx"),
+            "--snapshots", str(full_workspace / "snapshots/snapshots.json"),
+            "--review-dir", str(directory), "--reviewer", " ",
+        ])
     assert failure.value.code == 2
     assert "reviewer description is required" in capsys.readouterr().err
     assert not (directory / "human-finding-mapping.json").exists()

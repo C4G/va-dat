@@ -223,7 +223,11 @@ def test_preview_preserves_evidence_without_provider_access(workspace, monkeypat
         (run / "artifacts/pricing.json").read_bytes()
     ).hexdigest()
     raw = load(run, "artifacts/raw-programmatic-findings.json")
-    normalized = load(run, "normalized-programmatic-findings.json")
+    normalized = load(run, "artifacts/normalized-programmatic-findings.json")
+    assert not (run / "normalized-programmatic-findings.json").exists()
+    instructions = (run / "README.md").read_text(encoding="utf-8")
+    assert "review.csv" in instructions and "--live" in instructions
+    assert f"report --run-dir {run}" in instructions
     assert raw and [item["raw_source"] for item in normalized] == raw
     assert all(item["run_id"] == run.name for item in normalized)
     with (run / "review.csv").open(newline="") as stream:
@@ -545,7 +549,7 @@ def test_failure_or_exhaustion_stops_and_keeps_partial_evidence(
 @pytest.mark.parametrize("name,field,message", [
     ("run.json", "run_id", "does not belong"),
     ("normalized-llm-findings.json", "run_id", "do not belong"),
-    ("normalized-programmatic-findings.json", "page_url", "do not belong"),
+    ("artifacts/normalized-programmatic-findings.json", "page_url", "do not belong"),
     ("artifacts/human-findings.json", "human_audit_sha256", "identity differs"),
     ("artifacts/pricing.json", None, "pricing.json"),
 ])

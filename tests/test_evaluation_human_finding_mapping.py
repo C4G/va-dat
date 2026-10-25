@@ -98,7 +98,7 @@ def test_preparation_populates_approved_decisions_and_preserves_human_evidence(
     ]
     findings = {
         item["finding_id"]: item
-        for item in load(run, "normalized-programmatic-findings.json")
+        for item in load(run, "artifacts/normalized-programmatic-findings.json")
     }
     title_id, lang_id = rows[0]["programmatic_finding_id"].split(";")
     assert findings[title_id]["problem_family"] == "PAGE_TITLE_001"
@@ -137,7 +137,7 @@ def test_models_share_fixed_decisions_but_keep_independent_llm_review(
     fixed = ["classification", "classification_reason", "programmatic_match_reason"]
     first_rows, second_rows = review_rows(first), review_rows(second)
     by_run = [
-        {item["finding_id"]: item["problem_family"] for item in load(run, "normalized-programmatic-findings.json")}
+        {item["finding_id"]: item["problem_family"] for item in load(run, "artifacts/normalized-programmatic-findings.json")}
         for run in (first, second)
     ]
     for a, b in zip(first_rows, second_rows, strict=True):
@@ -232,14 +232,14 @@ def test_reporting_requires_unique_actual_checker_evidence(
     path, _ = approved
     fake_client(monkeypatch)
     run = human_finding_mapping_run(workspace, path, "--live", "--approve-live")
-    findings = load(run, "normalized-programmatic-findings.json")
+    findings = load(run, "artifacts/normalized-programmatic-findings.json")
     if change == "missing":
         findings = [item for item in findings if item["problem_family"] != "PAGE_TITLE_001"]
     else:
         duplicate = next(item.copy() for item in findings if item["problem_family"] == "PAGE_TITLE_001")
         duplicate["finding_id"] = "programmatic-second-valid-id"
         findings.append(duplicate)
-    (run / "normalized-programmatic-findings.json").write_text(json.dumps(findings))
+    (run / "artifacts/normalized-programmatic-findings.json").write_text(json.dumps(findings))
     message = refused(run, capsys)
     assert "PAGE_TITLE_001" in message
     assert "Human finding human-" in message

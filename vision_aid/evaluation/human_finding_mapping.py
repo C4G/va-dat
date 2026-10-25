@@ -183,7 +183,7 @@ def apply_human_finding_mapping(run: Path, mapping: dict[str, Any]) -> None:
     """Populate fixed decisions and save their source, preserving per-run LLM review."""
     manifest = json.loads((run / "run.json").read_text())
     human = json.loads((run / "artifacts/human-findings.json").read_text())
-    programmatic = json.loads((run / "normalized-programmatic-findings.json").read_text())
+    programmatic = json.loads((run / "artifacts/normalized-programmatic-findings.json").read_text())
     if human["human_audit_sha256"] != manifest["human_audit_sha256"]:
         raise ValueError("Human audit identity differs from the run")
     decisions = resolved_decisions(mapping, human, manifest["source_url"], programmatic)

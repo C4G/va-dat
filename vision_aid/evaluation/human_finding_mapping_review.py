@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 import json
-import shutil
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -67,19 +65,16 @@ def _human_columns(finding: dict[str, Any]) -> dict[str, Any]:
     } | finding["raw_evidence"]
 
 
-def prepare_human_finding_mapping_review(human_audit: Path, snapshots: Path, output: Path) -> None:
-    """Run existing checks on saved pages and prepare two editable decision CSVs."""
+def _review_sources(
+    human_audit: Path, snapshots: Path,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Rebuild original findings and the checker catalog from the supplied saved inputs."""
     audits, html_files = load_full_inputs(human_audit, snapshots)
-    output.mkdir(parents=True)
-    (output / "snapshots").mkdir()
     originals = {}
     pages = []
-    matches = []
     catalog = []
     for number, (url, audit) in enumerate(audits.items(), start=1):
-        snapshot = f"snapshots/page-{number:03d}.html"
-        saved = output / snapshot
-        shutil.copyfile(html_files[url], saved)
+        saved = html_files[url]
         raw = (
             audit_html_file(str(saved))
             + audit_forms(str(saved))
@@ -115,12 +110,9 @@ def prepare_human_finding_mapping_review(human_audit: Path, snapshots: Path, out
         humans = list(audit.to_dict()["human_findings"])
         for finding in humans:
             originals[finding["human_finding_id"]] = finding
-            matches.append({"source_url": url, **_human_columns(finding)})
         pages.append(
             {
                 "source_url": url,
-                "snapshot": snapshot,
-                "snapshot_sha256": hashlib.sha256(saved.read_bytes()).hexdigest(),
                 "human_finding_ids": [
                     finding["human_finding_id"] for finding in humans
                 ],
@@ -128,27 +120,36 @@ def prepare_human_finding_mapping_review(human_audit: Path, snapshots: Path, out
             }
         )
     humans = sorted(originals.values(), key=lambda finding: finding["source_row"])
-    _write_csv(
-        output / "classifications.csv",
-        CLASSIFICATION_COLUMNS,
-        [_human_columns(finding) for finding in humans],
-    )
-    _write_csv(output / "programmatic-review.csv", MATCH_COLUMNS, matches)
-    _write_csv(output / "programmatic-findings.csv", FINDING_COLUMNS, catalog)
     evidence = {
-        "schema_version": 1,
-        "human_audit_filename": human_audit.name,
         "human_audit_sha256": next(iter(audits.values())).human_audit_sha256,
         "human_findings": humans,
         "pages": pages,
     }
-    path = output / "evidence.json"
-    path.write_text(
-        json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    return evidence, catalog
+
+
+def _match_rows(evidence: dict[str, Any]) -> list[dict[str, Any]]:
+    """List every original Human finding on each applicable page."""
+    humans = {finding["human_finding_id"]: finding for finding in evidence["human_findings"]}
+    return [
+        {"source_url": page["source_url"], **_human_columns(humans[identity])}
+        for page in evidence["pages"]
+        for identity in page["human_finding_ids"]
+    ]
+
+
+def prepare_human_finding_mapping_review(human_audit: Path, snapshots: Path, output: Path) -> None:
+    """Prepare two editable CSVs and a checker catalog using the original saved inputs."""
+    if output.exists():
+        raise FileExistsError(f"Review directory already exists: {output}")
+    evidence, catalog = _review_sources(human_audit, snapshots)
+    output.mkdir(parents=True)
+    _write_csv(
+        output / "classifications.csv", CLASSIFICATION_COLUMNS,
+        [_human_columns(finding) for finding in evidence["human_findings"]],
     )
-    (output / "evidence.sha256").write_text(
-        hashlib.sha256(path.read_bytes()).hexdigest() + "\n", encoding="ascii"
-    )
+    _write_csv(output / "programmatic-review.csv", MATCH_COLUMNS, _match_rows(evidence))
+    _write_csv(output / "programmatic-findings.csv", FINDING_COLUMNS, catalog)
     (output / "README.md").write_text(
         "# Review the Human finding mapping\n\n"
         "1. Open classifications.csv in Excel or another CSV editor. For every original Human finding, "
@@ -165,10 +166,12 @@ def prepare_human_finding_mapping_review(human_audit: Path, snapshots: Path, out
         "classifications require complete matches on every applicable page. Not-testable classifications "
         "cannot claim matches. LLM classifications may have Programmatic cross-catches.\n\n"
         "3. Save both edited files as CSV. Keep original evidence, IDs, headers, and every row unchanged. "
-        "Row order may change. Inspect the copied snapshots when needed. The findings catalog is "
-        "read-only reference material; editing it does not change saved checker evidence.\n\n"
-        "4. Run visionaid-evaluate human-finding-mapping-approve --review-dir THIS_DIRECTORY "
-        "--reviewer 'Your name'. The CLI validates the decisions and writes human-finding-mapping.json. "
+        "Row order may change. Inspect the original saved snapshots when needed. The findings catalog is "
+        "read-only reference material; approval compares it with fresh checker results from those snapshots.\n\n"
+        "4. Run visionaid-evaluate human-finding-mapping-approve --human-audit ORIGINAL_AUDIT.xlsx "
+        "--snapshots ORIGINAL_SNAPSHOTS.json --review-dir THIS_DIRECTORY "
+        "--reviewer 'Your name'. Keep the original audit workbook and captured snapshots available. "
+        "The CLI reruns the checks, validates the decisions, and writes human-finding-mapping.json. "
         "Use that file with run or run-all --human-finding-mapping PATH. Approval records your decisions; it does "
         "not automatically judge whether the selected evidence semantically covers a defect.\n",
         encoding="utf-8",
@@ -180,6 +183,7 @@ def _read_review(
     columns: tuple[str, ...],
     expected: list[dict[str, Any]],
     keys: tuple[str, ...],
+    label: str = "Human finding",
 ) -> dict[tuple[str, ...], dict[str, str]]:
     """Accept reordered rows while rejecting missing rows and altered original evidence."""
     with path.open(encoding="utf-8-sig", newline="") as stream:
@@ -197,13 +201,13 @@ def _read_review(
         key = tuple(row[column] for column in keys)
         if key not in originals or key in result:
             raise ValueError(
-                f"{path.name} row {line}: unknown or repeated Human finding/page {key}"
+                f"{path.name} row {line}: unknown or repeated {label}/page {key}"
             )
         if any(
             row.get(column) != str(value) for column, value in originals[key].items()
         ):
             raise ValueError(
-                f"{path.name} row {line}: original Human finding evidence changed for {key}"
+                f"{path.name} row {line}: original {label} evidence changed for {key}"
             )
         if None in row or any(value is None for value in row.values()):
             raise ValueError(
@@ -214,20 +218,17 @@ def _read_review(
 
 
 def approve_human_finding_mapping_review(
-    directory: Path, reviewer: str, output: Path | None = None
+    directory: Path, human_audit: Path, snapshots: Path,
+    reviewer: str, output: Path | None = None,
 ) -> Path:
     """Validate human CSV decisions and generate portable approved evidence expectations."""
     if not reviewer.strip():
         raise ValueError("A Human finding mapping reviewer description is required")
-    evidence_path = directory / "evidence.json"
-    if (
-        hashlib.sha256(evidence_path.read_bytes()).hexdigest()
-        != (directory / "evidence.sha256").read_text().strip()
-    ):
-        raise ValueError(
-            "Prepared Human finding mapping evidence checksum changed; prepare a new review"
-        )
-    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    evidence, catalog = _review_sources(human_audit, snapshots)
+    _read_review(
+        directory / "programmatic-findings.csv", FINDING_COLUMNS, catalog,
+        ("finding_ref",), label="Programmatic finding",
+    )
     humans = evidence["human_findings"]
     by_id = {finding["human_finding_id"]: finding for finding in humans}
     classifications = _read_review(
@@ -236,15 +237,10 @@ def approve_human_finding_mapping_review(
         [_human_columns(finding) for finding in humans],
         ("human_finding_id",),
     )
-    expected_matches = [
-        {"source_url": page["source_url"], **_human_columns(by_id[identity])}
-        for page in evidence["pages"]
-        for identity in page["human_finding_ids"]
-    ]
     matches = _read_review(
         directory / "programmatic-review.csv",
         MATCH_COLUMNS,
-        expected_matches,
+        _match_rows(evidence),
         ("source_url", "human_finding_id"),
     )
     decisions = {}
@@ -264,15 +260,6 @@ def approve_human_finding_mapping_review(
             "programmatic_by_page": {},
         }
     for page in evidence["pages"]:
-        snapshot = (directory / page["snapshot"]).resolve()
-        if (
-            not snapshot.is_relative_to(directory.resolve())
-            or hashlib.sha256(snapshot.read_bytes()).hexdigest()
-            != page["snapshot_sha256"]
-        ):
-            raise ValueError(
-                f"Prepared snapshot changed for {page['source_url']}; prepare a new review"
-            )
         for identity in page["human_finding_ids"]:
             row = matches[(page["source_url"], identity)]
             prefix = f"programmatic-review.csv Human finding {identity} on {page['source_url']}"

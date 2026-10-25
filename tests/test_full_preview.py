@@ -79,6 +79,9 @@ def test_preview_maps_original_findings_and_keeps_page_evidence(full_workspace, 
     """URL assignment, Globals and separate saved evidence survive key-free preview."""
     assert preview(full_workspace, "--model", model) == 0
     run, manifest = only_full(full_workspace)
+    instructions = (run / "README.md").read_text(encoding="utf-8")
+    assert "full.json" in instructions and "--live" in instructions
+    assert f"report-all --run-dir {run}" in instructions
     assert manifest["configuration"]["model"] == model
     assert [page["source_url"] for page in manifest["pages"]] == URLS
     assert len({page["run_id"] for page in manifest["pages"]}) == 3
@@ -106,7 +109,11 @@ def test_preview_maps_original_findings_and_keeps_page_evidence(full_workspace, 
         globals_by_page.append({row["human_finding_id"] for row in rows if row["page_scope"] == "global"})
         assert all(row["actual result"] == "Original\nevidence" for row in rows)
         assert all(row["classification"] == "llm_eligible" for row in rows)
-        findings = json.loads((child / "normalized-programmatic-findings.json").read_text())
+        findings = json.loads((child / "artifacts/normalized-programmatic-findings.json").read_text())
+        assert not (child / "normalized-programmatic-findings.json").exists()
+        instructions = (child / "README.md").read_text(encoding="utf-8")
+        assert "review.csv" in instructions
+        assert f"report --run-dir {child}" in instructions
         assert findings and all(item["page_url"] == page["source_url"] for item in findings)
         assert not programmatic_ids.intersection(item["finding_id"] for item in findings)
         programmatic_ids.update(item["finding_id"] for item in findings)

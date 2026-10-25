@@ -108,7 +108,7 @@ def test_full_preparation_saves_one_human_finding_mapping_and_resolves_each_page
         assert load(child / HUMAN_FINDING_MAPPING_ARTIFACT) == mapping
         assert saved["human_finding_mapping_sha256"] == manifest["human_finding_mapping_sha256"]
         assert load(child / "artifacts/human-findings.json") == load(seed / old_page["run_dir"] / "artifacts/human-findings.json")
-        local_ids = {item["finding_id"] for item in load(child / "normalized-programmatic-findings.json")}
+        local_ids = {item["finding_id"] for item in load(child / "artifacts/normalized-programmatic-findings.json")}
         rows = review_rows(child)
         assert all(row["classification"] and row["classification_reason"] for row in rows)
         selected = {identity for row in rows for identity in row["programmatic_finding_id"].split(";") if identity}
@@ -190,7 +190,7 @@ def test_combined_and_child_reports_keep_complete_matches_and_source_denominator
         assert rates(page) == expected
         assert "Independent Full audit reviewer" in page.get_text()
         assert not page.select("script[src], link[rel=stylesheet], iframe")
-        programmatic = {item["finding_id"]: item for item in load(child / "normalized-programmatic-findings.json")}
+        programmatic = {item["finding_id"]: item for item in load(child / "artifacts/normalized-programmatic-findings.json")}
         for row in review_rows(child):
             for identity in row["programmatic_finding_id"].split(";"):
                 if identity:
@@ -219,7 +219,7 @@ def test_combined_report_rejects_changed_approved_decisions_or_missing_expected_
     child = run / manifest["pages"][0]["run_dir"]
     rows = review_rows(child)
     if change == "missing_evidence":
-        path = child / "normalized-programmatic-findings.json"
+        path = child / "artifacts/normalized-programmatic-findings.json"
         save_json(path, [item for item in load(path) if item["problem_family"] != "PAGE_TITLE_001"])
     elif change in {"missing_child_mapping", "missing_parent_mapping"}:
         target = child if change == "missing_child_mapping" else run
@@ -230,7 +230,7 @@ def test_combined_report_rejects_changed_approved_decisions_or_missing_expected_
     else:
         if change == "foreign_id":
             other = run / manifest["pages"][1]["run_dir"]
-            rows[0]["programmatic_finding_id"] = load(other / "normalized-programmatic-findings.json")[0]["finding_id"]
+            rows[0]["programmatic_finding_id"] = load(other / "artifacts/normalized-programmatic-findings.json")[0]["finding_id"]
         else:
             rows[0][change] = "llm_eligible" if change == "classification" else ""
         save_review(child, rows)
@@ -251,8 +251,8 @@ def test_different_models_keep_equal_combined_programmatic_counts_with_independe
     source["decisions"][0]["classification_reason"] = "Future manual update"
     save_json(path, source)
     for (a, _), (b, _) in zip(children(first, first_manifest), children(second, second_manifest), strict=True):
-        a_findings = load(a / "normalized-programmatic-findings.json")
-        b_findings = load(b / "normalized-programmatic-findings.json")
+        a_findings = load(a / "artifacts/normalized-programmatic-findings.json")
+        b_findings = load(b / "artifacts/normalized-programmatic-findings.json")
         assert {item["finding_id"] for item in a_findings}.isdisjoint(item["finding_id"] for item in b_findings)
         assert load(a / "normalized-llm-findings.json")
         assert load(b / "normalized-llm-findings.json") == []

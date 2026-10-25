@@ -58,6 +58,8 @@ def build_parser() -> argparse.ArgumentParser:
         "human-finding-mapping-approve",
         help="validate reviewed CSVs and export an approved Human finding mapping",
     )
+    mapping_approve.add_argument("--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT)
+    mapping_approve.add_argument("--snapshots", type=Path, required=True)
     mapping_approve.add_argument("--review-dir", type=Path, required=True)
     mapping_approve.add_argument("--reviewer", required=True)
     mapping_approve.add_argument(
@@ -345,7 +347,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Human finding mapping review CSVs and instructions: {args.output_dir.resolve()}")
             return 0
         if args.command == "human-finding-mapping-approve":
-            mapping = approve_human_finding_mapping_review(args.review_dir, args.reviewer, args.output)
+            mapping = approve_human_finding_mapping_review(
+                args.review_dir, args.human_audit, args.snapshots, args.reviewer, args.output,
+            )
             print(f"Approved Human finding mapping: {mapping.resolve()}")
             return 0
         if args.command == "capture":

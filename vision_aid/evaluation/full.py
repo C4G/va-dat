@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
 import uuid
 from decimal import Decimal
 from pathlib import Path
@@ -146,6 +147,23 @@ def prepare_full_evaluation(
         "source_urls": list(audits),
     })
     write_json(run / "full.json", manifest)
+    (run / "README.md").write_text(
+        "# Review this Full evaluation\n\n"
+        "Check `full.json` for page directories, completion, and any stopping reason. "
+        "Add `--live` to `run-all` to call the LLMs. Without `--live`, the command "
+        "runs in preview mode, generating artifacts without calling the LLMs.\n\n"
+        "1. After every page completes, open each directory under `pages/`. Follow its "
+        "README to review LLM matches and save `review.csv`. Review Global findings on "
+        "every page. Keep approved classifications and Programmatic fields unchanged.\n"
+        "2. Generate all page reports and the combined report from the repository root:\n\n"
+        "```bash\n"
+        f"uv run visionaid-evaluate report-all --run-dir {shlex.quote(str(run.resolve()))} "
+        '--reviewer "Your name and review method"\n'
+        "```\n\n"
+        "Open this directory's `report.html` for combined results. Each page also has "
+        "its own `report.html`. Incomplete runs cannot produce a combined report.\n",
+        encoding="utf-8",
+    )
     save_full_human_finding_mapping(run, mapping)
     manifest = json.loads((run / "full.json").read_text())
     pages = manifest["pages"]

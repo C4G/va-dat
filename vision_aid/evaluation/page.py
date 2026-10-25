@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
 import shutil
 from dataclasses import asdict, dataclass
 from decimal import Decimal
@@ -83,7 +84,7 @@ def prepare_page(
         page_url=source_url,
     )
     write_json(
-        run / "normalized-programmatic-findings.json",
+        artifacts / "normalized-programmatic-findings.json",
         [asdict(item) for item in findings],
     )
     create_review(
@@ -114,6 +115,25 @@ def prepare_page(
     }
     write_json(run / "run.json", manifest)
     apply_human_finding_mapping(run, mapping)
+    (run / "README.md").write_text(
+        "# Review this page run\n\n"
+        "Check `run.json` for completion and any stopping reason. "
+        "Add `--live` to `run` or `run-all` to call the LLMs. Without `--live`, the command "
+        "runs in preview mode, generating artifacts without calling the LLMs.\n\n"
+        "1. After execution completes, compare `normalized-llm-findings.json` with the Human "
+        "findings in `review.csv`. Use `snapshot.html` to check the page evidence.\n"
+        "2. Edit only `llm_finding_id`, `match_reason`, and `review_notes`. Separate joint "
+        "matches with semicolons. Select findings only when they fully cover the Human "
+        "finding; otherwise leave the LLM ID blank. Keep approved fields unchanged.\n"
+        "3. Save the CSV, then run from the repository root:\n\n"
+        "```bash\n"
+        f"uv run visionaid-evaluate report --run-dir {shlex.quote(str(run.resolve()))} "
+        '--reviewer "Your name and review method"\n'
+        "```\n\n"
+        "Open `report.html` in a browser. Supporting evidence, including "
+        "`normalized-programmatic-findings.json`, is in `artifacts/`.\n",
+        encoding="utf-8",
+    )
     manifest = json.loads((run / "run.json").read_text())
     return manifest
 
@@ -131,7 +151,7 @@ def validated_page_review(run: Path) -> PageReview:
     if human_audit["human_audit_sha256"] != manifest["human_audit_sha256"]:
         raise ValueError("Human audit identity differs from the run")
     llm = json.loads((run / "normalized-llm-findings.json").read_text())
-    programmatic_file = run / "normalized-programmatic-findings.json"
+    programmatic_file = artifacts / "normalized-programmatic-findings.json"
     programmatic = json.loads(programmatic_file.read_text())
     for kind, collection in (("llm", llm), ("programmatic", programmatic)):
         if any(

@@ -510,7 +510,7 @@ through the CSV workflow below or supply an existing file with
    Confirm `"complete": true` in `$RUN_DIR/run.json`; otherwise, address the
    failure or cost limit and start a new live run. Failed requests are not
    retried. Use `$RUN_DIR/normalized-llm-findings.json` and
-   `$RUN_DIR/normalized-programmatic-findings.json` for finding IDs and evidence.
+   `$RUN_DIR/artifacts/normalized-programmatic-findings.json` for finding IDs and evidence.
    `$RUN_DIR/artifacts/raw-llm-responses.json` has model responses, unchanged raw
    provider usage, and each request's billable categories and estimated cost;
    `$RUN_DIR/artifacts/raw-programmatic-findings.json` has the original checker output.
@@ -592,8 +592,9 @@ uv run visionaid-evaluate human-finding-mapping-prepare \
 
 The output directory must be new. Preparation makes no model requests or
 network downloads and requires no model choice, credentials, or cost limit.
-It copies the snapshots and retains the original Human evidence and checker
-results. Open the generated CSV files in Excel or another CSV editor:
+It creates only three CSVs and a README. The original audit workbook and saved
+snapshots remain the source inputs for approval. Open the CSVs in Excel or
+another CSV editor:
 
 | File | What the reviewer does |
 | --- | --- |
@@ -622,12 +623,18 @@ Approve the completed review:
 
 ```bash
 uv run visionaid-evaluate human-finding-mapping-approve \
+  --human-audit "/path/to/new-audit.xlsx" \
+  --snapshots .model-evaluation/new-audit-snapshots/snapshots.json \
   --review-dir .model-evaluation/new-audit-review \
   --reviewer "Reviewer name and review method"
 ```
 
-Approval validates completeness, unchanged source evidence, classification
-rules, page ownership, unique matches, and finding reuse before writing
+Approval rereads the same audit workbook and snapshot mapping, reruns the
+Programmatic checks, and verifies that the catalog and original CSV evidence
+still match those inputs. Keep the snapshots and checker code unchanged while
+reviewing; changed checker results require preparing a new review. Approval
+validates completeness, classification rules, page ownership, unique matches,
+and finding reuse before writing
 `human-finding-mapping.json` in the review directory. Use
 `--output /path/to/new-human-finding-mapping.json` to choose another new filename.
 Approval refuses to overwrite an existing mapping. Errors identify the file and
@@ -636,7 +643,8 @@ CSV and retry. Approval records the reviewer's judgment; it does not automate
 the semantic decision that selected findings fully cover the defect.
 
 The CLI generates the audit checksum, stable Human identities, and reusable
-rule/evidence expectations from the saved evidence. References such as
+rule/evidence expectations from the original audit and saved snapshots.
+References such as
 `P001-F003` are only review aids and do not become run-specific IDs in the
 mapping. The mapping belongs to the Human audit alone; the prepared snapshots
 support its review without becoming mapping selection keys.
@@ -702,7 +710,8 @@ finding and page. Audits without approved decisions must first complete the
 CSV mapping preparation and approval steps above.
 
 Each invocation creates a fresh `.model-evaluation/full-runs/<run-id>/`
-directory. Its `full.json` records ordered membership and preparation status;
+directory with a brief `README.md` for review and reporting.
+Its `full.json` records ordered membership and preparation status;
 `human-findings.json` retains unique originals and their page assignments.
 Each child under `pages/` keeps the existing Evaluation run files, including
 its copied snapshot, prompts, pricing, Programmatic findings and review CSV.
@@ -892,7 +901,9 @@ on screen only and absent from va-dat's CSV report.
 ### Evaluation run files
 
 The run root holds the review evidence and scored results. Supporting files
-are together under `$RUN_DIR/artifacts/`. Without `--live`, the command prepares
+are together under `$RUN_DIR/artifacts/`, including normalized Programmatic findings.
+Each run includes a brief `README.md` with review steps and its report command.
+Without `--live`, the command prepares
 the prompts but makes no model requests; neither LLM output file exists yet.
 The `report` command adds `report.html` at an individual run root. The Full
 evaluation `report-all` command adds `report.html` at the parent and each child
@@ -930,10 +941,11 @@ compatibility fallback or automatic migration.
 
 | File                                       | Role                                                                                                                                                                                                                  |
 | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `README.md`                               | Brief instructions for reviewing the run and generating its report. |
 | `review.csv`                               | Original Human audit evidence, source sheet and row, stable IDs, and the decision columns the reviewer edits.                                                                                                         |
 | `snapshot.html`                            | The full Benchmark snapshot used to judge testability and coverage.                                                                                                                                                   |
 | `normalized-llm-findings.json`             | LLM findings with `finding_id` values for `review.csv`, read as described above. An Unreadable response can appear in `artifacts/raw-llm-responses.json` without producing a finding here.                            |
-| `normalized-programmatic-findings.json`    | Checker results converted to findings with `finding_id` values for `review.csv`.                                                                                                                                      |
+| `artifacts/normalized-programmatic-findings.json`    | Checker results converted to findings with `finding_id` values for `review.csv`.                                                                                                                                      |
 | `run.json`                                 | Configuration, snapshot checksum, prompt list, completion status, format failures, token usage, and estimated cost. `complete: true` does not imply that every response parsed successfully; check `format_failures`. |
 | `report.html`                              | Self-contained Evaluation report generated after successful reporting; a Full evaluation parent embeds all page matching evidence.                                                                                                                                                                  |
 | `artifacts/human-finding-mapping.json`       | Approved Human finding mapping copied into runs, with an integrity checksum recorded in `run.json`; later shared edits do not rewrite historical interpretation. |
@@ -1081,7 +1093,7 @@ uv run visionaid-evaluate run --html .model-evaluation/pristine-home.html \
 ```
 
 This needs no API key or approval. It creates an incomplete run with
-`artifacts/raw-programmatic-findings.json`, `normalized-programmatic-findings.json`,
+`artifacts/raw-programmatic-findings.json`, `artifacts/normalized-programmatic-findings.json`,
 LLM prompts, and `review.csv`. Use the normalized file's `finding_id` values
 for programmatic matches. It makes no model requests and cannot produce a
 final report. `--max-cost-usd` must be positive but is not spent without

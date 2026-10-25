@@ -175,7 +175,7 @@ def test_every_page_review_uses_the_existing_validation(completed_review, capsys
         rows[0]["source_element"] = "Changed source element"
     elif problem == "wrong_source_id":
         rows[0]["llm_finding_id"] = json.loads(
-            (first / "normalized-programmatic-findings.json").read_text())[0]["finding_id"]
+            (first / "artifacts/normalized-programmatic-findings.json").read_text())[0]["finding_id"]
     elif problem == "foreign_id":
         other = run / manifest["pages"][1]["run_dir"]
         rows[0]["llm_finding_id"] = json.loads(
