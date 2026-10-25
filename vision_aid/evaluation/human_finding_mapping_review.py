@@ -170,7 +170,7 @@ def prepare_human_finding_mapping_review(human_audit: Path, snapshots: Path, out
         "read-only reference material; approval compares it with fresh checker results from those snapshots.\n\n"
         "4. Run visionaid-evaluate human-finding-mapping-approve --human-audit ORIGINAL_AUDIT.xlsx "
         "--snapshots ORIGINAL_SNAPSHOTS.json --review-dir THIS_DIRECTORY "
-        "--reviewer 'Your name'. Keep the original human audited Excel file "
+        "--reviewer 'Your name'. Keep the original human audit Excel file "
         "and captured snapshots available. "
         "The CLI reruns the checks, validates the decisions, and writes human-finding-mapping.json. "
         "Use that file with run or run-all --human-finding-mapping PATH. Approval records your decisions; it does "

@@ -54,7 +54,7 @@ jobs:
           "
 
       - name: Evaluator lint
-        run: uv run ruff check vision_aid/evaluation entry_points/model_evaluation.py tests
+        run: uv run ruff check vision_aid/evaluation tests
 
       - name: Network-free test suite
         run: uv run pytest -q

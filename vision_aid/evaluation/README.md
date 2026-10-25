@@ -24,18 +24,18 @@ guide lives in `vision_aid/evaluation/`.
 
 ## Inputs and command reference
 
-An evaluation needs a human audited Excel file, saved page HTML, and an approved human
+An evaluation needs a human audit Excel file, saved page HTML, and an approved human
 finding mapping. Live execution also needs the selected provider's API key and
 a positive spending allowance. Preview requires the approved mapping and a
 positive allowance, but needs no key and makes no model requests.
 
-Place the human audited Excel file, `Pristine Accessibility Defect Report.xlsx`,
+Place the human audit Excel file, `Pristine Accessibility Defect Report.xlsx`,
 directly in the repository root, alongside `pyproject.toml` and the root README.
 The commands below expect it at `./Pristine Accessibility Defect Report.xlsx`.
 
 The file and mapping are private local inputs, excluded from Git. Mappings
 are not installed as package data. A fresh checkout must supply an approved
-mapping or create one through CSV review. Obtain the project's human audited Excel file from
+mapping or create one through CSV review. Obtain the project's human audit Excel file from
 your project team or use a compatible audit of your own.
 
 | Command | Purpose | Model requests |
@@ -49,11 +49,10 @@ your project team or use a compatible audit of your own.
 | `report-all` | Validate a completed full evaluation and generate combined and page reports. | None. |
 
 Use `uv run visionaid-evaluate COMMAND --help` for a command's options.
-`entry_points/model_evaluation.py` is a compatibility entry point to the same CLI.
 
-### Human audited Excel file format
+### Human audit Excel file format
 
-The importer expects a human audited Excel file with a `Defect report` tab.
+The importer expects a human audit Excel file with a `Defect report` tab.
 Its first row must begin with these exact headers, in this order:
 
 ```text

@@ -46,8 +46,7 @@ HTML file (e.g. 1.9 MB)
 ├── entry_points/                                # Entry points
 │   ├── api_server.py                            # Serves the site and the /api/* audit endpoints
 │   ├── run_pipeline.py                          # Runs the full pipeline from the CLI
-│   ├── generate_report.py                       # Combines findings into unified CSV report
-│   └── model_evaluation.py                      # Compatibility entry point for the evaluator CLI
+│   └── generate_report.py                       # Combines findings into unified CSV report
 │
 ├── processing_scripts/
 │   ├── llm/                                     # Modular prompt system + templates
@@ -296,7 +295,7 @@ everything it does is free:
 
 - `uv.lock` is in sync with `pyproject.toml`, and `requirements.txt` matches the lock
 - entry points import
-- evaluator code, its entry point, and tests pass Ruff lint checks
+- evaluator code and tests pass Ruff lint checks
 - the tracked synthetic pytest suite (`uv run pytest -q`), with no private data or provider calls
 - a full pipeline dry run, asserting prompts generated, findings found, and zero tokens consumed
 - `index.html`'s inline JavaScript parses
@@ -310,7 +309,7 @@ run them with `uv run pytest -q .local-tests/evaluation`. CI never needs them.
 Run the evaluator lint checks locally with the dev dependencies installed by `uv sync`:
 
 ```bash
-uv run ruff check vision_aid/evaluation entry_points/model_evaluation.py tests
+uv run ruff check vision_aid/evaluation tests
 ```
 
 ## Running the Pipeline
@@ -440,12 +439,12 @@ Complete [setup](#setup) first.
 **Run all commands in this guide from the repository root**, the va-dat/ directory containing pyproject.toml and the root README.
 All relative paths in the examples are relative to that directory.
 
-The human audited Excel file, `Pristine Accessibility Defect Report.xlsx`,
+The human audit Excel file, `Pristine Accessibility Defect Report.xlsx`,
 belongs directly in the repository root, alongside this README. The examples
 expect it at `./Pristine Accessibility Defect Report.xlsx`. The file and
 approved mappings are private local inputs, excluded from Git. If the file
 is missing, obtain it from your project team and place it there, or supply your
-own audit in the [supported format](vision_aid/evaluation/README.md#human-audited-excel-file-format)
+own audit in the [supported format](vision_aid/evaluation/README.md#human-audit-excel-file-format)
 and update `AUDIT` below.
 
 This walkthrough evaluates every URL listed in the audit. Keep the same saved
