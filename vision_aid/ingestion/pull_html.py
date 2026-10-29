@@ -1,9 +1,8 @@
-from datetime import datetime
-
 import requests
+from datetime import datetime
+from typing import Optional
 
-
-def download_html(url:str, filename:str | None):
+def download_html(url:str, filename:Optional[str]):
     try:
         response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
         response.raise_for_status()

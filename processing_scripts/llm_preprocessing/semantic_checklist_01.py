@@ -1,6 +1,5 @@
-import json
 import re
-
+import json
 from bs4 import BeautifulSoup
 
 GENERIC_LINK_TERMS = {

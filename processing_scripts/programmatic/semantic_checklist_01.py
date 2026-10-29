@@ -1,10 +1,10 @@
 # Written using the assist of ChatGPT
 
+import sys
 import os
 import re
-import sys
-
 from bs4 import BeautifulSoup
+
 
 # ==========================================================
 # CONSTANTS
@@ -264,14 +264,15 @@ def audit_html_file(file_path):
 
     if body:
         for child in body.find_all(recursive=False):
-            if child not in landmark_elements and child.name not in ["script", "style"] and child.get_text(strip=True):
-                results.append(issue(
-                    "LAND_006",
-                    "Content outside landmark regions",
-                    child,
-                    "Content found directly under <body> that is not contained within a landmark region."
-                ))
-                break
+            if child not in landmark_elements and child.name not in ["script", "style"]:
+                if child.get_text(strip=True):
+                    results.append(issue(
+                        "LAND_006",
+                        "Content outside landmark regions",
+                        child,
+                        "Content found directly under <body> that is not contained within a landmark region."
+                    ))
+                    break
 
     # ==========================================================
     # HEADINGS
@@ -394,8 +395,9 @@ def audit_html_file(file_path):
             if el.name in ["a", "button", "input", "select", "textarea"]:
                 if el.name != "a" or el.get("href"):
                     focusable_elements.append(el)
-            elif el.get("tabindex") and el.get("tabindex").isdigit() and int(el.get("tabindex")) >= 0:
-                focusable_elements.append(el)
+            elif el.get("tabindex") and el.get("tabindex").isdigit():
+                if int(el.get("tabindex")) >= 0:
+                    focusable_elements.append(el)
 
         if focusable_elements:
             first_focusable = focusable_elements[0]

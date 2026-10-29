@@ -1,13 +1,12 @@
+import requests
+from datetime import datetime
+from typing import Optional, List, Set
+from urllib.parse import urljoin, urlparse
 import re
 import time
-from datetime import datetime
-from urllib.parse import urljoin, urlparse
 
-import requests
-
-
-def download_html(url: str, filename: str | None = None, depth: int = 1,
-                  visited: set[str] | None = None, base_domain: str | None = None) -> list[str]:
+def download_html(url: str, filename: Optional[str] = None, depth: int = 1, 
+                  visited: Optional[Set[str]] = None, base_domain: Optional[str] = None) -> List[str]:
     """
     Download HTML from a URL and recursively follow links to nested pages.
     
@@ -98,7 +97,7 @@ def download_html(url: str, filename: str | None = None, depth: int = 1,
         print(f"Error downloading {url}: {e}")
         return saved_files
 
-def extract_links(html_content: str, base_url: str) -> set[str]:
+def extract_links(html_content: str, base_url: str) -> Set[str]:
     """Extract all href links from HTML content."""
     links = set()
     
@@ -182,11 +181,11 @@ def fetch_pages_nested(url: str, max_depth: int = 1,
     """
     url = _normalize_url(url)
     base_domain = urlparse(url).netloc
-    visited: set[str] = set()
-    parts: list[str] = []
+    visited: Set[str] = set()
+    parts: List[str] = []
     tree: dict = {}  # parent_url -> [child_urls]
 
-    def _crawl(current_url: str, depth: int, parent_url: str | None = None) -> None:
+    def _crawl(current_url: str, depth: int, parent_url: str = None) -> None:
         current_url = _normalize_url(current_url)
         if current_url in visited or depth < 0:
             return

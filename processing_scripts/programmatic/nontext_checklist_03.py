@@ -1,9 +1,9 @@
 # Written using the assist of ChatGPT
 
-import os
 import sys
-
+import os
 from bs4 import BeautifulSoup
+
 
 # ==========================================================
 # UTILITY FUNCTIONS

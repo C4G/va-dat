@@ -1,6 +1,5 @@
-import json
 import re
-
+import json
 from bs4 import BeautifulSoup
 
 # Icon font class prefixes — covers FA v4/v5/v6, Elementor, Dashicons, Glyphicons

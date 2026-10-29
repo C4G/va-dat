@@ -24,7 +24,9 @@ def is_empty_slice(payload_json: str) -> bool:
         parsed = json.loads(stripped)
     except (json.JSONDecodeError, TypeError):
         return False
-    return isinstance(parsed, (list, dict)) and len(parsed) == 0
+    if isinstance(parsed, (list, dict)) and len(parsed) == 0:
+        return True
+    return False
 
 
 # ── CL01: Semantic Structure ─────────────────────────────────────────────────

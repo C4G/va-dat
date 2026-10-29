@@ -1,8 +1,8 @@
 """Parse prompt .txt files and fill {payload} placeholders."""
 
 import re
-from functools import cache
 from pathlib import Path
+from functools import lru_cache
 
 from .registry import PromptSpec
 
@@ -24,7 +24,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _HEADER_RE = re.compile(r"^\s*-+\s*\n\s*(\d+)\)\s+.+?\n\s*-+\s*$", re.MULTILINE)
 
 
-@cache
+@lru_cache(maxsize=None)
 def _parse_prompt_file(file_path: Path) -> dict[int, str]:
     """Parse a prompt .txt file into {prompt_number: template_text}.
 

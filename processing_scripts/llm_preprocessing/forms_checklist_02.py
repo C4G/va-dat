@@ -1,6 +1,5 @@
-import json
 import re
-
+import json
 from bs4 import BeautifulSoup
 
 SKIP_INPUT_TYPES = {"hidden", "submit", "button", "reset", "image"}
