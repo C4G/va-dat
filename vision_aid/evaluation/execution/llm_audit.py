@@ -128,7 +128,7 @@ def execute(
         result: dict[str, Any]
         try:
             result = client.call(prompt_text)
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             # Retain an unexpected request failure as run evidence.
             result = {
                 "success": False,

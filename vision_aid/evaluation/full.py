@@ -227,7 +227,7 @@ def execute_full_evaluation(
         write_json(child / "run.json", child_manifest)
         try:
             complete = execute(child, child_manifest, api_key, request_config)
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             # Provider setup can fail before the executor saves a request outcome.
             child_manifest.update(complete=False, incomplete_reason=str(error))
             write_json(child / "run.json", child_manifest)

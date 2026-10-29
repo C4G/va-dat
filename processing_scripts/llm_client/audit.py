@@ -247,7 +247,7 @@ class AuditRequestClient:
                 result = self._call_anthropic(prompt, start)
             result["request"] = resolved_request_metadata(self.request_config)
             return result
-        except Exception as exc:  # noqa: BLE001 - report provider failures as evidence
+        except Exception as exc:  # Report provider failures as evidence.
             partial_usage = {}
             stop_reason = None
             response_text = None

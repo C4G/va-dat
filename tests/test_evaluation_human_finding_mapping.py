@@ -13,7 +13,7 @@ from test_evaluation import (
     report,
     run_cli,
 )
-from test_evaluation import workspace as workspace  # noqa: PLC0414 - expose shared pytest fixture
+from test_evaluation import workspace as workspace  # Expose shared pytest fixture.
 
 URL = "https://example.test/"
 

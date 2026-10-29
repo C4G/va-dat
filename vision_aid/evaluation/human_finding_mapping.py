@@ -37,7 +37,7 @@ def validate_human_finding_mapping(mapping: dict[str, Any], audit_sha256: str) -
     seen = set()
     for decision in decisions:
         if not isinstance(decision, dict):
-            raise ValueError("Human finding mapping decision must be an object")  # noqa: TRY004 - CLI input validation
+            raise ValueError("Human finding mapping decision must be an object")  # CLI input validation.
         identity = decision.get("human_finding_id")
         if not _text(identity) or identity in seen:
             raise ValueError(f"Human finding mapping has unknown or repeated Human finding: {identity}")

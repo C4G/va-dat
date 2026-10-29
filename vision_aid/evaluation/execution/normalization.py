@@ -195,7 +195,7 @@ def normalize_prompt_response(
             sources = _screen_only_findings(prompt_name, parsed)
         else:
             sources = _tool_findings(normalizer, parsed, spec)
-    except Exception as error:  # noqa: BLE001
+    except Exception as error:
         # A shape the check's rule cannot read is unreadable, not fatal to the run.
         return NormalizationResult(
             prompt=prompt_name,

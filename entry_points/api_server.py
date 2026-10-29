@@ -19,7 +19,6 @@ file / environment.  Per-request keys take priority.
 """
 
 import json
-import logging
 import os
 import re
 import shutil
@@ -34,12 +33,11 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from entry_points.generate_report import generate_report
-from entry_points.run_pipeline import run_pipeline
-from processing_scripts.llm_client.client import is_gemini_model, is_openai_model
-from vision_aid.ingestion.file_crawler import fetch_page, fetch_pages_nested
+from entry_points.run_pipeline import run_pipeline  # noqa: E402
+from entry_points.generate_report import generate_report  # noqa: E402
+from vision_aid.ingestion.file_crawler import fetch_page, fetch_pages_nested  # noqa: E402
+from processing_scripts.llm_client.client import is_openai_model, is_gemini_model  # noqa: E402
 
-logger = logging.getLogger(__name__)
 
 # ── Multi-page splitting ─────────────────────────────────────────────────────
 
@@ -152,14 +150,9 @@ def run_audit(html_content: str, api_key: str, model: str, progress_callback=Non
                     "wcag_criteria": data.get("wcag_criteria", []),
                     "status": status,
                     "error": (api_result or {}).get("error"),
-                    "failure": (api_result or {}).get("failure"),
                     "parsed": parsed,
-                    "provider": (api_result or {}).get("provider"),
-                    "request": (api_result or {}).get("request"),
-                    "usage": usage,
                     "input_tokens": usage.get("input_tokens"),
                     "output_tokens": usage.get("output_tokens"),
-                    "stop_reason": (api_result or {}).get("stop_reason"),
                     "duration_seconds": (api_result or {}).get("duration_seconds"),
                 }
 
@@ -184,8 +177,8 @@ def run_audit(html_content: str, api_key: str, model: str, progress_callback=Non
                         "stage": "report_complete",
                         "message": "Report ready",
                     })
-            except Exception:
-                logger.exception("CSV generation failed")
+            except Exception as csv_err:
+                print(f"  Warning: CSV generation failed: {csv_err}")
 
         return {
             "success": True,
@@ -209,7 +202,6 @@ def run_audit(html_content: str, api_key: str, model: str, progress_callback=Non
         }
 
     except Exception as exc:
-        logger.exception("Audit failed")
         return {"success": False, "error": str(exc)}
 
     finally:
@@ -231,7 +223,7 @@ def _try_parse_json(text: str):
 class AuditHandler(BaseHTTPRequestHandler):
     """Handle static file serving and the /api/audit endpoint."""
 
-    def log_message(self, fmt, *args):
+    def log_message(self, fmt, *args):  # noqa: N802
         sys.stderr.write(f"[{self.address_string()}] {fmt % args}\n")
 
     # CORS helpers ─────────────────────────────────────────────────────────────
@@ -241,7 +233,7 @@ class AuditHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
-    def do_OPTIONS(self):
+    def do_OPTIONS(self):  # noqa: N802
         """Handle CORS preflight requests."""
         self.send_response(200)
         self._cors_headers()
@@ -249,7 +241,7 @@ class AuditHandler(BaseHTTPRequestHandler):
 
     # GET ──────────────────────────────────────────────────────────────────────
 
-    def do_GET(self):
+    def do_GET(self):  # noqa: N802
         path = self.path.split("?")[0]
         if path in ("/", "/index.html"):
             self._serve_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
@@ -272,7 +264,7 @@ class AuditHandler(BaseHTTPRequestHandler):
 
     # POST ─────────────────────────────────────────────────────────────────────
 
-    def do_POST(self):
+    def do_POST(self):  # noqa: N802
         if self.path == "/api/audit":
             self._handle_audit()
         elif self.path == "/api/audit/url":
@@ -528,8 +520,8 @@ class AuditHandler(BaseHTTPRequestHandler):
 
     def _handle_validate_key(self):
         """Validate an API key with a lightweight call to the provider."""
-        import urllib.error
         import urllib.request
+        import urllib.error
 
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
@@ -607,7 +599,7 @@ def main():
     parser.add_argument(
         "--port",
         type=int,
-        default=int(os.getenv("PORT", "8000")),
+        default=int(os.getenv("PORT", 8000)),
         help="Port to listen on (default: $PORT or 8000)",
     )
     parser.add_argument(
