@@ -1,0 +1,39 @@
+{% extends 'base.html.jinja' %}
+{% from 'evidence.html.jinja' import human_evidence, page_evidence %}
+{% from 'charts.html.jinja' import performance_header, detection_overview, page_comparison %}
+
+{% block document_title %}{{ title }}: {{ model_name }}; {{ manifest.run_id }}{% endblock %}
+{% block content %}
+<section id="performance" aria-labelledby="performance-title">
+{{ performance_header(cost, token_usage, model_prices) }}
+{{ detection_overview(rates) }}
+{{ page_comparison(pages) }}
+</section>
+<section id="human-findings" aria-labelledby="findings-title">
+<h2 id="findings-title">Tool Findings and Human Finding Matches</h2>
+<p>Each original Human finding appears once in source order. Open "View details" to read the original Human finding, then "View page decisions" to read the review decision and matched tool findings. Global findings include a separate page decisions dropdown for every page. Details and page decisions start collapsed.</p>
+<div class="findings-panel">
+{% include 'controls.html.jinja' %}
+<div class="table-scroll" role="region" aria-labelledby="findings-title" tabindex="0">
+<table id="findings" aria-labelledby="findings-title">
+<thead><tr><th scope="col">Issue title</th><th scope="col">WCAG</th><th scope="col">Scope</th><th scope="col">Expected source</th><th scope="col">LLM</th><th scope="col">Programmatic checks</th><th scope="col">Details</th></tr></thead>
+<tbody>
+{% for row in rows %}
+<tr data-expected="{{ row.expected }}" data-llm="{{ row.llm_outcome }}" data-programmatic="{{ row.programmatic_outcome }}">
+<th scope="row">{{ row.human.problem }}</th><td data-print-label="WCAG">{{ row.human.raw_evidence['WCAG Sc'] }}</td><td data-print-label="Scope">{% if row.human.page_scope == 'global' %}Global{% else %}Page-local{% endif %}</td><td data-print-label="Expected source">{{ row.expected }}</td><td data-print-label="LLM">{{ row.llm_outcome }}</td><td data-print-label="Programmatic checks">{{ row.programmatic_outcome }}</td>
+<td><p data-selected-page-result hidden></p><details><summary aria-label="View details: {{ row.human.problem }}">View details</summary><div class="evidence">
+{{ human_evidence(row) }}
+{% if row.human.page_scope == 'global' %}
+<h3>Combined result</h3>
+<div class="table-scroll" role="region" aria-label="Page decisions for {{ row.human.problem }}" tabindex="0">
+<table><caption>Page decisions</caption><thead><tr><th scope="col">Page</th><th scope="col">Expected source</th><th scope="col">LLM</th><th scope="col">Programmatic checks</th></tr></thead><tbody>
+{% for page in row.pages %}<tr data-page-table-row="{{ page.source_url }}"><th scope="row">{{ page.source_url }}</th><td>{{ page.expected }}</td><td>{{ page.llm_outcome }}</td><td>{{ page.programmatic_outcome }}</td></tr>{% endfor %}
+</tbody></table></div>
+{% endif %}
+{% for page in row.pages %}{{ page_evidence(page) }}{% endfor %}
+</div></details></td></tr>
+{% endfor %}
+</tbody></table></div>
+</div>
+</section>
+{% endblock %}

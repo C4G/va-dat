@@ -5,6 +5,7 @@
 This project builds LLM-powered tools that analyze websites for WCAG accessibility issues and generate structured remediation reports. It is a Computing for Good course project at Georgia Tech (OMSCS) partnered with the Vision Aid Digital Accessibility Testing Team.
 
 The system has three planned stages:
+
 1. Automated webpage accessibility analysis → structured CSV reports
 2. Code remediation suggestions based on those reports
 3. (Stretch) Chrome extension for on-the-fly accessibility fixes
@@ -116,3 +117,17 @@ Docker image → GHCR (`ghcr.io/c4g/va-dat`) → Coolify at `https://va-dat.c4g.
 - HTML test files can be enormous (500K+ tokens) — do not read them fully into context.
 - Some files may have non-UTF-8 encoding; always use `errors='replace'`.
 - Model defaults differ by entry point: `run_pipeline.py` uses `claude-sonnet-5`, `api_server.py` uses `claude-haiku-4-5-20251001`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked as local Markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The default five-role triage vocabulary is used. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repository uses a single-context domain-doc layout. See `docs/agents/domain.md`.

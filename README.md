@@ -57,10 +57,9 @@ HTML file (e.g. 1.9 MB)
 │   │   ├── forms_checklist_02.txt               #   6 prompts for form accessibility
 │   │   └── nontext_checklist_03.txt             #   8 prompts for non-text content
 │   │
-│   ├── llm_client/                              # Standalone Claude API client (Andrew)
-│   │   ├── client.py                            #   API wrapper
-│   │   ├── prompt_loader.py                     #   Prompt loading utilities
-│   │   └── runner.py                            #   End-to-end audit runner
+│   ├── llm_client/                              # Provider-independent audit requests
+│   │   ├── audit.py                             #   API requests and response metadata
+│   │   └── client.py                            #   Model-provider capability helpers
 │   │
 │   ├── llm_preprocessing/                       # HTML → structured JSON extractors
 │   │   ├── semantic_checklist_01.py             #   Headings, links, landmarks, tables, iframes
@@ -74,9 +73,29 @@ HTML file (e.g. 1.9 MB)
 │   │
 │   └── docs/pipeline.md                         # Pipeline architecture documentation
 │
-├── vision_aid/ingestion/
-│   ├── file_crawler.py                         # fetch_page / fetch_pages_nested (used by the server)
-│   └── pull_html.py                            # Standalone HTML download helper
+├── vision_aid/
+│   ├── evaluation/                             # Evaluation workflows, review, and shared schemas
+│   │   ├── README.md                           # Detailed evaluator guide and command reference
+│   │   ├── cli.py                              # CLI commands and operator interaction
+│   │   ├── full.py                             # Full evaluation across all audited pages
+│   │   ├── page.py                             # Shared page preparation and review validation
+│   │   ├── review.py                           # Review CSV validation and detection counts
+│   │   ├── schemas.py                          # Shared Human audit and finding types
+│   │   ├── inputs/
+│   │   │   └── human_audit.py                  # Import Human findings and audited URLs
+│   │   ├── execution/
+│   │   │   ├── llm_audit.py                    # LLM requests, saved responses, and cost guardrails
+│   │   │   ├── normalization.py                # Convert tool responses into findings
+│   │   │   ├── pricing.py                      # Load price schedules and estimate request cost
+│   │   │   └── pricing.json                    # Versioned public model rates
+│   │   └── reporting/
+│   │       ├── html_report.py                  # Prepare report data and render standalone HTML
+│   │       ├── templates/                      # Report HTML templates
+│   │       ├── css/                            # Report styles
+│   │       └── js/                             # Report filters and printing
+│   └── ingestion/
+│       ├── file_crawler.py                     # fetch_page / fetch_pages_nested (used by the server)
+│       └── pull_html.py                        # Standalone HTML download helper
 │
 ├── Dockerfile                                  # Multi-stage uv build → runtime image
 ├── docker-compose.yml                          # Local run (Coolify deploys the image directly)
@@ -100,7 +119,7 @@ HTML file (e.g. 1.9 MB)
 ├── docs/                                       # Architecture documentation
 │   └── modular-prompts-plan.md                 #   Full architectural plan
 │
-├── reports/                                    # Raw JSON output from standalone llm_client runs
+├── reports/                                    # Historical raw JSON audit output
 │
 ├── test_results/
 │   ├── chatgpt/                                # Legacy ChatGPT testing results
@@ -276,9 +295,15 @@ everything it does is free:
 
 - `uv.lock` is in sync with `pyproject.toml`, and `requirements.txt` matches the lock
 - entry points import
+- the tracked synthetic pytest suite (`uv run pytest -q`), with no private data or provider calls
 - a full pipeline dry run, asserting prompts generated, findings found, and zero tokens consumed
 - `index.html`'s inline JavaScript parses
 - the Docker image builds, becomes healthy, serves the site, and returns a valid NDJSON audit
+
+Default pytest discovery is limited to `tests/`, where `tests/test_evaluation.py`
+covers the evaluator end to end through its CLI with a fake provider. Optional
+detailed evaluator cases live in the ignored `.local-tests/evaluation/` folder;
+run them with `uv run pytest -q .local-tests/evaluation`. CI never needs them.
 
 ## Running the Pipeline
 
@@ -384,3 +409,143 @@ The pipeline skips prompts with empty payloads (e.g., no forms on the page = no 
 | Andrew Yin | CL02 + CL03 extractors, CL02 + CL03 prompts, LLM client, pipeline docs | `processing_scripts/llm_preprocessing/`, `processing_scripts/llm_client/`, `processing_scripts/llm/*.txt` |
 | nfulton99 | HTML ingestion, packaging | `vision_aid/ingestion/pull_html.py`, `pyproject.toml` |
 | ColeANiblett | Pipeline orchestration, prompt system, report generator | `processing_scripts/llm/{registry,slicers,templates}.py`, `entry_points/`, `docs/` |
+
+## Model evaluation
+
+The evaluator measures how many findings from an existing human accessibility
+audit va-dat catches. It runs programmatic checks and one selected LLM against
+saved page HTML, then uses reviewed matches to produce an offline HTML report
+with LLM, Programmatic, and Overall detection rates.
+
+There are two reviews: approve the audit's classifications and programmatic
+matches once, then review LLM matches after each model run. The evaluator
+validates the saved evidence and calculates scores; the reviewer decides
+whether findings describe the same defect.
+
+The [evaluator guide](vision_aid/evaluation/README.md) covers input formats,
+matching rules, scoring, model settings, saved files, and troubleshooting.
+
+### Evaluator quick start
+
+Complete [setup](#setup) first.
+
+**Run all commands in this guide from the repository root**, the va-dat/ directory containing pyproject.toml and the root README.
+All relative paths in the examples are relative to that directory.
+
+The human audit Excel file, `Pristine Accessibility Defect Report.xlsx`,
+belongs directly in the repository root, alongside this README. The examples
+expect it at `./Pristine Accessibility Defect Report.xlsx`. The file and
+approved mappings are private local inputs, excluded from Git. If the file
+is missing, obtain it from your project team and place it there, or supply your
+own audit in the [supported format](vision_aid/evaluation/README.md#human-audit-excel-file-format)
+and update `AUDIT` below.
+
+This walkthrough evaluates every URL listed in the audit. Keep the same saved
+HTML when comparing models. If you already have snapshots and an approved
+mapping for this audit, set their paths below and skip steps 1 and 2.
+
+```bash
+AUDIT='./Pristine Accessibility Defect Report.xlsx'
+SNAPSHOTS='.model-evaluation/pristine-snapshots/snapshots.json'
+REVIEW_DIR='.model-evaluation/pristine-mapping-review'
+MAPPING="$REVIEW_DIR/human-finding-mapping.json"
+MODEL='claude-haiku-5-5'
+MAX_COST_USD=5.00  # Choose your total allowance for all pages.
+```
+
+1. **Capture the pages.** The output directory must be new. Capture downloads
+   server HTML without rendering JavaScript; inspect the saved pages before review.
+   It requires no model API key.
+
+   ```bash
+   uv run visionaid-evaluate capture \
+     --human-audit "$AUDIT" \
+     --output-dir .model-evaluation/pristine-snapshots
+   ```
+
+2. **Prepare and approve the reusable mapping.** This makes no model requests.
+   The review directory must be new.
+
+   ```bash
+   uv run visionaid-evaluate human-finding-mapping-prepare \
+     --human-audit "$AUDIT" --snapshots "$SNAPSHOTS" \
+     --output-dir "$REVIEW_DIR"
+   ```
+
+   Follow the generated README: fill `classifications.csv` and
+   `programmatic-review.csv`, using `programmatic-findings.csv` as the checker
+   catalog. The [mapping review guide](vision_aid/evaluation/README.md#approve-a-human-finding-mapping)
+   explains the classification values and complete-match requirements. Then approve:
+
+   ```bash
+   uv run visionaid-evaluate human-finding-mapping-approve \
+     --human-audit "$AUDIT" --snapshots "$SNAPSHOTS" \
+     --review-dir "$REVIEW_DIR" --reviewer "Your name and review method"
+   ```
+
+3. **Preview the evaluation.** Inspect the pages, prompt count, model settings,
+   and prices without an API key or paid requests. A preview cannot produce a
+   final report.
+
+   ```bash
+   uv run visionaid-evaluate run-all \
+     --human-audit "$AUDIT" --snapshots "$SNAPSHOTS" \
+     --human-finding-mapping "$MAPPING" \
+     --model "$MODEL" --max-cost-usd "$MAX_COST_USD"
+   ```
+
+4. **Run the model.** Put `ANTHROPIC_API_KEY` for Claude or `OPENAI_API_KEY` for
+   GPT in your environment or the repository-root `.env`. Only the selected
+   provider's key is required. Repeat the command with `--live`:
+
+   ```bash
+   uv run visionaid-evaluate run-all \
+     --human-audit "$AUDIT" --snapshots "$SNAPSHOTS" \
+     --human-finding-mapping "$MAPPING" \
+     --model "$MODEL" --max-cost-usd "$MAX_COST_USD" --live
+   ```
+
+   Type `yes` when prompted. The allowance is checked between requests; a request
+   underway can exceed it. This creates a fresh run instead of executing the
+   preview directory. Requests run sequentially without retries. Restarting after
+   failure repeats all requests, including previously completed pages.
+
+5. **Review the LLM matches.** Use the new directory printed by the live command:
+
+   ```bash
+   RUN_DIR='.model-evaluation/full-runs/<live-run-id>'
+   ```
+
+   Confirm `"complete": true` in `full.json`, and check each child's `run.json`
+   for `format_failures`. Follow each page's README under `$RUN_DIR/pages/`.
+   Compare `normalized-llm-findings.json`, `review.csv`, and `snapshot.html`.
+   Edit only `llm_finding_id`, `match_reason`, and `review_notes`. Leave an LLM ID
+   blank for a miss; record IDs only when they fully cover the human finding.
+   Keep approved classification and programmatic fields unchanged.
+   See the [matching rules](vision_aid/evaluation/README.md#review-llm-matches).
+
+6. **Generate the reports.** After saving every page's review CSV:
+
+   ```bash
+   uv run visionaid-evaluate report-all \
+     --run-dir "$RUN_DIR" --reviewer "Your name and review method"
+   ```
+
+   Open `$RUN_DIR/report.html` for combined results. Each page also gets a
+   `report.html`. Reports work offline and can regenerate without model calls.
+
+Choose `claude-haiku-5-5`, `claude-opus-5-5`, `claude-sonnet-5-5`,
+`gpt-6-luna`, or `gpt-6.1-sol` as `MODEL`. Haiku is the default when `--model`
+is omitted. Each run uses one model; compare models with separate runs using
+the same audit, snapshots, and mapping.
+
+To evaluate just one page, use `run` with `--html` and `--source-url`, then
+`report`. See the [single-page commands](vision_aid/evaluation/README.md#evaluate-one-page).
+For command options, use `uv run visionaid-evaluate --help` or add `--help`
+after a command name.
+
+The rates measure coverage of the supplied human audit. Findings that cannot
+be tested from saved HTML remain in Overall, so perfect coverage of testable
+findings can still produce an Overall rate below 100%. Read the
+[scoring guide](vision_aid/evaluation/README.md#how-scoring-works) before interpreting
+or comparing results.

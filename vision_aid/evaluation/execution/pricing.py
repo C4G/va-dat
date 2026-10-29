@@ -1,0 +1,69 @@
+"""Reproducible cost estimates from a versioned public price schedule."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from collections.abc import Mapping
+from dataclasses import dataclass
+from decimal import Decimal
+from pathlib import Path
+from typing import Any
+
+DEFAULT_SCHEDULE = Path(__file__).with_name("pricing.json")
+MILLION = Decimal(1_000_000)
+
+
+@dataclass(frozen=True)
+class PriceSchedule:
+    """Immutable model rates and their content identity."""
+
+    data: dict[str, Any]
+    identity: str
+
+    @classmethod
+    def load(cls, path: Path) -> PriceSchedule:
+        """Load and content-address one JSON price schedule."""
+        raw = path.read_bytes()
+        data = json.loads(raw)
+        if not isinstance(data, dict) or not isinstance(data.get("models"), dict):
+            raise TypeError("Price schedule must contain a models object.")
+        return cls(data=data, identity=hashlib.sha256(raw).hexdigest())
+
+    @property
+    def version(self) -> str:
+        """Return the curator-assigned price-schedule version."""
+        return str(self.data["version"])
+
+    @property
+    def price_description(self) -> str:
+        """Distinguish captured public rates from older publication metadata."""
+        if "captured_at" in self.data:
+            return f"published prices captured on {self.data['captured_at']}"
+        return f"published prices dated {self.data['published_at']}"
+
+    def estimate(self, model: str, usage: Mapping[str, int | None]) -> str:
+        """Price one request's disjoint categories at its input-size tier."""
+        try:
+            rates = self.data["models"][model]
+        except KeyError as error:
+            raise ValueError(
+                f"No versioned pricing exists for model {model!r}."
+            ) from error
+        input_tokens = Decimal(usage.get("input_tokens", 0) or 0)
+        cached_tokens = Decimal(usage.get("cached_input_tokens", 0) or 0)
+        cache_creation_tokens = Decimal(
+            usage.get("cache_creation_input_tokens", 0) or 0
+        )
+        output_tokens = Decimal(usage.get("output_tokens", 0) or 0)
+        upper = rates.get("long_context")
+        if upper and input_tokens + cached_tokens + cache_creation_tokens > upper["above_input_tokens"]:
+            rates = upper
+        cost = (
+            input_tokens * Decimal(rates["input_per_million_usd"])
+            + cached_tokens * Decimal(rates["cached_input_per_million_usd"])
+            + cache_creation_tokens
+            * Decimal(rates["cache_creation_input_per_million_usd"])
+            + output_tokens * Decimal(rates["output_per_million_usd"])
+        ) / MILLION
+        return format(cost.normalize(), "f")

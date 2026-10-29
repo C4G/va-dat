@@ -1,0 +1,50 @@
+"""Evidence records for page evaluations against the Human audit."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from typing import Any, Literal
+
+
+@dataclass(frozen=True)
+class HumanFinding:
+    human_finding_id: str
+    source_sheet: str
+    source_row: int
+    page_scope: Literal["home", "global", "page"]
+    source_element: str
+    problem: str
+    raw_evidence: dict[str, str]
+    wcag_evidence: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class HumanAudit:
+    human_audit_filename: str
+    human_audit_sha256: str
+    homepage_url: str
+    human_findings: tuple[HumanFinding, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return JSON-compatible source evidence."""
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class CanonicalFinding:
+    finding_id: str
+    source: Literal["llm", "programmatic"]
+    run_id: str
+    model: str | None
+    prompt: str
+    checklist: str
+    page_url: str
+    problem_family: str
+    problem: str
+    element: str
+    location: str
+    wcag_evidence: tuple[str, ...]
+    raw_source: Any
+    parse_status: str
+    # True when the tool shows this finding on screen but leaves it out of its CSV report.
+    screen_only: bool = False

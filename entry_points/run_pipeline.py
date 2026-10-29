@@ -18,7 +18,6 @@ import argparse
 import json
 import os
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -31,6 +30,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from processing_scripts.llm.registry import PROMPT_REGISTRY, PromptSpec
 from processing_scripts.llm.slicers import get_slicer, is_empty_slice
 from processing_scripts.llm.templates import fill_template
+from processing_scripts.llm_client.audit import (
+    AuditRequestClient as PipelineClient,
+    AuditRequestConfig,
+    resolved_request_metadata,
+)
 from processing_scripts.llm_preprocessing.semantic_checklist_01 import (
     extract as cl01_extract,
 )
@@ -103,130 +107,6 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
-class PipelineClient:
-    """Thin wrapper around the Anthropic, OpenAI, or Gemini API.
-
-    Detects the provider from the model ID and uses the appropriate SDK.
-    Returns the same dict shape regardless of provider so downstream code
-    (``generate_report.py``, etc.) works unchanged.
-    """
-
-    def __init__(self, api_key: str, model: str, max_tokens: int = 8192):
-        from processing_scripts.llm_client.client import is_openai_model, is_gemini_model
-
-        self.model = model
-        self.max_tokens = max_tokens
-        self._is_openai = is_openai_model(model)
-        self._is_gemini = is_gemini_model(model)
-
-        if self._is_openai:
-            import openai
-            self._client = openai.OpenAI(api_key=api_key)
-        elif self._is_gemini:
-            from google import genai
-            self._client = genai.Client(api_key=api_key)
-        else:
-            import anthropic
-            self._client = anthropic.Anthropic(api_key=api_key)
-
-    def call(self, prompt: str) -> dict:
-        """Send *prompt* to the API and return a result dict.
-
-        Returns a dict with keys ``success``, ``response``, ``model``,
-        ``usage``, ``stop_reason``, and ``duration_seconds``.
-        """
-        start = time.time()
-
-        try:
-            if self._is_openai:
-                return self._call_openai(prompt, start)
-            if self._is_gemini:
-                return self._call_gemini(prompt, start)
-            return self._call_anthropic(prompt, start)
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "duration_seconds": round(time.time() - start, 2),
-            }
-
-    def _call_anthropic(self, prompt: str, start: float) -> dict:
-        """Call the Anthropic Messages API."""
-        from processing_scripts.llm_client.client import supports_temperature
-
-        request_kwargs = {
-            "model": self.model,
-            "max_tokens": self.max_tokens,
-            "messages": [{"role": "user", "content": prompt}],
-        }
-        if supports_temperature(self.model):
-            request_kwargs["temperature"] = 0.1
-
-        message = self._client.messages.create(**request_kwargs)
-
-        response_text = "".join(
-            block.text for block in message.content if block.type == "text"
-        )
-
-        return {
-            "success": True,
-            "response": response_text,
-            "model": message.model,
-            "usage": {
-                "input_tokens": message.usage.input_tokens,
-                "output_tokens": message.usage.output_tokens,
-            },
-            "stop_reason": message.stop_reason,
-            "duration_seconds": round(time.time() - start, 2),
-        }
-
-    def _call_openai(self, prompt: str, start: float) -> dict:
-        """Call the OpenAI Chat Completions API."""
-        response = self._client.chat.completions.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            temperature=0.1,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        return {
-            "success": True,
-            "response": response.choices[0].message.content,
-            "model": response.model,
-            "usage": {
-                "input_tokens": response.usage.prompt_tokens,
-                "output_tokens": response.usage.completion_tokens,
-            },
-            "stop_reason": response.choices[0].finish_reason,
-            "duration_seconds": round(time.time() - start, 2),
-        }
-
-    def _call_gemini(self, prompt: str, start: float) -> dict:
-        """Call the Gemini generateContent API."""
-        response = self._client.models.generate_content(
-            model=self.model,
-            contents=prompt,
-            config={
-                "temperature": 0.1,
-                "max_output_tokens": self.max_tokens,
-            },
-        )
-
-        return {
-            "success": True,
-            "response": response.text,
-            "model": self.model,
-            "usage": {
-                "input_tokens": response.usage_metadata.prompt_token_count,
-                "output_tokens": response.usage_metadata.candidates_token_count,
-            },
-            "stop_reason": response.candidates[0].finish_reason.name
-            if response.candidates
-            else None,
-            "duration_seconds": round(time.time() - start, 2),
-        }
-
-
 def save_json(obj: object, path: Path) -> None:
     """Write an object as formatted JSON to a file."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -241,11 +121,17 @@ def run_pipeline(
     dry_run: bool,
     include_summaries: bool,
     progress_callback=None,
+    request_config: AuditRequestConfig | None = None,
 ) -> dict:
     """Execute the full element-specific accessibility audit pipeline.
 
     Returns a summary dict with run metadata and per-prompt results.
     """
+    if request_config is None:
+        request_config = AuditRequestConfig(model=model)
+    elif request_config.model != model:
+        raise ValueError("model and request_config.model must match")
+
     output_dir.mkdir(parents=True, exist_ok=True)
     html_path_str = str(html_path)
 
@@ -327,7 +213,10 @@ def run_pipeline(
     # Initialise client once (only needed for live runs)
     client = None
     if not dry_run:
-        client = PipelineClient(api_key=api_key, model=model)
+        client = PipelineClient(
+            api_key=api_key,
+            request_config=request_config,
+        )
 
     for spec in PROMPT_REGISTRY:
         # Skip summaries unless requested
@@ -436,6 +325,7 @@ def run_pipeline(
         "run_timestamp": datetime.now(timezone.utc).isoformat(),
         "html_file": str(html_path),
         "model": model,
+        "request_config": resolved_request_metadata(request_config),
         "dry_run": dry_run,
         "include_summaries": include_summaries,
         "programmatic_findings_count": len(programmatic_findings),

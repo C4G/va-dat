@@ -53,6 +53,9 @@ jobs:
           print('all entry points import cleanly')
           "
 
+      - name: Network-free test suite
+        run: uv run pytest -q
+
       # Exercises extractors, slicers, prompt templates and the programmatic
       # checkers end to end. --dry-run makes no API calls, so this needs no key
       # and costs nothing.

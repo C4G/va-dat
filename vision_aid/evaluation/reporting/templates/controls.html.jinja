@@ -1,0 +1,32 @@
+<div id="finding-controls" hidden>
+<fieldset>
+<legend>Filter findings</legend>
+<div class="finding-filter-fields">
+{% if full is defined %}
+<div class="finding-filter">
+<label for="finding-page">Page</label>
+<select id="finding-page"><option value="">All pages (combined results)</option>{% for page in pages %}<option value="{{ page.manifest.source_url }}">{{ page.manifest.source_url }}</option>{% endfor %}</select>
+</div>
+{% endif %}
+<div class="finding-filter">
+<label for="finding-outcome">Detection outcome</label>
+<select id="finding-outcome">
+<option value="all">All outcomes</option>
+<option value="llm-caught">LLM caught (any eligibility)</option>
+<option value="llm-missed">LLM missed (LLM eligible)</option>
+<option value="programmatic-caught">Programmatic caught (any eligibility)</option>
+<option value="programmatic-missed">Programmatic missed (Programmatic eligible)</option>
+<option value="overall-caught">Caught by either source</option>
+<option value="overall-missed">Not caught by either source</option>
+<option value="not-testable">Not testable from the page file</option>
+</select>
+</div>
+</div>
+<div class="finding-filter-actions">
+<button id="clear-filters" type="button">Clear filters</button>
+<button id="expand-visible" type="button">Expand all dropdowns</button>
+<button id="collapse-visible" type="button">Collapse all dropdowns</button>
+</div>
+</fieldset>
+<p id="finding-count" role="status" aria-live="polite" aria-atomic="true"></p>
+</div>
