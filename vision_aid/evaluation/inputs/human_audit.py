@@ -36,9 +36,7 @@ ELIGIBILITY_VALUES = (
 )
 
 
-def _source_findings(
-    path: Path, *, homepage_only: bool
-) -> tuple[str, tuple[HumanFinding, ...]]:
+def _source_findings(path: Path) -> tuple[str, tuple[HumanFinding, ...]]:
     """Read every Defect report row, giving each a checksum-based ID."""
     checksum = hashlib.sha256(path.read_bytes()).hexdigest()
     human_audit_excel = openpyxl.load_workbook(path, read_only=True, data_only=True)
@@ -56,8 +54,6 @@ def _source_findings(
                 if header
             }
             scope = raw["Page name"].strip().casefold()
-            if homepage_only and scope not in HOMEPAGE_SCOPES:
-                continue
             if not raw["Issue Title"].strip():
                 raise ValueError(f"Defect report row {number} has no Issue Title")
             identity = f"{checksum}:{SHEET}:{number}".encode()
@@ -80,20 +76,12 @@ def _source_findings(
     return checksum, tuple(human_findings)
 
 
-def import_homepage_human_findings(path: Path, homepage_url: str) -> HumanAudit:
-    """Select Home and Global findings from an audit with no URL list tab."""
-    checksum, human_findings = _source_findings(path, homepage_only=True)
-    if not human_findings:
-        raise ValueError("Human audit has no Home or Global defects")
-    return HumanAudit(path.name, checksum, homepage_url, human_findings)
-
-
 def import_all_human_findings(path: Path) -> dict[str, HumanAudit]:
     """Assign each finding to its page by URL; Globals go on every page."""
     urls = list_audit_urls(path)
     if len(urls) != len(set(urls)):
         raise ValueError("Human audit URL list contains repeated target URLs")
-    checksum, findings = _source_findings(path, homepage_only=False)
+    checksum, findings = _source_findings(path)
     if not findings:
         raise ValueError("Human audit has no Human findings")
     by_page: dict[str, list[HumanFinding]] = {url: [] for url in urls}
@@ -153,14 +141,7 @@ def list_audit_urls(path: Path) -> tuple[str, ...]:
 
 
 def import_page_human_findings(path: Path, source_url: str) -> HumanAudit:
-    """Return the findings for one page."""
-    human_audit_excel = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    try:
-        has_urls = "URL list" in human_audit_excel.sheetnames
-    finally:
-        human_audit_excel.close()
-    if not has_urls:
-        return import_homepage_human_findings(path, source_url)
+    """Return the findings for one listed page."""
     pages = import_all_human_findings(path)
     if source_url not in pages:
         raise ValueError(f"Source URL is not listed in the Human audit: {source_url}")
