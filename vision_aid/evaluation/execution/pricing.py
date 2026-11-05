@@ -12,6 +12,12 @@ from typing import Any
 
 DEFAULT_SCHEDULE = Path(__file__).with_name("pricing.json")
 MILLION = Decimal(1_000_000)
+_RATE_KEYS = {
+    "input_tokens": "input_per_million_usd",
+    "cached_input_tokens": "cached_input_per_million_usd",
+    "cache_creation_input_tokens": "cache_creation_input_per_million_usd",
+    "output_tokens": "output_per_million_usd",
+}
 
 
 @dataclass(frozen=True)
@@ -43,27 +49,18 @@ class PriceSchedule:
         return f"published prices dated {self.data['published_at']}"
 
     def estimate(self, model: str, usage: Mapping[str, int | None]) -> str:
-        """Price one request's disjoint categories at its input-size tier."""
+        """Price one request, using the long-context rates above their threshold."""
         try:
             rates = self.data["models"][model]
         except KeyError as error:
             raise ValueError(
                 f"No versioned pricing exists for model {model!r}."
             ) from error
-        input_tokens = Decimal(usage.get("input_tokens", 0) or 0)
-        cached_tokens = Decimal(usage.get("cached_input_tokens", 0) or 0)
-        cache_creation_tokens = Decimal(
-            usage.get("cache_creation_input_tokens", 0) or 0
-        )
-        output_tokens = Decimal(usage.get("output_tokens", 0) or 0)
+        tokens = {key: Decimal(usage.get(key) or 0) for key in _RATE_KEYS}
         upper = rates.get("long_context")
-        if upper and input_tokens + cached_tokens + cache_creation_tokens > upper["above_input_tokens"]:
+        if upper and sum(tokens.values()) - tokens["output_tokens"] > upper["above_input_tokens"]:
             rates = upper
-        cost = (
-            input_tokens * Decimal(rates["input_per_million_usd"])
-            + cached_tokens * Decimal(rates["cached_input_per_million_usd"])
-            + cache_creation_tokens
-            * Decimal(rates["cache_creation_input_per_million_usd"])
-            + output_tokens * Decimal(rates["output_per_million_usd"])
+        cost = sum(
+            tokens[key] * Decimal(rates[rate]) for key, rate in _RATE_KEYS.items()
         ) / MILLION
         return format(cost.normalize(), "f")
