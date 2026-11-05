@@ -210,25 +210,22 @@ the per-page rates to get them.
 
 ## Reports and saved files
 
-`report.html` is a self-contained, accessible report from an evaluation run. It
-shows cost, detection rates, and a table of human findings you can expand and
-filter. It's the only report the evaluator writes.
+Every run writes to its own folder: `.model-evaluation/runs/<run-id>/` for
+`run`, and `.model-evaluation/full-runs/<run-id>/pages/<page-run-id>/` for
+each page of `run-all`. The files you'll most likely open are:
 
-Each run gets its own folder under `.model-evaluation/`. Besides `report.html`,
-it holds the inputs and outputs the report was built from. The ones you'll most
-likely open are:
+| File                                              | Contents                                                                             |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `report.html`                                     | The offline report: cost, detection rates, and a filterable table of human findings. |
+| `review.csv`                                      | The review you fill in.                                                              |
+| `run.json`                                        | Settings, cost, stopping reason, and `format_failures`.                              |
+| `normalized-llm-findings.json`                    | LLM findings with their IDs.                                                         |
+| `artifacts/normalized-programmatic-findings.json` | Checker findings with their IDs.                                                     |
+| `artifacts/prompts/*.json`                        | The exact prompts sent to the model.                                                 |
+| `artifacts/raw-llm-responses.json`                | Model replies and token usage.                                                       |
 
-| File                                              | Contents                                                |
-| ------------------------------------------------- | ------------------------------------------------------- |
-| `review.csv`                                      | The review you fill in.                                 |
-| `run.json`                                        | Settings, cost, stopping reason, and `format_failures`. |
-| `normalized-llm-findings.json`                    | LLM findings with their IDs.                            |
-| `artifacts/normalized-programmatic-findings.json` | Checker findings with their IDs.                        |
-| `artifacts/prompts/*.json`                        | The exact prompts sent to the model.                    |
-| `artifacts/raw-llm-responses.json`                | Model replies and token usage.                          |
-
-A full run adds `full.json` with the page order and totals, plus a folder per
-page under `pages/`.
+The top `run-all` folder also has `full.json`, with the page order and totals,
+and a combined `report.html` covering every page.
 
 Regenerating a report deletes the old one first, so a failed validation leaves
 no report rather than a stale one. Copy it somewhere if you want to keep it.
