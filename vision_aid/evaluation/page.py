@@ -153,5 +153,4 @@ def report_page(run: Path, reviewer: str) -> PageReview:
         raise ValueError("A reviewer description is required")
     review = validated_page_review(run)
     write_page_report(run / "report.html", review, reviewer)
-    (run / "report.md").unlink(missing_ok=True)
     return review

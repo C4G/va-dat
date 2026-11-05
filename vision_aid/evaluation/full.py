@@ -286,7 +286,6 @@ def report_full_evaluation(run: Path, reviewer: str) -> None:
     run = run.resolve()
     # Remove the old report first so a failed validation can't leave it looking current.
     (run / "report.html").unlink(missing_ok=True)
-    (run / "report.md").unlink(missing_ok=True)
     manifest = json.loads((run / "full.json").read_text())
     if not manifest["complete"]:
         raise ValueError("Incomplete Full evaluations cannot produce a final report")
@@ -295,5 +294,4 @@ def report_full_evaluation(run: Path, reviewer: str) -> None:
     rows = _pooled_rows(original["human_findings"], manifest["pages"], reviews)
     for page, review in zip(manifest["pages"], reviews, strict=True):
         write_page_report(run / page["run_dir"] / "report.html", review, reviewer)
-        (run / page["run_dir"] / "report.md").unlink(missing_ok=True)
     write_full_report(run / "report.html", manifest, rows, reviews, reviewer)
