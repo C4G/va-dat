@@ -109,21 +109,18 @@ def prepare_page(
     write_json(run / "run.json", manifest)
     (run / "README.md").write_text(
         "# Review this page run\n\n"
-        "Check `run.json` for completion and any stopping reason. "
-        "Add `--live` to `run` or `run-all` to call the LLMs. Without `--live`, the command "
-        "runs in preview mode, generating artifacts without calling the LLMs.\n\n"
-        "1. After execution completes, compare `normalized-llm-findings.json` with the Human "
-        "findings in `review.csv`. Use `snapshot.html` to check the page evidence.\n"
-        "2. Edit only `llm_finding_id`, `match_reason`, and `review_notes`. Separate joint "
-        "matches with semicolons. Select findings only when they fully cover the Human "
-        "finding; otherwise leave the LLM ID blank. Keep approved fields unchanged.\n"
-        "3. Save the CSV, then run from the repository root:\n\n"
+        "`run.json` says whether the run completed. A run without `--live` is a "
+        "preview and has no model output to review.\n\n"
+        "1. Compare `normalized-llm-findings.json` with the human findings in "
+        "`review.csv`. Check `snapshot.html` if you need the page itself.\n"
+        "2. Fill in `llm_finding_id`, `match_reason`, and `review_notes`. Separate "
+        "several IDs with semicolons, and leave the ID blank for a miss. Don't "
+        "change the other columns.\n"
+        "3. Generate the report from the repository root:\n\n"
         "```bash\n"
         f"uv run visionaid-evaluate report --run-dir {shlex.quote(str(run.resolve()))} "
         '--reviewer "Your name and review method"\n'
-        "```\n\n"
-        "Open `report.html` in a browser. Supporting evidence, including "
-        "`normalized-programmatic-findings.json`, is in `artifacts/`.\n",
+        "```\n",
         encoding="utf-8",
     )
     return manifest
