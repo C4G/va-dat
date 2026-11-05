@@ -24,7 +24,8 @@ from vision_aid.evaluation.execution.normalization import (
 from vision_aid.evaluation.execution.pricing import DEFAULT_SCHEDULE, PriceSchedule
 from vision_aid.evaluation.human_finding_mapping import (
     apply_human_finding_mapping,
-    saved_human_finding_mapping_decisions,
+    load_human_finding_mapping_snapshot,
+    resolved_decisions,
 )
 from vision_aid.evaluation.reporting.html_report import write_page_report
 from vision_aid.evaluation.review import create_review, reviewed_rows
@@ -51,20 +52,16 @@ def prepare_page(
     limit: Decimal,
     mapping: dict[str, Any],
 ) -> dict[str, Any]:
-    """Save a page's inputs, checks, prompts and blank review without paid requests.
+    """Save a page's snapshot, checker results, prompts, and blank review.
 
-    The caller supplies an existing fresh run directory and applicable Human
-    findings, retaining the same operations for one-page and Full evaluations.
+    Makes no model requests. `run` must already exist and be empty.
     """
-    if not html.is_file():
-        raise ValueError(f"Benchmark HTML not found: {html}")
-    configuration = evaluation_configuration(request_config)
     artifacts = run / "artifacts"
     artifacts.mkdir()
     shutil.copyfile(html, run / "snapshot.html")
     shutil.copyfile(DEFAULT_SCHEDULE, artifacts / "pricing.json")
-    snapshot_hash = hashlib.sha256((run / "snapshot.html").read_bytes()).hexdigest()
-    write_json(artifacts / "human-findings.json", human_audit.to_dict())
+    human = human_audit.to_dict()
+    write_json(artifacts / "human-findings.json", human)
     production = run_pipeline(
         html_path=str(run / "snapshot.html"),
         output_dir=artifacts,
@@ -78,26 +75,21 @@ def prepare_page(
     raw_path = artifacts / "programmatic_findings.json"
     raw_programmatic = json.loads(raw_path.read_text())
     raw_path.rename(artifacts / "raw-programmatic-findings.json")
-    findings = normalize_programmatic_findings(
-        raw_programmatic,
-        run_id=run.name,
-        page_url=source_url,
-    )
-    write_json(
-        artifacts / "normalized-programmatic-findings.json",
-        [asdict(item) for item in findings],
-    )
-    create_review(
-        run / "review.csv", list(human_audit.to_dict()["human_findings"])
-    )
+    programmatic = [
+        asdict(item) for item in normalize_programmatic_findings(
+            raw_programmatic, run_id=run.name, page_url=source_url,
+        )
+    ]
+    write_json(artifacts / "normalized-programmatic-findings.json", programmatic)
+    create_review(run / "review.csv", list(human["human_findings"]))
     schedule = PriceSchedule.load(artifacts / "pricing.json")
     manifest = {
         "run_id": run.name,
         "source_url": source_url,
         "human_audit_filename": human_audit.human_audit_filename,
         "human_audit_sha256": human_audit.human_audit_sha256,
-        "snapshot_sha256": snapshot_hash,
-        "configuration": configuration,
+        "snapshot_sha256": hashlib.sha256((run / "snapshot.html").read_bytes()).hexdigest(),
+        "configuration": evaluation_configuration(request_config),
         "pricing_version": schedule.version,
         "pricing_sha256": schedule.identity,
         "max_cost_usd": str(limit),
@@ -113,8 +105,8 @@ def prepare_page(
         "filters": production["pass1_filters_active"],
         "skipped_prompts": production["prompts_skipped"],
     }
+    apply_human_finding_mapping(run, manifest, human, programmatic, mapping)
     write_json(run / "run.json", manifest)
-    apply_human_finding_mapping(run, mapping)
     (run / "README.md").write_text(
         "# Review this page run\n\n"
         "Check `run.json` for completion and any stopping reason. "
@@ -134,7 +126,6 @@ def prepare_page(
         "`normalized-programmatic-findings.json`, is in `artifacts/`.\n",
         encoding="utf-8",
     )
-    manifest = json.loads((run / "run.json").read_text())
     return manifest
 
 
@@ -162,7 +153,8 @@ def validated_page_review(run: Path) -> PageReview:
         ):
             label = kind.upper() if kind == "llm" else kind.title()
             raise ValueError(f"{label} findings do not belong to this run")
-    approved = saved_human_finding_mapping_decisions(run, manifest, human_audit, programmatic)
+    mapping = load_human_finding_mapping_snapshot(run, manifest)
+    approved = resolved_decisions(mapping, human_audit, manifest["source_url"], programmatic)
     rows = reviewed_rows(
         run / "review.csv", human_audit["human_findings"], llm, programmatic, approved
     )
@@ -171,7 +163,7 @@ def validated_page_review(run: Path) -> PageReview:
 
 
 def report_page(run: Path, reviewer: str) -> PageReview:
-    """Validate human decisions and write the page report with attribution."""
+    """Validate the review and write the page report."""
     (run / "report.html").unlink(missing_ok=True)
     if not reviewer.strip():
         raise ValueError("A reviewer description is required")

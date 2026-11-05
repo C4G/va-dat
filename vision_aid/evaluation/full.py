@@ -139,6 +139,11 @@ def prepare_full_evaluation(
         "incomplete_reason": "preparing pages",
         "pages": pages,
     }
+    validate_human_finding_mapping(mapping, first_audit.human_audit_sha256)
+    if {item["human_finding_id"] for item in mapping["decisions"]} != set(originals):
+        raise ValueError(
+            "Human finding mapping must contain each original Human finding exactly once"
+        )
     write_json(run / "human-findings.json", {
         "human_audit_filename": first_audit.human_audit_filename,
         "human_audit_sha256": first_audit.human_audit_sha256,
@@ -146,6 +151,7 @@ def prepare_full_evaluation(
         "page_assignments": assignments,
         "source_urls": list(audits),
     })
+    save_human_finding_mapping_snapshot(run, manifest, mapping)
     write_json(run / "full.json", manifest)
     (run / "README.md").write_text(
         "# Review this Full evaluation\n\n"
@@ -164,9 +170,6 @@ def prepare_full_evaluation(
         "its own `report.html`. Incomplete runs cannot produce a combined report.\n",
         encoding="utf-8",
     )
-    save_full_human_finding_mapping(run, mapping)
-    manifest = json.loads((run / "full.json").read_text())
-    pages = manifest["pages"]
     for page in pages:
         child = run / page["run_dir"]
         try:
@@ -191,36 +194,33 @@ def prepare_full_evaluation(
     return manifest
 
 
-def save_full_human_finding_mapping(run: Path, mapping: dict[str, Any]) -> None:
-    """Pin the approved source shared by all children during preparation."""
-    manifest = json.loads((run / "full.json").read_text())
-    validate_human_finding_mapping(mapping, manifest["human_audit_sha256"])
-    original = json.loads((run / "human-findings.json").read_text())
-    if {item["human_finding_id"] for item in mapping["decisions"]} != {
-        item["human_finding_id"] for item in original["human_findings"]
-    }:
-        raise ValueError("Full evaluation Human finding mapping must contain each original Human finding exactly once")
-    save_human_finding_mapping_snapshot(run, manifest, mapping)
+def _stop_full_evaluation(
+    run: Path, manifest: dict[str, Any], reason: str, unfinished: list[dict[str, Any]],
+) -> bool:
+    """Record why execution stopped and mark the remaining pages as not run."""
+    manifest["incomplete_reason"] = reason
+    for page in unfinished:
+        page["status"] = "not_executed"
     write_json(run / "full.json", manifest)
+    return False
 
 
 def execute_full_evaluation(
     run: Path, manifest: dict[str, Any], api_key: str,
     request_config: LLMRequestConfig,
 ) -> bool:
-    """Execute prepared pages sequentially with one remaining cost allowance."""
+    """Run each page in order, passing the remaining cost allowance to the next."""
     total_cost = Decimal(0)
     usage = {key: 0 for key in USAGE_KEYS}
     limit = Decimal(manifest["max_cost_usd"])
+    pages = manifest["pages"]
     manifest["incomplete_reason"] = None
-    for number, page in enumerate(manifest["pages"]):
+    for number, page in enumerate(pages):
         remaining = limit - total_cost
         if remaining <= 0:
-            manifest["incomplete_reason"] = "cost guardrail exhausted before next page"
-            for unfinished in manifest["pages"][number:]:
-                unfinished["status"] = "not_executed"
-            write_json(run / "full.json", manifest)
-            return False
+            return _stop_full_evaluation(
+                run, manifest, "cost guardrail exhausted before next page", pages[number:]
+            )
         child = run / page["run_dir"]
         child_manifest = json.loads((child / "run.json").read_text())
         child_manifest["max_cost_usd"] = str(remaining)
@@ -238,15 +238,13 @@ def execute_full_evaluation(
         page.update(status="complete" if complete else "incomplete", complete=complete)
         manifest.update(estimated_cost_usd=str(total_cost), usage=usage)
         if not complete:
-            manifest["incomplete_reason"] = (
+            return _stop_full_evaluation(
+                run, manifest,
                 f"page execution failed for {page['source_url']}: "
-                f"{child_manifest['incomplete_reason']}"
+                f"{child_manifest['incomplete_reason']}",
+                pages[number + 1:],
             )
-            for unfinished in manifest["pages"][number + 1:]:
-                unfinished["status"] = "not_executed"
         write_json(run / "full.json", manifest)
-        if not complete:
-            return False
     manifest.update(complete=True, incomplete_reason=None)
     write_json(run / "full.json", manifest)
     return True

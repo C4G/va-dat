@@ -179,24 +179,17 @@ def load_human_finding_mapping_snapshot(
     return mapping
 
 
-def apply_human_finding_mapping(run: Path, mapping: dict[str, Any]) -> None:
-    """Populate fixed decisions and save their source, preserving per-run LLM review."""
-    manifest = json.loads((run / "run.json").read_text())
-    human = json.loads((run / "artifacts/human-findings.json").read_text())
-    programmatic = json.loads((run / "artifacts/normalized-programmatic-findings.json").read_text())
-    if human["human_audit_sha256"] != manifest["human_audit_sha256"]:
-        raise ValueError("Human audit identity differs from the run")
+def apply_human_finding_mapping(
+    run: Path, manifest: dict[str, Any], human: dict[str, Any],
+    programmatic: list[dict[str, Any]], mapping: dict[str, Any],
+) -> None:
+    """Fill the approved decisions into review.csv and save the mapping with the run."""
     decisions = resolved_decisions(mapping, human, manifest["source_url"], programmatic)
     path = run / "review.csv"
     with path.open(encoding="utf-8-sig", newline="") as stream:
         reader = csv.DictReader(stream)
         columns = list(reader.fieldnames or ())
         rows = list(reader)
-    if (
-        len(rows) != len(decisions)
-        or {row.get("human_finding_id") for row in rows} != set(decisions)
-    ):
-        raise ValueError("Review CSV must contain each Human finding exactly once")
     if "programmatic_match_reason" not in columns:
         columns.append("programmatic_match_reason")
     for row in rows:
@@ -206,13 +199,3 @@ def apply_human_finding_mapping(run: Path, mapping: dict[str, Any]) -> None:
         writer.writeheader()
         writer.writerows(rows)
     save_human_finding_mapping_snapshot(run, manifest, mapping)
-    (run / "run.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
-def saved_human_finding_mapping_decisions(
-    run: Path, manifest: dict[str, Any], human: dict[str, Any],
-    programmatic: list[dict[str, Any]],
-) -> dict[str, dict[str, str]]:
-    """Load the run's required frozen decisions and verify their saved identity."""
-    mapping = load_human_finding_mapping_snapshot(run, manifest)
-    return resolved_decisions(mapping, human, manifest["source_url"], programmatic)
