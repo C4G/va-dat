@@ -60,8 +60,12 @@ human finding in the audit:
 - **Its classification.** Which source should be able to catch it: the LLM, the
   programmatic checker, or neither (because the HTML can't show it, or the human
   finding is too vague).
-- **Its programmatic matches.** Which checker findings already cover it on each
-  page, if any.
+- **Its programmatic matches.** va-dat's rule-based checks, which use no AI, run
+  on every page and report their own list of problems. A match links a human
+  finding to the checker results that describe the same problem on the same
+  page, for example a human "image has no alt text" finding and the checker's
+  missing-alt result for that image. A human finding can have several matches
+  or none.
 
 The scores depend on both. The LLM rate only counts `llm_eligible` findings, so
 without classifications there's nothing to divide by. The checker's output
