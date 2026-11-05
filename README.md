@@ -300,10 +300,8 @@ everything it does is free:
 - `index.html`'s inline JavaScript parses
 - the Docker image builds, becomes healthy, serves the site, and returns a valid NDJSON audit
 
-Default pytest discovery is limited to `tests/`, where `tests/test_evaluation.py`
-covers the evaluator end to end through its CLI with a fake provider. Optional
-detailed evaluator cases live in the ignored `.local-tests/evaluation/` folder;
-run them with `uv run pytest -q .local-tests/evaluation`. CI never needs them.
+`tests/test_evaluation_workflow.py` runs the evaluator end to end through its CLI
+with a fake model. It checks the workflow as a whole rather than individual functions.
 
 ## Running the Pipeline
 
