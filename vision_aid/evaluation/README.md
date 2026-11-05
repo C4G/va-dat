@@ -224,8 +224,12 @@ each page of `run-all`. The files you'll most likely open are:
 | `artifacts/prompts/*.json`                        | The exact prompts sent to the model.                                                 |
 | `artifacts/raw-llm-responses.json`                | Model replies and token usage.                                                       |
 
-The top `run-all` folder also has `full.json`, with the page order and totals,
-and a combined `report.html` covering every page.
+A `run-all` run also writes two files to `.model-evaluation/full-runs/<run-id>/`:
+
+| File          | Contents                                                                                                                    |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `full.json`   | Settings, the cost limit, total cost and tokens across all pages, whether the run finished, and each page's URL and folder. |
+| `report.html` | One report for the whole site, with rates pooled across pages and each Global finding counted once.                         |
 
 Regenerating a report deletes the old one first, so a failed validation leaves
 no report rather than a stale one. Copy it somewhere if you want to keep it.
