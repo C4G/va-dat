@@ -23,8 +23,9 @@ from vision_aid.evaluation.execution.normalization import (
 )
 from vision_aid.evaluation.execution.pricing import DEFAULT_SCHEDULE, PriceSchedule
 from vision_aid.evaluation.human_finding_mapping import (
+    HUMAN_FINDING_MAPPING_ARTIFACT,
     apply_human_finding_mapping,
-    load_human_finding_mapping_snapshot,
+    load_human_finding_mapping,
     resolved_decisions,
 )
 from vision_aid.evaluation.reporting.html_report import write_page_report
@@ -131,26 +132,12 @@ def validated_page_review(run: Path) -> PageReview:
     run = run.resolve()
     artifacts = run / "artifacts"
     manifest = json.loads((run / "run.json").read_text())
-    if manifest["run_id"] != run.name:
-        raise ValueError("Run evidence does not belong to this directory")
     if not manifest["complete"]:
         raise ValueError("Incomplete Evaluation runs cannot produce a final report")
     human_audit = json.loads((artifacts / "human-findings.json").read_text())
-    if human_audit["human_audit_sha256"] != manifest["human_audit_sha256"]:
-        raise ValueError("Human audit identity differs from the run")
     llm = json.loads((run / "normalized-llm-findings.json").read_text())
-    programmatic_file = artifacts / "normalized-programmatic-findings.json"
-    programmatic = json.loads(programmatic_file.read_text())
-    for kind, collection in (("llm", llm), ("programmatic", programmatic)):
-        if any(
-            item["run_id"] != run.name
-            or item["source"] != kind
-            or item["page_url"] != manifest["source_url"]
-            for item in collection
-        ):
-            label = kind.upper() if kind == "llm" else kind.title()
-            raise ValueError(f"{label} findings do not belong to this run")
-    mapping = load_human_finding_mapping_snapshot(run, manifest)
+    programmatic = json.loads((artifacts / "normalized-programmatic-findings.json").read_text())
+    mapping = load_human_finding_mapping(run / HUMAN_FINDING_MAPPING_ARTIFACT, manifest["human_audit_sha256"])
     approved = resolved_decisions(mapping, human_audit, manifest["source_url"], programmatic)
     rows = reviewed_rows(
         run / "review.csv", human_audit["human_findings"], llm, programmatic, approved

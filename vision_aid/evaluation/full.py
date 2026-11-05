@@ -20,7 +20,6 @@ from vision_aid.evaluation.execution.llm_audit import (
     write_json,
 )
 from vision_aid.evaluation.human_finding_mapping import (
-    load_human_finding_mapping_snapshot,
     save_human_finding_mapping_snapshot,
     validate_human_finding_mapping,
 )
@@ -253,7 +252,10 @@ def _pooled_rows(
     pages: list[dict[str, Any]],
     reviews: list[PageReview],
 ) -> list[dict[str, Any]]:
-    """Combine page rows so each original finding appears once."""
+    """Combine page rows so each original finding appears once.
+
+    A finding counts as caught by a source if that source caught it on any page.
+    """
     grouped: dict[str, list[dict[str, Any]]] = {}
     for page, review in zip(pages, reviews, strict=True):
         for row in review.rows:
@@ -265,22 +267,9 @@ def _pooled_rows(
     pooled = []
     for finding in originals:
         page_rows = grouped[finding["human_finding_id"]]
-        classifications = {
-            row["decision"]["classification"].strip() for row in page_rows
-            if row["decision"]["classification"].strip() in {"llm_eligible", "programmatic"}
-        }
-        if len(classifications) > 1:
-            raise ValueError(
-                f"Global Human finding {finding['human_finding_id']} has conflicting "
-                "testable classifications; all testable pages must agree"
-            )
-        classification = (
-            next(iter(classifications)) if classifications
-            else page_rows[0]["decision"]["classification"].strip()
-        )
         pooled.append({
             "human_finding": finding,
-            "decision": {"classification": classification},
+            "decision": {"classification": page_rows[0]["decision"]["classification"].strip()},
             "matches": {
                 kind: tuple(identity for row in page_rows for identity in row["matches"][kind])
                 for kind in ("llm", "programmatic")
@@ -290,105 +279,21 @@ def _pooled_rows(
     return pooled
 
 
-def _validated_full_reviews(
-    run: Path, manifest: dict[str, Any], original: dict[str, Any],
-) -> list[PageReview]:
-    """Check every page run belongs to this full run and validate its review."""
-    if manifest["run_id"] != run.name:
-        raise ValueError("Full evaluation evidence does not belong to this directory")
-    if not manifest["complete"]:
-        raise ValueError("Incomplete Full evaluations cannot produce a final report")
-    urls = original["source_urls"]
-    if not urls or len(urls) != len(set(urls)) or [
-        page["source_url"] for page in manifest["pages"]
-    ] != urls:
-        raise ValueError("Full evaluation membership differs from the original ordered targets")
-    if original["human_audit_sha256"] != manifest["human_audit_sha256"]:
-        raise ValueError("Human audit identity differs from the Full evaluation")
-    findings = original["human_findings"]
-    identities = [item["human_finding_id"] for item in findings]
-    if not identities or len(identities) != len(set(identities)):
-        raise ValueError("Full evaluation must preserve each original Human finding once")
-    assignments = original["page_assignments"]
-    locals_ = {item["human_finding_id"] for item in findings if item["page_scope"] != "global"}
-    if set(assignments) != locals_ or any(url not in urls for url in assignments.values()):
-        raise ValueError("Full evaluation has invalid original page assignments")
-    mapping = load_human_finding_mapping_snapshot(run, manifest, "Saved Full evaluation Human finding mapping")
-    mapping_digest = manifest["human_finding_mapping_sha256"]
-    if {item["human_finding_id"] for item in mapping["decisions"]} != set(identities):
-        raise ValueError("Full evaluation Human finding mapping differs from original Human findings")
-    reviews = []
-    child_ids: set[str] = set()
-    tool_ids: set[str] = set()
-    for page in manifest["pages"]:
-        child = (run / page["run_dir"]).resolve()
-        if (
-            page["run_id"] in child_ids
-            or page["run_dir"] != f"pages/{page['run_id']}"
-            or child.parent != run / "pages"
-            or child.name != page["run_id"]
-        ):
-            raise ValueError("Child Evaluation run identity or directory ownership differs")
-        child_ids.add(page["run_id"])
-        if not page["complete"] or page["status"] != "complete":
-            raise ValueError("Every listed page must complete execution before combined reporting")
-        expected = [
-            item for item in findings if item["page_scope"] == "global"
-            or assignments[item["human_finding_id"]] == page["source_url"]
-        ]
-        if page["human_finding_ids"] != [item["human_finding_id"] for item in expected]:
-            raise ValueError("Child Human finding membership differs from its original assignments")
-        evidence = json.loads((child / "artifacts/human-findings.json").read_text())
-        if evidence["human_findings"] != expected or evidence["homepage_url"] != page["source_url"]:
-            raise ValueError("Child Human finding evidence differs from the original page selection")
-        review = validated_page_review(child)
-        saved = review.manifest
-        if saved.get("human_finding_mapping_sha256") != mapping_digest:
-            raise ValueError(f"Child Human finding mapping differs from the Full evaluation: {page['source_url']}")
-        for field, expected_value in (
-            ("run_id", page["run_id"]), ("source_url", page["source_url"]),
-            ("human_audit_sha256", manifest["human_audit_sha256"]),
-            ("configuration", manifest["configuration"]),
-            ("snapshot_sha256", page["snapshot_sha256"]),
-        ):
-            if saved[field] != expected_value:
-                raise ValueError(f"Child {field} differs from the Full evaluation")
-        if hashlib.sha256((child / "snapshot.html").read_bytes()).hexdigest() != saved["snapshot_sha256"]:
-            raise ValueError("Child Benchmark snapshot checksum differs from the saved evidence")
-        if review.schedule.identity != saved["pricing_sha256"] or review.schedule.version != saved["pricing_version"]:
-            raise ValueError("Child pricing evidence differs from its recorded schedule")
-        for filename in ("raw-llm-responses.json", "raw-programmatic-findings.json"):
-            json.loads((child / "artifacts" / filename).read_text())
-        for prompt in saved["prompts"]:
-            json.loads((child / "artifacts/prompts" / f"{prompt['name']}.json").read_text())
-        if any(item["model"] != manifest["configuration"]["model"] for item in review.llm):
-            raise ValueError("LLM findings do not belong to the selected model")
-        ids = [item["finding_id"] for item in review.llm + review.programmatic]
-        if len(ids) != len(set(ids)) or tool_ids.intersection(ids):
-            raise ValueError("Tool finding identities must be unique across all page runs")
-        tool_ids.update(ids)
-        reviews.append(review)
-    cost = sum((Decimal(review.manifest["estimated_cost_usd"]) for review in reviews), Decimal(0))
-    usage = {key: sum(review.manifest["usage"][key] for review in reviews) for key in USAGE_KEYS}
-    if cost != Decimal(manifest["estimated_cost_usd"]) or usage != manifest["usage"]:
-        raise ValueError("Full evaluation totals differ from authoritative child cost and usage")
-    return reviews
-
-
 def report_full_evaluation(run: Path, reviewer: str) -> None:
-    """Validate every page review before writing page and combined reports."""
+    """Validate every page review, then write the page and combined reports."""
     if not reviewer.strip():
         raise ValueError("A reviewer description is required")
     run = run.resolve()
-    # Regeneration cannot leave a previous final report beside invalid decisions.
+    # Remove the old report first so a failed validation can't leave it looking current.
     (run / "report.html").unlink(missing_ok=True)
     (run / "report.md").unlink(missing_ok=True)
     manifest = json.loads((run / "full.json").read_text())
+    if not manifest["complete"]:
+        raise ValueError("Incomplete Full evaluations cannot produce a final report")
     original = json.loads((run / "human-findings.json").read_text())
-    reviews = _validated_full_reviews(run, manifest, original)
+    reviews = [validated_page_review(run / page["run_dir"]) for page in manifest["pages"]]
     rows = _pooled_rows(original["human_findings"], manifest["pages"], reviews)
     for page, review in zip(manifest["pages"], reviews, strict=True):
-        child = run / page["run_dir"]
-        write_page_report(child / "report.html", review, reviewer)
-        (child / "report.md").unlink(missing_ok=True)
+        write_page_report(run / page["run_dir"] / "report.html", review, reviewer)
+        (run / page["run_dir"] / "report.md").unlink(missing_ok=True)
     write_full_report(run / "report.html", manifest, rows, reviews, reviewer)

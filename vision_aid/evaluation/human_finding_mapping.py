@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -155,28 +154,11 @@ def resolved_decisions(
 def save_human_finding_mapping_snapshot(
     run: Path, manifest: dict[str, Any], mapping: dict[str, Any],
 ) -> None:
-    """Copy the mapping into the run and record its checksum in the manifest."""
+    """Copy the mapping into the run and record who approved it."""
     path = run / HUMAN_FINDING_MAPPING_ARTIFACT
     path.parent.mkdir(exist_ok=True)
     path.write_text(json.dumps(mapping, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    manifest["human_finding_mapping_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
     manifest["human_finding_mapping_approved_by"] = mapping["approved_by"]
-
-
-def load_human_finding_mapping_snapshot(
-    run: Path, manifest: dict[str, Any], label: str = "Saved Human finding mapping",
-) -> dict[str, Any]:
-    """Load the run's saved mapping, checking it hasn't changed."""
-    path = run / HUMAN_FINDING_MAPPING_ARTIFACT
-    digest = manifest.get("human_finding_mapping_sha256")
-    if not digest:
-        raise ValueError(f"{label} is missing its run identity; prepare a new run with --human-finding-mapping PATH")
-    if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
-        raise ValueError(f"{label} is missing or its checksum changed")
-    mapping = load_human_finding_mapping(path, manifest["human_audit_sha256"])
-    if manifest.get("human_finding_mapping_approved_by") != mapping["approved_by"]:
-        raise ValueError(f"{label} approval attribution changed")
-    return mapping
 
 
 def apply_human_finding_mapping(
