@@ -21,9 +21,9 @@ Each command below runs as `uv run visionaid-evaluate <command>`.
 2. **Create the mapping.** The `human-finding-mapping-prepare` command writes
    review CSV files. You fill them in, then the `human-finding-mapping-approve`
    command turns them into the [mapping](#what-a-mapping-is) file. You do this
-   once per audit and reuse it for every model.
-3. **Run the model.** The `run` command (one page) or `run-all` command (every
-   page) prepares the prompts. Without the `--live` flag it's a free preview.
+   once per human audit file and reuse it for every evaluation run.
+3. **Run the model.** The `run` command (one webpage) or `run-all` command (every
+   webpage) prepares the prompts. Without the `--live` flag it's a free preview.
    With `--live` it calls the model.
 4. **Review the matches.** You edit each run's `review.csv` file to record which
    LLM findings match each human finding.
@@ -34,7 +34,7 @@ Every command writes to a new directory and won't overwrite earlier work.
 
 ## Human audit Excel file format
 
-The audit spreadsheet and the mapping files are private and kept out of Git.
+The audit spreadsheet and the [mapping](#what-a-mapping-is) files are private and kept out of Git.
 Put the spreadsheet in the repository root. Use  
 `Pristine Accessibility Defect Report.xlsx` or any other audit in this format.
 
@@ -210,11 +210,13 @@ the per-page rates to get them.
 
 ## Reports and saved files
 
-`report.html` is a single offline file. It shows cost, detection rates, and a
-table of human findings you can expand and filter. **Print report** prints the
-summary without the findings table.
+`report.html` is a self-contained, accessible report from an evaluation run. It
+shows cost, detection rates, and a table of human findings you can expand and
+filter. It's the only report the evaluator writes.
 
-The run folder keeps everything else. The files you'll most likely open are:
+Each run gets its own folder under `.model-evaluation/`. Besides `report.html`,
+it holds the inputs and outputs the report was built from. The ones you'll most
+likely open are:
 
 | File                                              | Contents                                                |
 | ------------------------------------------------- | ------------------------------------------------------- |
@@ -233,17 +235,3 @@ no report rather than a stale one. Copy it somewhere if you want to keep it.
 
 The evaluator skips va-dat's false-positive filter and LLM deduplication, so its
 findings won't match the CSV the main tool produces.
-
-## Troubleshooting
-
-| Problem                                | Fix                                                                        |
-| -------------------------------------- | -------------------------------------------------------------------------- |
-| Approved mapping required              | Prepare and approve a mapping, then pass `--human-finding-mapping`.        |
-| Audit checksum or page mismatch        | Use the same spreadsheet and snapshots the mapping was approved with.      |
-| Expected checker finding not found     | The snapshot or checker code changed. Restore it or approve a new mapping. |
-| Directory or output already exists     | Pick a new path.                                                           |
-| Missing LLM findings in a complete run | Check `format_failures` in `run.json` and the raw responses.               |
-| Unknown or reused finding ID           | Copy IDs from this page's findings file and use each once.                 |
-
-Older run folders from before the current layout aren't supported. Make new runs
-instead.
