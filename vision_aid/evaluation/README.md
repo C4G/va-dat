@@ -14,15 +14,21 @@ the full command sequence. Run everything from the repository root. Use
 
 ## General Workflow
 
-1. `capture` downloads every page listed in the audit and saves the HTML.
-2. `human-finding-mapping-prepare` and `human-finding-mapping-approve` create the
-   [mapping](#what-a-mapping-is), which records
-   what kind of finding each human finding is and which programmatic findings
-   already cover it. You do this once per audit and reuse it for every model.
-3. `run` (one page) or `run-all` (every page) prepares the prompts. Without
-   `--live` it's a free preview of the generated artifacts. With `--live` it calls the model.
-4. You fill in `review.csv` with the LLM matches.
-5. `report` or `report-all` validates the review and writes `report.html`.
+Each command below runs as `uv run visionaid-evaluate <command>`.
+
+1. **Capture the pages.** The `capture` command downloads every page listed in
+   the audit and saves its HTML.
+2. **Create the mapping.** The `human-finding-mapping-prepare` command writes
+   review CSV files. You fill them in, then the `human-finding-mapping-approve`
+   command turns them into the [mapping](#what-a-mapping-is) file. You do this
+   once per audit and reuse it for every model.
+3. **Run the model.** The `run` command (one page) or `run-all` command (every
+   page) prepares the prompts. Without the `--live` flag it's a free preview.
+   With `--live` it calls the model.
+4. **Review the matches.** You edit each run's `review.csv` file to record which
+   LLM findings match each human finding.
+5. **Build the report.** The `report` or `report-all` command checks your review
+   and writes a `report.html` file.
 
 Every command writes to a new directory and won't overwrite earlier work.
 
