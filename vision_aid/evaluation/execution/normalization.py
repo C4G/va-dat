@@ -1,4 +1,4 @@
-"""Lossless deterministic normalization of raw LLM outcomes."""
+"""Turn raw LLM responses and checker output into findings."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ class NormalizationResult:
 
 
 def _first_text(item: dict[str, Any], keys: Iterable[str]) -> str:
-    """Return the first populated evidence field as stable text."""
+    """Return the first non-empty field among `keys` as text."""
     for key in keys:
         value = item.get(key)
         if value is None or value == "":
@@ -86,7 +86,7 @@ class _Source(NamedTuple):
 
 
 def _issue_list(item: dict[str, Any], key: str) -> list[Any]:
-    """Copy a listed-problems field, rejecting text that would split per character."""
+    """Return a list field, raising TypeError if it isn't a list."""
     value = item.get(key)
     if value is None:
         return []
@@ -246,7 +246,7 @@ def normalize_programmatic_findings(
     run_id: str,
     page_url: str,
 ) -> tuple[CanonicalFinding, ...]:
-    """Normalize checker output while retaining each complete source object."""
+    """Turn raw checker output into findings."""
     normalized = []
     for index, item in enumerate(raw_findings):
         canonical_item = json.dumps(

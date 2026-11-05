@@ -1,4 +1,4 @@
-"""Fixed evaluation model presets and sequential paid execution."""
+"""Model presets and the paid execution loop."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ USAGE_KEYS = (
 
 
 def evaluation_configuration(config: LLMRequestConfig) -> dict[str, Any]:
-    """Record the selected preset and evaluation-only request settings."""
+    """Describe a preset's request settings for run.json."""
     provider = "openai" if config.model in OPENAI_MODELS else "anthropic"
     metadata = config.as_metadata()
     return {
@@ -66,7 +66,7 @@ def evaluation_configuration(config: LLMRequestConfig) -> dict[str, Any]:
 
 
 def write_json(path: Path, value: object) -> None:
-    """Save one readable private evidence artifact."""
+    """Write `value` as indented JSON."""
     path.write_text(
         json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -74,7 +74,7 @@ def write_json(path: Path, value: object) -> None:
 
 
 def positive_cost(value: str) -> Decimal:
-    """Parse a strictly positive cost guardrail."""
+    """Parse --max-cost-usd, which must be a positive decimal."""
     try:
         amount = Decimal(value)
     except Exception as error:
@@ -85,7 +85,7 @@ def positive_cost(value: str) -> Decimal:
 
 
 def billable_usage(model: str, reported: dict[str, Any]) -> dict[str, int]:
-    """Separate OpenAI cached subsets without changing reported evidence."""
+    """Split usage into separately priced categories; OpenAI counts cached tokens inside input."""
     usage = {key: int(reported.get(key) or 0) for key in USAGE_KEYS}
     if model in OPENAI_MODELS:
         raw = reported.get("provider_usage") or {}
@@ -102,7 +102,7 @@ def execute(
     run: Path, manifest: dict[str, Any], api_key: str,
     request_config: LLMRequestConfig,
 ) -> bool:
-    """Make each paid request once, saving reported usage and responses as received."""
+    """Send each prompt once, saving responses and cost as they arrive."""
     artifacts = run / "artifacts"
     schedule = PriceSchedule.load(artifacts / "pricing.json")
     client = LLMRequestClient(

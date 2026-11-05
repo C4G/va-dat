@@ -1,4 +1,4 @@
-"""Prepare reader-facing data and publish self-contained evaluation reports."""
+"""Render page and combined HTML reports."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def _display_model(model: str) -> str:
 
 
 def _cost_details(manifest: dict[str, Any], schedules: list[PriceSchedule]) -> dict[str, Any]:
-    """Present saved usage and model prices without recalculating the run cost."""
+    """Build the cost section from the run's saved usage and prices."""
     usage = manifest["usage"]
     model = manifest["configuration"].get("model")
     if model is None:
@@ -81,7 +81,7 @@ def _cost_details(manifest: dict[str, Any], schedules: list[PriceSchedule]) -> d
 
 
 def _chart_rates(counts: dict[str, dict[str, int]]) -> list[dict[str, Any]]:
-    """Prepare chart labels and widths from the existing deterministic counts."""
+    """Build the detection bar chart data."""
     rates = []
     for kind, label in (
         ("llm", "LLM"),
@@ -102,7 +102,7 @@ def _chart_rates(counts: dict[str, dict[str, int]]) -> list[dict[str, Any]]:
 
 
 def page_data(review: PageReview, reviewer: str) -> dict[str, Any]:
-    """Resolve validated evidence and deterministic scores before rendering."""
+    """Build the template data for one page report."""
     manifest = review.manifest
     findings = {item["finding_id"]: item for item in review.llm + review.programmatic}
     counts = detection_counts(review.rows)
@@ -159,7 +159,7 @@ def full_data(
     manifest: dict[str, Any], pooled: list[dict[str, Any]],
     reviews: list[PageReview], reviewer: str,
 ) -> dict[str, Any]:
-    """Combine validated presentation rows without changing pooled scoring."""
+    """Build the template data for the combined report."""
     pages = [page_data(review, reviewer) for review in reviews]
     grouped: dict[str, list[dict[str, Any]]] = {}
     for page in pages:
@@ -190,17 +190,17 @@ def write_full_report(
     path: Path, manifest: dict[str, Any], pooled: list[dict[str, Any]],
     reviews: list[PageReview], reviewer: str,
 ) -> None:
-    """Render every accepted page decision into the standalone parent."""
+    """Write the combined report."""
     _write_html(path, "full.html.jinja", full_data(manifest, pooled, reviews, reviewer))
 
 
 def write_page_report(path: Path, review: PageReview, reviewer: str) -> None:
-    """Publish a standalone individual Evaluation report."""
+    """Write one page's report."""
     _write_html(path, "page.html.jinja", page_data(review, reviewer))
 
 
 def _write_html(path: Path, template: str, data: dict[str, Any]) -> None:
-    """Render completely, then atomically replace the report in its directory."""
+    """Render the template, then atomically replace the report file."""
     environment = Environment(
         loader=PackageLoader("vision_aid.evaluation.reporting", "templates"),
         autoescape=select_autoescape(("html.jinja",)),

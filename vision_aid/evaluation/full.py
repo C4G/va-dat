@@ -1,4 +1,4 @@
-"""Coordinate Full evaluation preparation and saved Benchmark snapshots."""
+"""Capture snapshots and prepare, run, and report full evaluations."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ from vision_aid.evaluation.schemas import HumanAudit
 
 
 def capture_snapshots(human_audit: Path, output_dir: Path) -> Path:
-    """Download only listed pages and publish their mapping after all succeed."""
+    """Download each listed page, writing snapshots.json only if all succeed."""
     urls = list_audit_urls(human_audit)
     audit_checksum = hashlib.sha256(human_audit.read_bytes()).hexdigest()
     output_dir.mkdir(parents=True)
@@ -60,7 +60,7 @@ def capture_snapshots(human_audit: Path, output_dir: Path) -> Path:
 def load_full_inputs(
     human_audit: Path, mapping_path: Path,
 ) -> tuple[dict[str, HumanAudit], dict[str, Path]]:
-    """Load listed page assignments and saved snapshots without downloading."""
+    """Load the audit's pages and check they match snapshots.json."""
     audits = import_all_human_findings(human_audit)
     mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
     checksum = next(iter(audits.values())).human_audit_sha256
@@ -105,7 +105,7 @@ def prepare_full_evaluation(
     limit: Decimal,
     mapping: dict[str, Any],
 ) -> dict[str, Any]:
-    """Prepare all listed pages, retaining membership and progress on failure."""
+    """Prepare a page run for every listed page, recording progress in full.json."""
     first_audit = next(iter(audits.values()))
     pages = []
     originals = {}
@@ -257,7 +257,7 @@ def _pooled_rows(
     pages: list[dict[str, Any]],
     reviews: list[PageReview],
 ) -> list[dict[str, Any]]:
-    """Keep each original once, using complete source matches on any one page."""
+    """Combine page rows so each original finding appears once."""
     grouped: dict[str, list[dict[str, Any]]] = {}
     for page, review in zip(pages, reviews, strict=True):
         for row in review.rows:
@@ -297,7 +297,7 @@ def _pooled_rows(
 def _validated_full_reviews(
     run: Path, manifest: dict[str, Any], original: dict[str, Any],
 ) -> list[PageReview]:
-    """Check ordered membership, original evidence and ownership for every child."""
+    """Check every page run belongs to this full run and validate its review."""
     if manifest["run_id"] != run.name:
         raise ValueError("Full evaluation evidence does not belong to this directory")
     if not manifest["complete"]:

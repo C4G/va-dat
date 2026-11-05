@@ -1,4 +1,4 @@
-"""Approved audit decisions, resolved against each page's actual checker evidence."""
+"""Load, validate, and apply an approved Human finding mapping."""
 
 from __future__ import annotations
 
@@ -19,12 +19,12 @@ LOCKED_COLUMNS = (
 
 
 def _text(value: Any) -> bool:
-    """Identify populated human-authored text without coercing invalid values."""
+    """Return True for a non-blank string."""
     return isinstance(value, str) and bool(value.strip())
 
 
 def validate_human_finding_mapping(mapping: dict[str, Any], audit_sha256: str) -> None:
-    """Reject unrelated audits and incomplete or conflicting approved decisions."""
+    """Raise ValueError if the mapping is malformed or belongs to another audit."""
     if not isinstance(mapping, dict) or mapping.get("schema_version") != 1:
         raise ValueError("Human finding mapping must use schema_version 1")
     if mapping.get("human_audit_sha256") != audit_sha256:
@@ -81,14 +81,14 @@ def validate_human_finding_mapping(mapping: dict[str, Any], audit_sha256: str) -
 
 
 def load_human_finding_mapping(path: Path, audit_sha256: str) -> dict[str, Any]:
-    """Read explicitly selected approved decisions for exactly this Human audit."""
+    """Read and validate a mapping file."""
     mapping = json.loads(path.read_text(encoding="utf-8"))
     validate_human_finding_mapping(mapping, audit_sha256)
     return mapping
 
 
 def select_human_finding_mapping(path: Path | None, audit_sha256: str) -> dict[str, Any] | None:
-    """Select explicit decisions or a locally stored Human finding mapping for this audit checksum."""
+    """Load the given mapping, or the local one for this audit, or return None."""
     if path is None:
         path = HUMAN_FINDING_MAPPING_DIRECTORY / f"{audit_sha256}.json"
         if not path.is_file():
@@ -97,7 +97,7 @@ def select_human_finding_mapping(path: Path | None, audit_sha256: str) -> dict[s
 
 
 def _contains(actual: Any, expected: Any) -> bool:
-    """Match exact evidence values, allowing a selected subset of raw object fields."""
+    """Return True if `actual` contains every field in `expected`, recursively."""
     if isinstance(expected, dict):
         return isinstance(actual, dict) and all(
             key in actual and _contains(actual[key], value)
@@ -110,7 +110,7 @@ def resolved_decisions(
     mapping: dict[str, Any], human_audit: dict[str, Any], source_url: str,
     programmatic: list[dict[str, Any]],
 ) -> dict[str, dict[str, str]]:
-    """Resolve each approved complete match uniquely without run-dependent keys."""
+    """Turn the mapping's checker expectations into this run's finding IDs."""
     validate_human_finding_mapping(mapping, human_audit["human_audit_sha256"])
     decisions = {item["human_finding_id"]: item for item in mapping["decisions"]}
     resolved = {}
@@ -155,7 +155,7 @@ def resolved_decisions(
 def save_human_finding_mapping_snapshot(
     run: Path, manifest: dict[str, Any], mapping: dict[str, Any],
 ) -> None:
-    """Save approved decisions and pin their bytes and attribution in a manifest."""
+    """Copy the mapping into the run and record its checksum in the manifest."""
     path = run / HUMAN_FINDING_MAPPING_ARTIFACT
     path.parent.mkdir(exist_ok=True)
     path.write_text(json.dumps(mapping, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -166,7 +166,7 @@ def save_human_finding_mapping_snapshot(
 def load_human_finding_mapping_snapshot(
     run: Path, manifest: dict[str, Any], label: str = "Saved Human finding mapping",
 ) -> dict[str, Any]:
-    """Load a pinned approved source only after verifying its bytes and attribution."""
+    """Load the run's saved mapping, checking it hasn't changed."""
     path = run / HUMAN_FINDING_MAPPING_ARTIFACT
     digest = manifest.get("human_finding_mapping_sha256")
     if not digest:

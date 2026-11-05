@@ -1,4 +1,4 @@
-"""Preserve Human findings and select them for one page or every listed page."""
+"""Read human findings from the audit spreadsheet and assign them to pages."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ ELIGIBILITY_VALUES = (
 def _source_findings(
     path: Path, *, homepage_only: bool
 ) -> tuple[str, tuple[HumanFinding, ...]]:
-    """Read original Human finding evidence with stable source identities."""
+    """Read every Defect report row, giving each a checksum-based ID."""
     checksum = hashlib.sha256(path.read_bytes()).hexdigest()
     human_audit_excel = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
@@ -81,7 +81,7 @@ def _source_findings(
 
 
 def import_homepage_human_findings(path: Path, homepage_url: str) -> HumanAudit:
-    """Preserve the one-page command's Home and Global source selection."""
+    """Select Home and Global findings from an audit with no URL list tab."""
     checksum, human_findings = _source_findings(path, homepage_only=True)
     if not human_findings:
         raise ValueError("Human audit has no Home or Global defects")
@@ -89,7 +89,7 @@ def import_homepage_human_findings(path: Path, homepage_url: str) -> HumanAudit:
 
 
 def import_all_human_findings(path: Path) -> dict[str, HumanAudit]:
-    """Assign local findings by reproduction URL and repeat Globals per page."""
+    """Assign each finding to its page by URL; Globals go on every page."""
     urls = list_audit_urls(path)
     if len(urls) != len(set(urls)):
         raise ValueError("Human audit URL list contains repeated target URLs")
@@ -131,7 +131,7 @@ def import_all_human_findings(path: Path) -> dict[str, HumanAudit]:
 
 
 def list_audit_urls(path: Path) -> tuple[str, ...]:
-    """Read the Human audit's explicit target URLs in source order."""
+    """Read the URL list tab in order."""
     human_audit_excel = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
         sheet = human_audit_excel["URL list"]
@@ -153,7 +153,7 @@ def list_audit_urls(path: Path) -> tuple[str, ...]:
 
 
 def import_page_human_findings(path: Path, source_url: str) -> HumanAudit:
-    """Select a listed page's local findings and Globals, retaining older Home audits."""
+    """Return the findings for one page."""
     human_audit_excel = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
         has_urls = "URL list" in human_audit_excel.sheetnames

@@ -1,4 +1,4 @@
-"""Evidence records for page evaluations against the Human audit."""
+"""Data records for human and tool findings."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class HumanAudit:
     human_findings: tuple[HumanFinding, ...]
 
     def to_dict(self) -> dict[str, Any]:
-        """Return JSON-compatible source evidence."""
+        """Return the audit as a JSON-compatible dict."""
         return asdict(self)
 
 

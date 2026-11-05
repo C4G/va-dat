@@ -1,4 +1,4 @@
-"""Reproducible cost estimates from a versioned public price schedule."""
+"""Estimate request cost from the saved price schedule."""
 
 from __future__ import annotations
 
@@ -16,14 +16,14 @@ MILLION = Decimal(1_000_000)
 
 @dataclass(frozen=True)
 class PriceSchedule:
-    """Immutable model rates and their content identity."""
+    """Model rates plus the SHA-256 of the file they came from."""
 
     data: dict[str, Any]
     identity: str
 
     @classmethod
     def load(cls, path: Path) -> PriceSchedule:
-        """Load and content-address one JSON price schedule."""
+        """Load a price schedule JSON file."""
         raw = path.read_bytes()
         data = json.loads(raw)
         if not isinstance(data, dict) or not isinstance(data.get("models"), dict):
@@ -32,12 +32,12 @@ class PriceSchedule:
 
     @property
     def version(self) -> str:
-        """Return the curator-assigned price-schedule version."""
+        """Return the schedule's version string."""
         return str(self.data["version"])
 
     @property
     def price_description(self) -> str:
-        """Distinguish captured public rates from older publication metadata."""
+        """Describe when the prices were captured."""
         if "captured_at" in self.data:
             return f"published prices captured on {self.data['captured_at']}"
         return f"published prices dated {self.data['published_at']}"

@@ -1,4 +1,4 @@
-"""Prepare readable audit decisions and export an approved Human finding mapping."""
+"""Write the mapping review CSVs and turn the completed ones into a mapping."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def _write_csv(
 
 
 def _human_columns(finding: dict[str, Any]) -> dict[str, Any]:
-    """Flatten original evidence beside generated identities for human review."""
+    """Return a human finding's ID columns and original spreadsheet cells."""
     return {
         key: finding[key] for key in IDENTITY_COLUMNS if key not in HEADERS
     } | finding["raw_evidence"]
@@ -68,7 +68,7 @@ def _human_columns(finding: dict[str, Any]) -> dict[str, Any]:
 def _review_sources(
     human_audit: Path, snapshots: Path,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Rebuild original findings and the checker catalog from the supplied saved inputs."""
+    """Run the checkers on each snapshot and build the findings catalog."""
     audits, html_files = load_full_inputs(human_audit, snapshots)
     originals = {}
     pages = []
@@ -139,7 +139,7 @@ def _match_rows(evidence: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def prepare_human_finding_mapping_review(human_audit: Path, snapshots: Path, output: Path) -> None:
-    """Prepare two editable CSVs and a checker catalog using the original saved inputs."""
+    """Write the review CSVs, findings catalog, and README to a new directory."""
     if output.exists():
         raise FileExistsError(f"Review directory already exists: {output}")
     evidence, catalog = _review_sources(human_audit, snapshots)
@@ -186,7 +186,7 @@ def _read_review(
     keys: tuple[str, ...],
     label: str = "Human finding",
 ) -> dict[tuple[str, ...], dict[str, str]]:
-    """Accept reordered rows while rejecting missing rows and altered original evidence."""
+    """Read a review CSV, rejecting missing, extra, or edited original rows."""
     with path.open(encoding="utf-8-sig", newline="") as stream:
         reader = csv.DictReader(stream)
         if len(reader.fieldnames or []) != len(columns) or set(
@@ -222,7 +222,7 @@ def approve_human_finding_mapping_review(
     directory: Path, human_audit: Path, snapshots: Path,
     reviewer: str, output: Path | None = None,
 ) -> Path:
-    """Validate human CSV decisions and generate portable approved evidence expectations."""
+    """Validate the completed review CSVs and write the mapping JSON."""
     if not reviewer.strip():
         raise ValueError("A Human finding mapping reviewer description is required")
     evidence, catalog = _review_sources(human_audit, snapshots)

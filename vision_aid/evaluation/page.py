@@ -1,4 +1,4 @@
-"""Shared preparation and human-reviewed evidence for one evaluated page."""
+"""Prepare, validate, and report one page run."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ from vision_aid.evaluation.schemas import HumanAudit
 
 @dataclass(frozen=True)
 class PageReview:
-    """A completed page's validated review and authoritative saved evidence."""
+    """A completed page run with its validated review."""
 
     manifest: dict[str, Any]
     rows: list[dict[str, Any]]
@@ -139,7 +139,7 @@ def prepare_page(
 
 
 def validated_page_review(run: Path) -> PageReview:
-    """Load and validate a completed page's evidence and human decisions."""
+    """Load a completed page run and validate its review.csv."""
     run = run.resolve()
     artifacts = run / "artifacts"
     manifest = json.loads((run / "run.json").read_text())

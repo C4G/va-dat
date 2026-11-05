@@ -1,1 +1,1 @@
-"""Render self-contained Evaluation reports and their packaged assets."""
+"""Render the HTML reports."""

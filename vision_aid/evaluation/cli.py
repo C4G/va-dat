@@ -1,4 +1,4 @@
-"""Prepare and execute fixed-model evaluations, then score human decisions."""
+"""Command-line entry point for visionaid-evaluate."""
 
 from __future__ import annotations
 

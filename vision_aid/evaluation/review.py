@@ -1,4 +1,4 @@
-"""Validate editable Human review decisions and calculate deterministic counts."""
+"""Create and validate review.csv, and count detections."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def create_review(path: Path, human_findings: list[dict[str, Any]]) -> None:
 
 
 def _ids(value: str) -> tuple[str, ...]:
-    """Semicolons join multiple finding IDs in either finding column."""
+    """Split a semicolon-separated ID list, rejecting repeats."""
     parts = tuple(part.strip() for part in value.split(";") if part.strip())
     if len(parts) != len(set(parts)):
         raise ValueError("A finding ID is repeated within one review row")
@@ -62,7 +62,7 @@ def reviewed_rows(
     programmatic: list[dict[str, Any]],
     approved: dict[str, dict[str, str]],
 ) -> list[dict[str, Any]]:
-    """Validate completeness and finding kind before granting any row credit."""
+    """Validate review.csv and return each human finding with its matches."""
     with path.open(encoding="utf-8-sig", newline="") as stream:
         reader = csv.DictReader(stream)
         if not set(REVIEW_COLUMNS).issubset(reader.fieldnames or ()):
@@ -141,7 +141,7 @@ def reviewed_rows(
 
 
 def detection_counts(rows: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
-    """Count validated catches and denominators without averaging page rates.
+    """Count catches and eligible findings for each rate.
 
     Each row represents one Human finding. Cross-catches earn Overall credit,
     while source rates include only catches by the expected source. Not-testable
