@@ -1,6 +1,6 @@
 # Evaluator guide
 
-The evaluator measures how many findings from a human accessibility audit the
+This evaluator measures how many findings from a human accessibility audit the
 va-dat tool also catches. It only measures coverage of the human audit. Extra
 problems the tool reports don't help or hurt the score.
 
@@ -19,13 +19,16 @@ Run every command from the repository root as
 its options. The [quick start in the root README](../../README.md#evaluator-quick-start)
 has the full command sequence to copy.
 
-## The workflow
+## The General Workflow
 
 1. **[Capture the pages](#1-capture-the-pages).** `capture` downloads every page
    listed in the audit and saves its HTML.
-2. **[Create the mapping](#2-create-the-mapping).** You decide, once per audit,
-   which source should catch each human finding and which checker results
-   already match it.
+2. **[Create the mapping](#2-create-the-mapping).** `human-finding-mapping-prepare`
+   writes review CSV files. In them you record which source should catch each
+   human finding and which checker results already match it. Then
+   `human-finding-mapping-approve` checks your answers and turns them into the
+   mapping file. You do this once per audit and reuse the mapping for every
+   evaluation run.
 3. **[Run the model](#3-run-the-model).** `run` (one page) or `run-all` (every
    page) sends the prompts to the model you choose.
 4. **[Review the LLM matches](#4-review-the-llm-matches).** You record which LLM
