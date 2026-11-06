@@ -1,4 +1,4 @@
-# Evaluator guide
+# Evaluator Overview
 
 This evaluator measures how many findings from a human accessibility audit the
 va-dat tool also catches. It only measures coverage of the human audit. Extra
@@ -40,12 +40,24 @@ Every command writes to a new folder and won't overwrite earlier work.
 
 ## The human audit file
 
-The audit is an Excel file. Put it in the repository root. Commands read
+The human audit is expected to be in a certain format and location. It should be an Excel file in the repository root. Commands read
 `Pristine Accessibility Defect Report.xlsx` by default, and Git ignores that
-name. To use another audit in the same format, pass `--human-audit`, and be
-careful not to commit it.
+name. To use another human audit in the same format, pass `--human-audit`.
 
-The `Defect report` tab needs these headers, in order, in the first row:
+The audit is private, and so is everything made from it. Keep the files you
+generate under `.model-evaluation/`, which Git ignores. Runs always go there, and
+the examples below put snapshots and the mapping there too.
+
+The workbook needs two tabs:
+
+- **`Defect report`** has one row per human finding.
+- **`URL list`** lists the pages to evaluate.
+
+Other tabs are ignored.
+
+### The `Defect report` tab
+
+The first row must have these headers, in this order:
 
 ```text
 Sr. #, element name, Browser Combination, Page name, Issue Title,
@@ -53,14 +65,16 @@ Steps to Reproduce, actual result, expected result, Recommendation for Fix,
 WCAG Sc, Type of Change, comment
 ```
 
-A `URL list` tab with a `URL` column lists the pages to evaluate. Each finding's
-`Steps to Reproduce` must contain exactly one of those URLs, which is how the
-evaluator assigns it to a page. A finding with `Page name` set to `Global`
-applies to every page.
+Every row needs an `Issue Title`. Each finding's `Steps to Reproduce` must
+contain exactly one of the URLs from the `URL list` tab. That's how the
+evaluator assigns the finding to a page. A finding with `Page name` set to
+`Global` applies to every page.
 
-The audit is private, and so is everything made from it. Keep the files you
-generate under `.model-evaluation/`, which Git ignores. Runs always go there, and
-the examples below put snapshots and the mapping there too.
+### The `URL list` tab
+
+The first row must include a `URL` header. List one page per row under it,
+and don't repeat a URL. Other columns are ignored. `capture` downloads these
+pages in the order listed.
 
 ## 1. Capture the pages
 
