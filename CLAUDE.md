@@ -91,6 +91,7 @@ Docker image → GHCR (`ghcr.io/c4g/va-dat`) → Coolify at `https://va-dat.c4g.
 - Prompt templates are `.txt` files with `{payload}` placeholders, parsed by `processing_scripts/llm/templates.py`
 - `processing_scripts/llm/registry.py` maps each evaluation task to its prompt file, slicer, and WCAG criteria
 - Slicer functions in `processing_scripts/llm/slicers.py` extract targeted JSON slices from extractor payloads
+- `processing_scripts/llm_client/presets.py` holds per-model request settings (adaptive thinking, reasoning effort, no temperature). `run_pipeline` and the report's dedup pass use a model's preset when it has one; every other model gets the default request (temperature 0.1, 8,192 tokens)
 - `entry_points/run_pipeline.py` orchestrates: programmatic checks → extraction → slicing → prompt filling → API calls
 - File encoding: use `encoding='utf-8', errors='replace'` when reading HTML files
 
