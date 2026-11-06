@@ -865,10 +865,22 @@ def deduplicate_with_llm(
     prompt = _DEDUP_PROMPT.format(findings=findings_text)
 
     try:
+        from processing_scripts.llm_client.presets import MODEL_PRESETS
+
         # Detect provider from model ID (same heuristic used elsewhere).
         is_openai = "gpt" in model.lower() or "o1" in model.lower() or "o3" in model.lower()
+        preset = MODEL_PRESETS.get(model)
 
-        if is_openai:
+        if preset is not None:
+            # Preset models reject this pass's fixed temperature and
+            # 512-token cap, so send it with the audit's own request shape.
+            from processing_scripts.llm_client.audit import AuditRequestClient
+
+            result = AuditRequestClient(api_key=api_key, request_config=preset).call(prompt)
+            if not result["success"]:
+                raise RuntimeError(result["error"])
+            response_text = result["response"] or "[]"
+        elif is_openai:
             import openai
             client = openai.OpenAI(api_key=api_key)
             response = client.chat.completions.create(
