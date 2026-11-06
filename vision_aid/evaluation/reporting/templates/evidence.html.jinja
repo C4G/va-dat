@@ -1,0 +1,16 @@
+{% macro human_evidence(row) %}
+<h3>Original Human finding</h3>
+<dl><dt>Human finding ID</dt><dd>{{ row.human.human_finding_id }}</dd><dt>Source</dt><dd>{{ row.human.source_sheet }}, row {{ row.human.source_row }}; scope: {{ row.human.page_scope }}; element: {{ row.human.source_element }}</dd>
+{% for label, value in row.human.raw_evidence.items() %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
+{% endmacro %}
+{% macro decision_evidence(row) %}
+<h3>{{ row.source_url }}</h3>
+<p>Run ID: {{ row.run_id }}</p>
+<dl><dt>Eligibility classification</dt><dd>{{ row.expected }}</dd><dt>Recorded explanation</dt><dd>{{ row.decision.classification_reason }}</dd><dt>Human finding mapping approved by</dt><dd>{{ row.human_finding_mapping_approved_by }}</dd><dt>Approved Programmatic explanation</dt><dd>{{ row.decision.programmatic_match_reason }}</dd>{% if row.decision.llm_finding_id %}<dt>LLM matching rationale</dt><dd>{{ row.decision.match_reason }}</dd>{% endif %}{% if row.matched or row.decision.review_notes %}<dt>VA-DAT Matched Findings</dt><dd>{{ row.decision.review_notes }}</dd>{% endif %}</dl>
+{% for finding in row.matched %}<div class="matched"><h3>{{ 'LLM Finding' if finding.source == 'LLM' else 'Programmatic Finding' }}</h3><p>{{ finding.source }} ({{ finding.check }}): {{ finding.problem }}</p><dl><dt>Finding ID</dt><dd>{{ finding.id }}</dd><dt>Check</dt><dd>{{ finding.check_id }}; {{ finding.checklist }}</dd>{% if finding.source == 'LLM' %}<dt>Element</dt><dd>{{ finding.element }}</dd>{% endif %}<dt>Location</dt><dd>{{ finding.location }}</dd></dl></div>{% endfor %}
+{% endmacro %}
+{% macro page_evidence(row) %}
+<details data-page-decision data-page="{{ row.source_url }}" data-expected="{{ row.expected }}" data-llm="{{ row.llm_outcome }}" data-programmatic="{{ row.programmatic_outcome }}"><summary aria-label="View page decisions: {{ row.source_url }} for {{ row.human.problem }}">View page decisions: {{ row.source_url }}</summary>
+{{ decision_evidence(row) }}
+</details>
+{% endmacro %}

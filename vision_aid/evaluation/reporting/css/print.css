@@ -1,0 +1,11 @@
+#print-report { font: inherit; color: #164e88; background: #edf2f6; border: 1px solid #687f93; border-radius: .2rem; padding: .5rem .75rem; margin-bottom: 1rem; cursor: pointer; }
+@page { margin: 12mm; }
+@media print {
+  body { max-width: none; padding: 0; color: #000; font-size: 11pt; line-height: 1.4; }
+  .skip, nav, #print-report, main > :not(#performance) { display: none !important; }
+  .table-scroll { overflow: visible; }
+  table { table-layout: fixed; }
+  thead { display: table-header-group; }
+  th, td { padding: .35rem; }
+  h1, h2, h3, caption { break-after: avoid; }
+}

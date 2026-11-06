@@ -1,0 +1,44 @@
+{% macro performance_header(cost, token_usage, model_prices) %}
+<div class="performance-heading">
+<h2 id="performance-title">Cost and detection results</h2>
+<div class="cost-overview">
+<div class="run-cost"><span class="cost-label">Estimated run cost:</span><strong class="cost-value">${{ cost }} <span class="cost-currency">USD</span></strong>
+<dl class="token-usage">{% for item in token_usage %}<dt>{{ item.label }}</dt><dd>{{ item.count }}</dd>{% endfor %}</dl>
+</div>
+<div class="model-pricing"><h3>Listed model prices</h3>
+{% for prices in model_prices %}
+<p>{{ prices.model }}. {{ prices.description | capitalize }}.</p>
+<div class="table-scroll" role="region" aria-label="Listed model prices for {{ prices.model }}" tabindex="0">
+<table><caption>USD per 1 million tokens</caption>
+<thead><tr><th scope="col">Input tokens per request</th><th scope="col">Input</th><th scope="col">Output</th>{% if prices.show_cache_read %}<th scope="col">Cache read</th>{% endif %}{% if prices.show_cache_write %}<th scope="col">Cache write</th>{% endif %}</tr></thead>
+<tbody>{% for tier in prices.tiers %}<tr><th scope="row">{{ tier.label }}</th><td>${{ tier.rates.input_per_million_usd }}</td><td>${{ tier.rates.output_per_million_usd }}</td>{% if prices.show_cache_read %}<td>${{ tier.rates.cached_input_per_million_usd }}</td>{% endif %}{% if prices.show_cache_write %}<td>${{ tier.rates.cache_creation_input_per_million_usd }}</td>{% endif %}</tr>{% endfor %}</tbody>
+</table></div>
+{% endfor %}
+</div>
+</div>
+</div>
+{% endmacro %}
+
+{% macro rate_bar(label, rate, primary=false) %}
+<li{% if primary %} class="chart-primary"{% endif %}>
+<p class="chart-value"><strong>{{ label }}:</strong> {{ rate.caught }} caught / {{ rate.eligible }} eligible; <span class="chart-percentage">{{ rate.percentage }}</span></p>
+{% if rate.bar_percent is not none %}<div class="chart-track" aria-hidden="true"><span class="chart-fill" style="width: {{ rate.bar_percent }}%"></span></div>{% endif %}
+</li>
+{% endmacro %}
+
+{% macro detection_overview(rates) %}
+<figure class="detection-chart" aria-labelledby="detection-chart-title">
+<figcaption><h3 id="detection-chart-title">Detection overview</h3></figcaption>
+<ul class="chart-bars">{% for rate in rates %}{{ rate_bar(rate.label, rate, loop.first) }}{% endfor %}</ul>
+<p>Overall includes all Human findings, including those the tool cannot detect from the saved HTML and those too ambiguous to evaluate. These findings are left out of the LLM and Programmatic eligible counts, so the Overall count can exceed their combined total.</p>
+</figure>
+{% endmacro %}
+
+{% macro page_comparison(pages) %}
+<figure class="detection-chart" aria-labelledby="page-chart-title">
+<figcaption><h3 id="page-chart-title">LLM detection by page</h3>
+<p>Repeated Global findings contribute to each page's results but only once to combined results.</p>
+</figcaption>
+<ul class="chart-bars">{% for page in pages %}{{ rate_bar(page.manifest.source_url, page.rates[0]) }}{% endfor %}</ul>
+</figure>
+{% endmacro %}

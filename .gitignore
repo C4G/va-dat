@@ -212,5 +212,27 @@ output/
 # CI smoke-test output
 ci-output/
 
+# Private model-evaluation inputs and derived artifacts
+/Pristine Accessibility Defect Report.xlsx
+/.model-evaluation/
+/vision_aid/evaluation/human_finding_mappings/
+
+# Node.js / Next.js generated files
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+web/prisma/generated/
+
 # Stray git worktrees — never belong in the index
 .claude/worktrees/
+
+# Local-only issue tracker and detailed evaluator tests
+/.scratch/
+/.local-tests/
+
+# Local architecture decision records
+/docs/adr/
+
+# Local agent context
+CONTEXT.md
