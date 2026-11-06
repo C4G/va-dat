@@ -435,7 +435,7 @@ belongs directly in the repository root, alongside this README. The examples
 expect it at `./Pristine Accessibility Defect Report.xlsx`. The file and
 approved mappings are private local inputs, excluded from Git. If the file
 is missing, obtain it from your project team and place it there, or supply your
-own audit in the [supported format](vision_aid/evaluation/README.md#human-audit-excel-file-format)
+own audit in the [supported format](vision_aid/evaluation/README.md#the-human-audit-file)
 and update `AUDIT` below.
 
 This walkthrough evaluates every URL listed in the audit. Keep the same saved
@@ -472,7 +472,7 @@ MAX_COST_USD=5.00  # Choose your total allowance for all pages.
 
    Follow the generated README: fill `classifications.csv` and
    `programmatic-review.csv`, using `programmatic-findings.csv` as the checker
-   catalog. The [mapping review guide](vision_aid/evaluation/README.md#approve-a-human-finding-mapping)
+   catalog. The [mapping review guide](vision_aid/evaluation/README.md#how-to-create-it)
    explains the classification values and complete-match requirements. Then approve:
 
    ```bash
@@ -520,7 +520,7 @@ MAX_COST_USD=5.00  # Choose your total allowance for all pages.
    Edit only `llm_finding_id`, `match_reason`, and `review_notes`. Leave an LLM ID
    blank for a miss; record IDs only when they fully cover the human finding.
    Keep approved classification and programmatic fields unchanged.
-   See the [matching rules](vision_aid/evaluation/README.md#review-llm-matches).
+   See the [matching rules](vision_aid/evaluation/README.md#4-review-the-llm-matches).
 
 6. **Generate the reports.** After saving every page's review CSV:
 
@@ -538,7 +538,7 @@ is omitted. Each run uses one model; compare models with separate runs using
 the same audit, snapshots, and mapping.
 
 To evaluate just one page, use `run` with `--html` and `--source-url`, then
-`report`. See the [single-page commands](vision_aid/evaluation/README.md#evaluate-one-page).
+`report`. See the [single-page commands](vision_aid/evaluation/README.md#3-run-the-model).
 For command options, use `uv run visionaid-evaluate --help` or add `--help`
 after a command name.
 
