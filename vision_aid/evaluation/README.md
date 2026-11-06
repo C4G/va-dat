@@ -6,10 +6,12 @@ problems the tool reports don't help or hurt the score.
 
 va-dat finds problems in two ways, and the evaluator scores each one separately:
 
-- **The programmatic checker** is va-dat's set of rule-based checks. It uses no
-  AI, so it gives the same results on a page no matter which model you test.
-- **The LLM checks** send parts of the page to a model and ask it to find
-  problems. This is the part you compare across models.
+- **Programmatic Checks** :
+  - va-dat's set of rule-based checks. It uses no
+    AI, so it gives the same results on a page no matter which model you test.
+- **LLM Checks**:
+  - va-dat sends parts of the page to a model and asks it to find
+    problems. This is the part you compare across models.
 
 Each problem in the human audit is a **human finding**. A **match** links a human
 finding to the tool findings that describe the same problem on the same page.
@@ -25,7 +27,8 @@ has the full command sequence to copy.
    listed in the audit and saves its HTML.
 2. **[Create the mapping](#2-create-the-mapping).** `human-finding-mapping-prepare`
    writes review CSV files. In them you record which source should catch each
-   human finding and which checker results already match it. Then
+   human finding and which issues from the programmatic checks already match
+   it. Then
    `human-finding-mapping-approve` checks your answers and turns them into the
    mapping file. You do this once per audit and reuse the mapping for every
    evaluation run.
@@ -102,9 +105,10 @@ human finding:
   | `unavailable_evidence` | The HTML alone can't show the issue in question, for example an image. |
   | `ambiguous`            | The human finding itself is too unclear to judge fairly.               |
 
-- **Its programmatic matches**: the checker results that describe the same
-  problem on the same page. For example, a human "image has no alt text" finding
-  matches the checker's missing-alt result for that image. A human finding can
+- **Its programmatic matches**: the issues from the programmatic checks that
+  describe the same problem on the same page. For example, a human "image has no
+  alt text" finding matches the programmatic checks' missing-alt issue for that
+  image. A human finding can
   have several matches or none.
 
 ### Why do we need this?
@@ -136,6 +140,7 @@ captured pages and writes a review folder with three CSVs.
   If you classify a finding as programmatic, you also need to list matching
   issues for it on every page in the programmatic review file. If you classify
   it as unavailable evidence or ambiguous, you can't list any.
+
 - `programmatic-review.csv` is where you record the programmatic matches. It
   has one row per human finding per page, so a Global finding shows up once for
   every page. For each row, look through the findings list for issues on that
@@ -145,17 +150,17 @@ captured pages and writes a review folder with three CSVs.
   - If you don't, leave that column blank.
 
   Either way, explain your decision in the programmatic_reason column. Two
-  issues that only share a WCAG criterion aren't a match, they need to be the
+  issues that only share a WCAG criterion/code aren't a match, they need to be the
   same problem.
 
 Then run the `human-finding-mapping-approve` command with your name in
 `--reviewer`. It checks that every row is filled in and every reference is valid,
 and writes the mapping to human-finding-mapping.json in the review folder.
 
-The mapping is tied to the exact audit file and checker output it was made
-from. Finding IDs come from the spreadsheet's checksum, so editing the
-spreadsheet needs a new mapping. Changing the snapshots or the checker code does
-too, because runs would no longer find the approved checker results.
+The mapping is tied to the exact audit file and programmatic check results it
+was made from. Finding IDs come from the spreadsheet's checksum, so editing the
+spreadsheet needs a new mapping. Changing the snapshots or the programmatic
+checks' code does too, because runs would no longer find the approved issues.
 
 ## 3. Run the model
 
@@ -215,13 +220,11 @@ three columns:
 - `review_notes`: anything else, like partial matches. Notes don't earn credit.
 
 Count a match when the finding describes the same problem on the same element or
-section. Wording, confidence, and the suggested fix can differ. Several findings
-can cover one human finding together. Don't count a finding that only shares a
+section. Don't count a finding that only shares a
 WCAG criterion, points at a different element, or misses part of the problem.
 Each ID can be used for only one human finding per page.
 
-Validation can't tell a deliberate miss from a row you skipped, so go through
-every row. For `run-all`, review every page under `pages/`. Global findings
+For `run-all`, review every page under `pages/`. Global findings
 appear on every page, so review them on each.
 
 To have an agent do the review, give it the run folder and this prompt:
@@ -258,7 +261,7 @@ no report rather than a stale one. Copy it somewhere if you want to keep it.
 | Rate         | Counts                                                        |
 | ------------ | ------------------------------------------------------------- |
 | LLM          | LLM catches out of all `llm_eligible` findings.               |
-| Programmatic | Checker catches out of all `programmatic` findings.           |
+| Programmatic | Programmatic catches out of all `programmatic` findings.      |
 | Overall      | Findings caught by either source, out of every human finding. |
 
 With 10 findings, 6 `llm_eligible`, 2 `programmatic`, and 2 that neither source
@@ -267,12 +270,11 @@ Overall 8/10.
 
 A catch by the "wrong" source counts toward Overall only. The Programmatic rate
 is always 100% in a valid report, because a finding is only `programmatic` when
-the checker fully covers it. It reflects the approved mapping and isn't a real
-measure of checker recall.
+the programmatic checks fully cover it. It reflects the approved mapping and
+isn't a real measure of how much the programmatic checks catch.
 
 In the combined report each Global finding counts once, and it's caught if a
-source fully catches it on any one page. Combined rates are pooled counts, so
-don't average the per-page rates to get them.
+source fully catches it on any one page.
 
 ## Generated files
 
@@ -287,7 +289,7 @@ Each of these folders contains:
 | `run.json`                                        | Settings, cost, stopping reason, and `format_failures`.                              |
 | `snapshot.html`                                   | The page HTML the run used.                                                          |
 | `normalized-llm-findings.json`                    | LLM findings with their IDs.                                                         |
-| `artifacts/normalized-programmatic-findings.json` | Checker findings with their IDs.                                                     |
+| `artifacts/normalized-programmatic-findings.json` | Programmatic check issues with their IDs.                                            |
 | `artifacts/prompts/*.json`                        | The exact prompts sent to the model.                                                 |
 | `artifacts/raw-llm-responses.json`                | Model replies and token usage.                                                       |
 
