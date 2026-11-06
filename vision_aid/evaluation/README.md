@@ -95,12 +95,12 @@ human finding:
 
 - **Its classification**: which source should be able to catch it.
 
-  | Value                  | Use it when                                                                   |
-  | ---------------------- | ----------------------------------------------------------------------------- |
-  | `llm_eligible`         | The saved HTML shows the problem, and judging it needs a model.               |
-  | `programmatic`         | Existing checker findings fully cover it on every page it applies to.         |
-  | `unavailable_evidence` | The HTML alone can't show it, for example keyboard or screen reader behavior. |
-  | `ambiguous`            | The finding is too unclear to judge fairly.                                   |
+  | Value                  | Use it when                                                            |
+  | ---------------------- | ---------------------------------------------------------------------- |
+  | `llm_eligible`         | The saved HTML shows the issue, and but finding it needs an llm.       |
+  | `programmatic`         | The programatic checks can find the issue.                             |
+  | `unavailable_evidence` | The HTML alone can't show the issue in question, for example an image. |
+  | `ambiguous`            | The human finding itself is too unclear to judge fairly.               |
 
 - **Its programmatic matches**: the checker results that describe the same
   problem on the same page. For example, a human "image has no alt text" finding
@@ -110,34 +110,37 @@ human finding:
 ### Why do we need this?
 
 We need the classifications because not every human finding is a fair test
-of the model. Some can't be seen in the HTML at all, like keyboard behavior, and
-some are already covered by the checker. The classification decides which
+of the model in the va-dat tool. The classification decides which
 findings the model is graded on, so it isn't marked down for ones it could
 never catch.
 
-We need the programmatic matches because the overall score counts a finding as
-caught if either the LLM or the checker found it, so we have to know what the
-checker found. The checker gives the same results no matter which model you
-test, so these matches only need to be reviewed once, here, instead of again in
-every run.
-
-Making these decisions once per audit, before any model runs, also keeps
-comparisons fair. Every model is scored against the same decisions, and nobody
-can reclassify a finding after seeing what a model caught.
+We of course need the programmatic matches because it evaluates the programatic side of the va-dat tool, but we specifically conduct the matchings at this time because the programatic checks are deterministic. They give the same results every time given the same input, so these matches only need to be reviewed once, here, instead of again in every evaluation run.
 
 ### How to create it
 
-`human-finding-mapping-prepare` runs the checker on the captured pages and writes a
-review folder with three CSVs:
+`human-finding-mapping-prepare` runs the programmatic checks on the captured
+pages and writes a review folder with three CSVs. You only edit two of them.
 
-- `programmatic-findings.csv` lists every checker result, each with a reference
-  like `P001-F003`. You only read this one.
-- `classifications.csv` has one row per human finding. Give each one a
-  classification from the table above and a reason.
-- `programmatic-review.csv` has one row per human finding per page. List the
-  checker references that match it, separated by semicolons, or leave it blank
-  if nothing matches. Explain either way. Sharing a WCAG criterion isn't enough
-  for a match.
+`programmatic-findings.csv` is the list of every issue the programmatic checks
+found, with the rule, element, and location of each. Every issue gets a
+reference like `P001-F003`, which means the third issue found on the first page.
+You don't edit this file, you just look up references in it.
+
+`classifications.csv` has one row per human finding. Fill in the
+`classification` column with one of the values from the table above, and say
+why in `classification_reason`.
+
+`programmatic-review.csv` is where you record the programmatic matches. It has
+one row per human finding per page, so a Global finding shows up once for every
+page. For each row, look through `programmatic-findings.csv` for issues on that
+page that describe the same problem as the human finding:
+
+- If you find any, put their references in `programmatic_finding_refs`,
+  separated by semicolons, for example `P001-F003;P001-F007`.
+- If you don't, leave `programmatic_finding_refs` blank.
+
+Either way, explain your decision in `programmatic_reason`. Two issues that
+only share a WCAG criterion aren't a match, they need to be the same problem.
 
 Then run `human-finding-mapping-approve` with `--reviewer`. It checks that every
 row is filled in and every reference is valid, and writes
