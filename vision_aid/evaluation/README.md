@@ -119,15 +119,24 @@ We of course need the programmatic matches because it evaluates the programatic 
 ### How to create it
 
 `human-finding-mapping-prepare` runs the programmatic checks on the captured
-pages and writes a review folder with three CSVs. You only edit two of them.
+pages and writes a review folder with three CSVs.
 
 - `programmatic-findings.csv` is the list of every issue the programmatic
   checks found, with the rule, element, and location of each. Every issue gets a
   reference like `P001-F003`, which means the third issue found on the first
   page. You don't edit this file, you just look up references in it.
-- `classifications.csv` has one row per human finding. Fill in the
-  `classification` column with one of the values from the table above, and say
-  why in `classification_reason`.
+- `classifications.csv` has one row per human finding. For each row, read the
+  human finding and decide who should be able to catch it: the LLM, the
+  programmatic checks, or neither. Then fill in two columns:
+  - `classification`: `llm_eligible`, `programmatic`, `unavailable_evidence`,
+    or `ambiguous`. See the [classification table](#what-is-a-mapping) for when
+    to use each one.
+  - `classification_reason`: a sentence on why you picked it, for example "The
+    focus order can't be seen in the HTML."
+
+  If you pick `programmatic`, you also need to list matching issues for that
+  finding on every page in `programmatic-review.csv`. If you pick
+  `unavailable_evidence` or `ambiguous`, you can't list any.
 - `programmatic-review.csv` is where you record the programmatic matches. It
   has one row per human finding per page, so a Global finding shows up once for
   every page. For each row, look through `programmatic-findings.csv` for issues
