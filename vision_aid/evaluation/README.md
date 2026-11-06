@@ -48,14 +48,14 @@ The audit is private, and so is everything made from it. Keep the files you
 generate under `.model-evaluation/`, which Git ignores. Runs always go there, and
 the examples below put snapshots and the mapping there too.
 
-The workbook needs two tabs:
+The Excel file needs two tabs:
 
 - **`Defect report`** has one row per human finding.
 - **`URL list`** lists the pages to evaluate.
 
 Other tabs are ignored.
 
-### The `Defect report` tab
+### Defect report tab
 
 The first row must have these headers, in this order:
 
@@ -70,7 +70,7 @@ contain exactly one of the URLs from the `URL list` tab. That's how the
 evaluator assigns the finding to a page. A finding with `Page name` set to
 `Global` applies to every page.
 
-### The `URL list` tab
+### URL list tab
 
 The first row must include a `URL` header. List one page per row under it,
 and don't repeat a URL. Other columns are ignored. `capture` downloads these
@@ -84,12 +84,11 @@ from which URL. Later commands read the pages from these files, so every model
 is tested on the same HTML.
 
 `capture` doesn't run JavaScript. Keep this in mind, since modern frontend
-frameworks often build most of the page's HTML with JavaScript. Open a few
-saved pages to check they contain the content you expect.
+frameworks often build most of the page's HTML with JavaScript.
 
 ## 2. Create the mapping
 
-### What a mapping is
+### What is a mapping?
 
 A human finding mapping is a JSON file that records two decisions for each
 human finding:
@@ -108,12 +107,19 @@ human finding:
   matches the checker's missing-alt result for that image. A human finding can
   have several matches or none.
 
-### Why it's needed
+### Why do we need this?
 
-The scores depend on both decisions. The LLM rate only counts `llm_eligible`
-findings, so without classifications there's nothing to divide by. The
-checker's output doesn't change between models, so its matches only need
-reviewing once.
+We need the classifications because not every human finding is a fair test
+of the model. Some can't be seen in the HTML at all, like keyboard behavior, and
+some are already covered by the checker. The classification decides which
+findings the model is graded on, so it isn't marked down for ones it could
+never catch.
+
+We need the programmatic matches because the overall score counts a finding as
+caught if either the LLM or the checker found it, so we have to know what the
+checker found. The checker gives the same results no matter which model you
+test, so these matches only need to be reviewed once, here, instead of again in
+every run.
 
 Making these decisions once per audit, before any model runs, also keeps
 comparisons fair. Every model is scored against the same decisions, and nobody
@@ -121,7 +127,7 @@ can reclassify a finding after seeing what a model caught.
 
 ### How to create it
 
-`human-finding-mapping-prepare` runs the checker on the saved pages and writes a
+`human-finding-mapping-prepare` runs the checker on the captured pages and writes a
 review folder with three CSVs:
 
 - `programmatic-findings.csv` lists every checker result, each with a reference
@@ -150,8 +156,7 @@ too, because runs would no longer find the approved checker results.
 Without `--live`, a run is a free preview: it prepares the prompts and shows the
 page count, prompt count, model settings, and prices, but sends nothing. With
 `--live` it calls the model. It asks you to type `yes` first, unless you pass
-`--approve-live`. A live run always starts a new run folder; it doesn't reuse
-the preview's.
+`--approve-live`.
 
 | Model               | `--model`           |
 | ------------------- | ------------------- |
