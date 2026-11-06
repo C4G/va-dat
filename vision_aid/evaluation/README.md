@@ -121,26 +121,23 @@ We of course need the programmatic matches because it evaluates the programatic 
 `human-finding-mapping-prepare` runs the programmatic checks on the captured
 pages and writes a review folder with three CSVs. You only edit two of them.
 
-`programmatic-findings.csv` is the list of every issue the programmatic checks
-found, with the rule, element, and location of each. Every issue gets a
-reference like `P001-F003`, which means the third issue found on the first page.
-You don't edit this file, you just look up references in it.
+- `programmatic-findings.csv` is the list of every issue the programmatic
+  checks found, with the rule, element, and location of each. Every issue gets a
+  reference like `P001-F003`, which means the third issue found on the first
+  page. You don't edit this file, you just look up references in it.
+- `classifications.csv` has one row per human finding. Fill in the
+  `classification` column with one of the values from the table above, and say
+  why in `classification_reason`.
+- `programmatic-review.csv` is where you record the programmatic matches. It
+  has one row per human finding per page, so a Global finding shows up once for
+  every page. For each row, look through `programmatic-findings.csv` for issues
+  on that page that describe the same problem as the human finding:
+  - If you find any, put their references in `programmatic_finding_refs`,
+    separated by semicolons, for example `P001-F003;P001-F007`.
+  - If you don't, leave `programmatic_finding_refs` blank.
 
-`classifications.csv` has one row per human finding. Fill in the
-`classification` column with one of the values from the table above, and say
-why in `classification_reason`.
-
-`programmatic-review.csv` is where you record the programmatic matches. It has
-one row per human finding per page, so a Global finding shows up once for every
-page. For each row, look through `programmatic-findings.csv` for issues on that
-page that describe the same problem as the human finding:
-
-- If you find any, put their references in `programmatic_finding_refs`,
-  separated by semicolons, for example `P001-F003;P001-F007`.
-- If you don't, leave `programmatic_finding_refs` blank.
-
-Either way, explain your decision in `programmatic_reason`. Two issues that
-only share a WCAG criterion aren't a match, they need to be the same problem.
+  Either way, explain your decision in `programmatic_reason`. Two issues that
+  only share a WCAG criterion aren't a match, they need to be the same problem.
 
 Then run `human-finding-mapping-approve` with `--reviewer`. It checks that every
 row is filled in and every reference is valid, and writes
