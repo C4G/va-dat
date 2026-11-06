@@ -14,32 +14,14 @@ from processing_scripts.llm_client.audit import (
 from processing_scripts.llm_client.audit import (
     AuditRequestConfig as LLMRequestConfig,
 )
+from processing_scripts.llm_client.presets import (
+    MODEL_PRESETS,
+    OPENAI_REASONING_MODELS as OPENAI_MODELS,
+)
 from vision_aid.evaluation.execution.normalization import normalize_prompt_response
 from vision_aid.evaluation.execution.pricing import PriceSchedule
 
 DEFAULT_MODEL = "claude-haiku-5-5"
-OPENAI_MODELS = ("gpt-6-luna", "gpt-6.1-sol")
-MODEL_PRESETS = {
-    **{
-        model: LLMRequestConfig(
-            model=model,
-            adaptive_thinking=True,
-            reasoning_effort="medium",
-            max_output_tokens=24192,
-            temperature=None,
-        )
-        for model in (DEFAULT_MODEL, "claude-opus-5-5", "claude-sonnet-5-5")
-    },
-    **{
-        model: LLMRequestConfig(
-            model=model,
-            reasoning_effort="medium",
-            max_output_tokens=24192,
-            temperature=None,
-        )
-        for model in OPENAI_MODELS
-    },
-}
 USAGE_KEYS = (
     "input_tokens",
     "cached_input_tokens",
