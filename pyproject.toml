@@ -18,5 +18,14 @@ dependencies = [
     "requests>=2.32.2",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
 [tool.setuptools]
 packages = ["vision_aid"]
