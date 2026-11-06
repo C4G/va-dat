@@ -35,6 +35,7 @@ from processing_scripts.llm_client.audit import (
     AuditRequestConfig,
     resolved_request_metadata,
 )
+from processing_scripts.llm_client.presets import request_config_for
 from processing_scripts.llm_preprocessing.semantic_checklist_01 import (
     extract as cl01_extract,
 )
@@ -125,10 +126,13 @@ def run_pipeline(
 ) -> dict:
     """Execute the full element-specific accessibility audit pipeline.
 
+    When *request_config* is omitted, the model's preset is used if it has
+    one, otherwise the default request (temperature 0.1, 8,192 tokens).
+
     Returns a summary dict with run metadata and per-prompt results.
     """
     if request_config is None:
-        request_config = AuditRequestConfig(model=model)
+        request_config = request_config_for(model)
     elif request_config.model != model:
         raise ValueError("model and request_config.model must match")
 
