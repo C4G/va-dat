@@ -118,39 +118,39 @@ We of course need the programmatic matches because it evaluates the programatic 
 
 ### How to create it
 
-`human-finding-mapping-prepare` runs the programmatic checks on the captured
-pages and writes a review folder with three CSVs.
+The `human-finding-mapping-prepare` command runs the programmatic checks on the
+captured pages and writes a review folder with three CSVs.
 
 - `programmatic-findings.csv` is the list of every issue the programmatic
   checks found, with the rule, element, and location of each. Every issue gets a
-  reference like `P001-F003`, which means the third issue found on the first
+  reference like P001-F003, which means the third issue found on the first
   page. You don't edit this file, you just look up references in it.
 - `classifications.csv` has one row per human finding. For each row, read the
   human finding and decide who should be able to catch it: the LLM, the
   programmatic checks, or neither. Then fill in two columns:
-  - `classification`: `llm_eligible`, `programmatic`, `unavailable_evidence`,
-    or `ambiguous`. See the [classification table](#what-is-a-mapping) for when
-    to use each one.
-  - `classification_reason`: a sentence on why you picked it, for example "The
+  - classification: one of the four values from the
+    [classification table](#what-is-a-mapping), such as llm_eligible.
+  - classification_reason: a sentence on why you picked it, for example "The
     focus order can't be seen in the HTML."
 
-  If you pick `programmatic`, you also need to list matching issues for that
-  finding on every page in `programmatic-review.csv`. If you pick
-  `unavailable_evidence` or `ambiguous`, you can't list any.
+  If you classify a finding as programmatic, you also need to list matching
+  issues for it on every page in the programmatic review file. If you classify
+  it as unavailable evidence or ambiguous, you can't list any.
 - `programmatic-review.csv` is where you record the programmatic matches. It
   has one row per human finding per page, so a Global finding shows up once for
-  every page. For each row, look through `programmatic-findings.csv` for issues
-  on that page that describe the same problem as the human finding:
-  - If you find any, put their references in `programmatic_finding_refs`,
-    separated by semicolons, for example `P001-F003;P001-F007`.
-  - If you don't, leave `programmatic_finding_refs` blank.
+  every page. For each row, look through the findings list for issues on that
+  page that describe the same problem as the human finding:
+  - If you find any, put their references in the programmatic_finding_refs
+    column, separated by semicolons, for example P001-F003;P001-F007.
+  - If you don't, leave that column blank.
 
-  Either way, explain your decision in `programmatic_reason`. Two issues that
-  only share a WCAG criterion aren't a match, they need to be the same problem.
+  Either way, explain your decision in the programmatic_reason column. Two
+  issues that only share a WCAG criterion aren't a match, they need to be the
+  same problem.
 
-Then run `human-finding-mapping-approve` with `--reviewer`. It checks that every
-row is filled in and every reference is valid, and writes
-`human-finding-mapping.json` to the review folder.
+Then run the `human-finding-mapping-approve` command with your name in
+`--reviewer`. It checks that every row is filled in and every reference is valid,
+and writes the mapping to human-finding-mapping.json in the review folder.
 
 The mapping is tied to the exact audit file and checker output it was made
 from. Finding IDs come from the spreadsheet's checksum, so editing the
