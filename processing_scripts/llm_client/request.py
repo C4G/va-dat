@@ -35,7 +35,6 @@ class LLMRequestConfig:
     reasoning_effort: ReasoningEffort | None = None
     temperature: float | None = 0.1
     max_output_tokens: int = 8192
-    thinking_budget_tokens: int | None = None
     adaptive_thinking: bool = False
 
     def __post_init__(self) -> None:
@@ -48,36 +47,16 @@ class LLMRequestConfig:
         if self.adaptive_thinking:
             if is_openai_model(self.model) or is_gemini_model(self.model):
                 raise ValueError("adaptive_thinking requires Anthropic")
-            if self.thinking_budget_tokens is not None:
-                raise ValueError("adaptive thinking cannot have a manual budget")
             if self.temperature is not None:
                 raise ValueError("temperature must be omitted with thinking")
             if self.reasoning_effort not in (None, "low", "medium", "high", "xhigh", "max"):
                 raise ValueError("unsupported Anthropic reasoning effort")
-
-        if self.thinking_budget_tokens is not None:
-            if is_openai_model(self.model) or is_gemini_model(self.model):
-                raise ValueError("thinking_budget_tokens requires Anthropic")
-            if not 1024 <= self.thinking_budget_tokens < self.max_output_tokens:
-                raise ValueError("thinking budget must be >= 1024 and below output cap")
-            if self.temperature is not None:
-                raise ValueError("temperature must be omitted with thinking")
 
     def as_metadata(self) -> dict[str, Any]:
         """Return the requested configuration as serializable metadata."""
         omitted = [] if self.temperature is not None else ["temperature"]
         return {
             **({"thinking": {"type": "adaptive"}} if self.adaptive_thinking else {}),
-            **(
-                {
-                    "thinking": {
-                        "type": "enabled",
-                        "budget_tokens": self.thinking_budget_tokens,
-                    }
-                }
-                if self.thinking_budget_tokens is not None
-                else {}
-            ),
             "model": self.model,
             "reasoning_effort": self.reasoning_effort,
             "max_output_tokens": self.max_output_tokens,
@@ -131,21 +110,15 @@ def _usage_result(
     *,
     input_tokens: int,
     output_tokens: int,
-    total_tokens: int | None = None,
     cached_input_tokens: int = 0,
     cache_creation_input_tokens: int = 0,
-    reasoning_tokens: int | None = 0,
 ) -> dict[str, Any]:
     """Return common token categories plus the lossless provider payload."""
     return {
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
-        "total_tokens": (
-            total_tokens if total_tokens is not None else input_tokens + output_tokens
-        ),
         "cached_input_tokens": cached_input_tokens,
         "cache_creation_input_tokens": cache_creation_input_tokens,
-        "reasoning_tokens": reasoning_tokens,
         "provider_usage": _provider_data(provider_usage),
     }
 
@@ -183,7 +156,6 @@ class LLMRequestClient:
         max_tokens: int = 8192,
         *,
         request_config: LLMRequestConfig | None = None,
-        provider_client: Any | None = None,
         max_retries: int | None = None,
     ):
         """Resolve legacy arguments and initialize the selected SDK client."""
@@ -213,9 +185,7 @@ class LLMRequestClient:
             )
 
         self._client: Any
-        if provider_client is not None:
-            self._client = provider_client
-        elif self._is_openai:
+        if self._is_openai:
             import openai
 
             options: dict[str, Any] = {"api_key": api_key}
@@ -266,9 +236,6 @@ class LLMRequestClient:
                     partial_usage or None,
                     input_tokens=partial_usage.get("input_tokens", 0),
                     output_tokens=partial_usage.get("output_tokens", 0),
-                    reasoning_tokens=(
-                        0 if self._is_openai or self._is_gemini else None
-                    ),
                     cached_input_tokens=partial_usage.get("cache_read_input_tokens", 0)
                     or 0,
                     cache_creation_input_tokens=partial_usage.get(
@@ -308,22 +275,14 @@ class LLMRequestClient:
         ):
             request_kwargs["temperature"] = self.request_config.temperature
 
-        if self.request_config.thinking_budget_tokens is not None:
-            request_kwargs["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": self.request_config.thinking_budget_tokens,
-            }
-        elif self.request_config.adaptive_thinking:
+        if self.request_config.adaptive_thinking:
             request_kwargs["thinking"] = {"type": "adaptive"}
             if self.request_config.reasoning_effort is not None:
                 request_kwargs["output_config"] = {
                     "effort": self.request_config.reasoning_effort,
                 }
 
-        if (
-            self.request_config.thinking_budget_tokens is not None
-            or self.request_config.adaptive_thinking
-        ):
+        if self.request_config.adaptive_thinking:
             message = self._stream_anthropic(request_kwargs)
         else:
             message = self._client.messages.create(**request_kwargs)
@@ -344,7 +303,6 @@ class LLMRequestClient:
             },
             "usage": _usage_result(
                 message.usage,
-                reasoning_tokens=None,
                 input_tokens=message.usage.input_tokens,
                 output_tokens=message.usage.output_tokens,
                 cached_input_tokens=getattr(message.usage, "cache_read_input_tokens", 0)
@@ -423,7 +381,6 @@ class LLMRequestClient:
 
         response = self._client.chat.completions.create(**request_kwargs)
         prompt_details = getattr(response.usage, "prompt_tokens_details", None)
-        completion_details = getattr(response.usage, "completion_tokens_details", None)
 
         return {
             "success": True,
@@ -441,10 +398,7 @@ class LLMRequestClient:
                 response.usage,
                 input_tokens=response.usage.prompt_tokens,
                 output_tokens=response.usage.completion_tokens,
-                total_tokens=getattr(response.usage, "total_tokens", None),
                 cached_input_tokens=getattr(prompt_details, "cached_tokens", 0) or 0,
-                reasoning_tokens=getattr(completion_details, "reasoning_tokens", 0)
-                or 0,
             ),
             "stop_reason": response.choices[0].finish_reason,
             "duration_seconds": round(time.monotonic() - start, 2),
@@ -478,10 +432,8 @@ class LLMRequestClient:
                 usage,
                 input_tokens=usage.prompt_token_count,
                 output_tokens=usage.candidates_token_count,
-                total_tokens=getattr(usage, "total_token_count", None),
                 cached_input_tokens=getattr(usage, "cached_content_token_count", 0)
                 or 0,
-                reasoning_tokens=(getattr(usage, "thoughts_token_count", 0) or 0),
             ),
             "stop_reason": (
                 response.candidates[0].finish_reason.name
