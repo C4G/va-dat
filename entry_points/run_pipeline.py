@@ -31,7 +31,7 @@ from processing_scripts.llm.registry import PROMPT_REGISTRY, PromptSpec
 from processing_scripts.llm.slicers import get_slicer, is_empty_slice
 from processing_scripts.llm.templates import fill_template
 from processing_scripts.llm_client.audit import (
-    AuditRequestClient as PipelineClient,
+    AuditRequestClient,
     AuditRequestConfig,
     resolved_request_metadata,
 )
@@ -217,7 +217,7 @@ def run_pipeline(
     # Initialise client once (only needed for live runs)
     client = None
     if not dry_run:
-        client = PipelineClient(
+        client = AuditRequestClient(
             api_key=api_key,
             request_config=request_config,
         )
