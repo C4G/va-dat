@@ -1,8 +1,8 @@
-"""Provider-independent requests for the accessibility audit pipeline."""
+"""Provider-independent LLM requests."""
 
-from .audit import AuditRequestClient, AuditRequestConfig
+from .request import LLMRequestClient, LLMRequestConfig
 
 __all__ = [
-    "AuditRequestClient",
-    "AuditRequestConfig",
+    "LLMRequestClient",
+    "LLMRequestConfig",
 ]
