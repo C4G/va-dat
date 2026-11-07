@@ -34,7 +34,6 @@ def evaluation_configuration(config: LLMRequestConfig) -> dict[str, Any]:
         "provider": provider,
         "endpoint": "chat.completions" if provider == "openai" else "messages",
         **({"thinking": metadata["thinking"]} if "thinking" in metadata else {}),
-        "thinking_budget_tokens": config.thinking_budget_tokens,
         "reasoning_effort": config.reasoning_effort,
         "max_output_tokens": config.max_output_tokens,
         "temperature": "omitted",
