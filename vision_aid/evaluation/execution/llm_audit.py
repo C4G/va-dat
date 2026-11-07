@@ -8,12 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from processing_scripts.llm_client.audit import (
-    AuditRequestClient as LLMRequestClient,
-)
-from processing_scripts.llm_client.audit import (
-    AuditRequestConfig as LLMRequestConfig,
-)
+from processing_scripts.llm_client.request import LLMRequestClient, LLMRequestConfig
 from processing_scripts.llm_client.presets import (
     MODEL_PRESETS,
     OPENAI_REASONING_MODELS as OPENAI_MODELS,
