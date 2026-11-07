@@ -30,9 +30,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from processing_scripts.llm.registry import PROMPT_REGISTRY, PromptSpec
 from processing_scripts.llm.slicers import get_slicer, is_empty_slice
 from processing_scripts.llm.templates import fill_template
-from processing_scripts.llm_client.audit import (
-    AuditRequestClient,
-    AuditRequestConfig,
+from processing_scripts.llm_client.request import (
+    LLMRequestClient,
+    LLMRequestConfig,
     resolved_request_metadata,
 )
 from processing_scripts.llm_client.presets import request_config_for
@@ -122,7 +122,7 @@ def run_pipeline(
     dry_run: bool,
     include_summaries: bool,
     progress_callback=None,
-    request_config: AuditRequestConfig | None = None,
+    request_config: LLMRequestConfig | None = None,
 ) -> dict:
     """Execute the full element-specific accessibility audit pipeline.
 
@@ -217,7 +217,7 @@ def run_pipeline(
     # Initialise client once (only needed for live runs)
     client = None
     if not dry_run:
-        client = AuditRequestClient(
+        client = LLMRequestClient(
             api_key=api_key,
             request_config=request_config,
         )

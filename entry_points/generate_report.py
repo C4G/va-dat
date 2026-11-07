@@ -874,9 +874,9 @@ def deduplicate_with_llm(
         if preset is not None:
             # Preset models reject this pass's fixed temperature and
             # 512-token cap, so send it with the audit's own request shape.
-            from processing_scripts.llm_client.audit import AuditRequestClient
+            from processing_scripts.llm_client.request import LLMRequestClient
 
-            result = AuditRequestClient(api_key=api_key, request_config=preset).call(prompt)
+            result = LLMRequestClient(api_key=api_key, request_config=preset).call(prompt)
             if not result["success"]:
                 raise RuntimeError(result["error"])
             response_text = result["response"] or "[]"

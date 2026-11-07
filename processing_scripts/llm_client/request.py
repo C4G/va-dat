@@ -1,4 +1,4 @@
-"""Provider-independent request configuration for accessibility audits."""
+"""Provider-independent LLM request configuration and client."""
 
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ ReasoningEffort = Literal[
 
 
 @dataclass(frozen=True)
-class AuditRequestConfig:
-    """Configuration shared by every prompt in one audit run.
+class LLMRequestConfig:
+    """Configuration shared by every prompt in one run.
 
     ``temperature=None`` deliberately omits the sampling parameter. Existing
     production callers retain the historical 0.1 temperature and 8,192-token
@@ -39,7 +39,7 @@ class AuditRequestConfig:
     adaptive_thinking: bool = False
 
     def __post_init__(self) -> None:
-        """Reject configuration values that cannot form an audit request."""
+        """Reject configuration values that cannot form a request."""
         if not self.model:
             raise ValueError("model must not be empty")
         if self.max_output_tokens <= 0:
@@ -88,7 +88,7 @@ class AuditRequestConfig:
         }
 
 
-def resolved_request_metadata(config: AuditRequestConfig) -> dict[str, Any]:
+def resolved_request_metadata(config: LLMRequestConfig) -> dict[str, Any]:
     """Describe the effective request after provider capability omissions."""
     metadata = config.as_metadata()
     if (
@@ -168,8 +168,8 @@ class _StreamFailure(Exception):
         self.response_text = response_text
 
 
-class AuditRequestClient:
-    """Send an audit prompt through Anthropic, OpenAI, or Gemini.
+class LLMRequestClient:
+    """Send a prompt through Anthropic, OpenAI, or Gemini.
 
     The returned dict retains the legacy keys consumed by the production
     pipeline and adds complete provider, request, usage, timing, stop, and
@@ -182,7 +182,7 @@ class AuditRequestClient:
         model: str | None = None,
         max_tokens: int = 8192,
         *,
-        request_config: AuditRequestConfig | None = None,
+        request_config: LLMRequestConfig | None = None,
         provider_client: Any | None = None,
         max_retries: int | None = None,
     ):
@@ -190,7 +190,7 @@ class AuditRequestClient:
         if request_config is None:
             if model is None:
                 raise TypeError("model or request_config is required")
-            request_config = AuditRequestConfig(
+            request_config = LLMRequestConfig(
                 model=model,
                 max_output_tokens=max_tokens,
             )
@@ -235,7 +235,7 @@ class AuditRequestClient:
             self._client = anthropic.Anthropic(**options)
 
     def call(self, prompt: str) -> dict[str, Any]:
-        """Send one prompt and return a provider-neutral audit result."""
+        """Send one prompt and return a provider-neutral result."""
         start = time.monotonic()
 
         try:

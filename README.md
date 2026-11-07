@@ -58,7 +58,7 @@ HTML file (e.g. 1.9 MB)
 │   │   └── nontext_checklist_03.txt             #   8 prompts for non-text content
 │   │
 │   ├── llm_client/                              # Provider-independent audit requests
-│   │   ├── audit.py                             #   API requests and response metadata
+│   │   ├── request.py                           #   API requests and response metadata
 │   │   ├── presets.py                           #   Per-model request settings (thinking, effort)
 │   │   └── client.py                            #   Model-provider capability helpers
 │   │
