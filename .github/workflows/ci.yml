@@ -53,7 +53,7 @@ jobs:
           print('all entry points import cleanly')
           "
 
-      - name: Network-free test suite
+      - name: Run tests
         run: uv run pytest -q
 
       # Exercises extractors, slicers, prompt templates and the programmatic
