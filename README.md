@@ -120,7 +120,7 @@ HTML file (e.g. 1.9 MB)
 ├── docs/                                       # Architecture documentation
 │   └── modular-prompts-plan.md                 #   Full architectural plan
 │
-├── reports/                                    # Historical raw JSON audit output
+├── reports/                                    # Raw JSON output from standalone llm_client runs
 │
 ├── test_results/
 │   ├── chatgpt/                                # Legacy ChatGPT testing results
