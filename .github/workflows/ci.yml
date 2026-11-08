@@ -53,7 +53,7 @@ jobs:
           print('all entry points import cleanly')
           "
 
-      - name: Run tests
+      - name: Run pytest
         run: uv run pytest -q
 
       # Exercises extractors, slicers, prompt templates and the programmatic
