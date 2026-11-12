@@ -7,11 +7,11 @@ problems the tool reports don't help or hurt the score.
 va-dat finds problems in two ways, and the evaluator scores each one separately:
 
 - **Programmatic Checks** :
-  - va-dat's set of rule-based checks. It uses no
-    AI, so it gives the same results on a page no matter which model you test.
+    - va-dat's set of rule-based checks. It uses no
+      AI, so it gives the same results on a page no matter which model you test.
 - **LLM Checks**:
-  - va-dat sends parts of the page to a model and asks it to find
-    problems. This is the part you compare across models.
+    - va-dat sends parts of the page to a model and asks it to find
+      problems. This is the part you compare across models.
 
 Each problem in the human audit is a **human finding**. A **match** links a human
 finding to the tool findings that describe the same problem on the same page.
@@ -98,12 +98,12 @@ human finding:
 
 - **Its classification**: which source should be able to catch it.
 
-  | Value                  | Use it when                                                            |
-  | ---------------------- | ---------------------------------------------------------------------- |
-  | `llm_eligible`         | The saved HTML shows the issue, and but finding it needs an llm.       |
-  | `programmatic`         | The programatic checks can find the issue.                             |
-  | `unavailable_evidence` | The HTML alone can't show the issue in question, for example an image. |
-  | `ambiguous`            | The human finding itself is too unclear to judge fairly.               |
+    | Value                  | Use it when                                                            |
+    | ---------------------- | ---------------------------------------------------------------------- |
+    | `llm_eligible`         | The saved HTML shows the issue, and but finding it needs an llm.       |
+    | `programmatic`         | The programatic checks can find the issue.                             |
+    | `unavailable_evidence` | The HTML alone can't show the issue in question, for example an image. |
+    | `ambiguous`            | The human finding itself is too unclear to judge fairly.               |
 
 - **Its programmatic matches**: the issues from the programmatic checks that
   describe the same problem on the same page. For example, a human "image has no
@@ -132,26 +132,26 @@ captured pages and writes a review folder with three CSVs.
 - `classifications.csv` has one row per human finding. For each row, read the
   human finding and decide who should be able to catch it: the LLM, the
   programmatic checks, or neither. Then fill in two columns:
-  - classification: one of the four values from the
-    [classification table](#what-is-a-mapping), such as llm_eligible.
-  - classification_reason: a sentence on why you picked it, for example "The
-    focus order can't be seen in the HTML."
+    - classification: one of the four values from the
+      [classification table](#what-is-a-mapping), such as llm_eligible.
+    - classification_reason: a sentence on why you picked it, for example "The
+      focus order can't be seen in the HTML."
 
-  If you classify a finding as programmatic, you also need to list matching
-  issues for it on every page in the programmatic review file. If you classify
-  it as unavailable evidence or ambiguous, you can't list any.
+    If you classify a finding as programmatic, you also need to list matching
+    issues for it on every page in the programmatic review file. If you classify
+    it as unavailable evidence or ambiguous, you can't list any.
 
 - `programmatic-review.csv` is where you record the programmatic matches. It
   has one row per human finding per page, so a Global finding shows up once for
   every page. For each row, look through the findings list for issues on that
   page that describe the same problem as the human finding:
-  - If you find any, put their references in the programmatic_finding_refs
-    column, separated by semicolons, for example P001-F003;P001-F007.
-  - If you don't, leave that column blank.
+    - If you find any, put their references in the programmatic_finding_refs
+      column, separated by semicolons, for example P001-F003;P001-F007.
+    - If you don't, leave that column blank.
 
-  Either way, explain your decision in the programmatic_reason column. Two
-  issues that only share a WCAG criterion/code aren't a match, they need to be the
-  same problem.
+    Either way, explain your decision in the programmatic_reason column. Two
+    issues that only share a WCAG criterion/code aren't a match, they need to be the
+    same problem.
 
 Then run the `human-finding-mapping-approve` command with your name in
 `--reviewer`. It checks that every row is filled in and every reference is valid,
