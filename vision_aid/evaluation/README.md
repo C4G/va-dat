@@ -6,10 +6,10 @@ problems the tool reports don't help or hurt the score.
 
 va-dat finds problems in two ways, and the evaluator scores each one separately:
 
-- **Programmatic Checks** :
+1. **Programmatic Checks** :
     - va-dat's set of rule-based checks. It uses no
       AI, so it gives the same results on a page no matter which model you test.
-- **LLM Checks**:
+2. **LLM Checks**:
     - va-dat sends parts of the page to a model and asks it to find
       problems. This is the part you compare across models.
 
@@ -86,6 +86,14 @@ pages in the order listed.
 from which URL. Later commands read the pages from these files, so every model
 is tested on the same HTML.
 
+Name the folder to save them in with `--output-dir`. The folder can't exist yet.
+
+```bash
+uv run visionaid-evaluate capture \
+  --human-audit './Pristine Accessibility Defect Report.xlsx' \
+  --output-dir .model-evaluation/pristine-snapshots
+```
+
 `capture` doesn't run JavaScript. Keep this in mind, since modern frontend
 frameworks often build most of the page's HTML with JavaScript.
 
@@ -123,7 +131,18 @@ We of course need the programmatic matches because it evaluates the programatic 
 ### How to create it
 
 The `human-finding-mapping-prepare` command runs the programmatic checks on the
-captured pages and writes a review folder with three CSVs.
+captured pages and writes a review folder. Point `--snapshots` at the
+`snapshots.json` from step 1, and name a new folder for the review with
+`--output-dir`:
+
+```bash
+uv run visionaid-evaluate human-finding-mapping-prepare \
+  --human-audit './Pristine Accessibility Defect Report.xlsx' \
+  --snapshots .model-evaluation/pristine-snapshots/snapshots.json \
+  --output-dir .model-evaluation/pristine-mapping-review
+```
+
+The review folder has three CSVs.
 
 - `programmatic-findings.csv` is the list of every issue the programmatic
   checks found, with the rule, element, and location of each. Every issue gets a
@@ -153,9 +172,21 @@ captured pages and writes a review folder with three CSVs.
     issues that only share a WCAG criterion/code aren't a match, they need to be the
     same problem.
 
-Then run the `human-finding-mapping-approve` command with your name in
-`--reviewer`. It checks that every row is filled in and every reference is valid,
-and writes the mapping to human-finding-mapping.json in the review folder.
+Once you've filled in both CSVs, run the `human-finding-mapping-approve`
+command. It takes the same `--snapshots`, the review folder in `--review-dir`,
+and your name in `--reviewer`:
+
+```bash
+uv run visionaid-evaluate human-finding-mapping-approve \
+  --human-audit './Pristine Accessibility Defect Report.xlsx' \
+  --snapshots .model-evaluation/pristine-snapshots/snapshots.json \
+  --review-dir .model-evaluation/pristine-mapping-review \
+  --reviewer "Your name"
+```
+
+It checks that every row is filled in and every reference is valid, and writes
+the mapping to `human-finding-mapping.json` in the review folder. Pass `--output`
+to save it somewhere else.
 
 The mapping is tied to the exact audit file and programmatic check results it
 was made from. Finding IDs come from the spreadsheet's checksum, so editing the
@@ -191,6 +222,7 @@ To evaluate one page, find its HTML file in `snapshots.json`:
 
 ```bash
 uv run visionaid-evaluate run \
+  --human-audit './Pristine Accessibility Defect Report.xlsx' \
   --html .model-evaluation/pristine-snapshots/page-001.html \
   --source-url https://pristineai.com/ \
   --human-finding-mapping .model-evaluation/pristine-mapping-review/human-finding-mapping.json \
@@ -240,7 +272,8 @@ Inspect every row. Leave the LLM ID blank for a miss and record qualifications o
 
 ## 5. Build the report
 
-Run `report` on a `run` folder, or `report-all` on a `run-all` folder:
+Run `report` on a `run` folder, or `report-all` on a `run-all` folder. Both
+take the folder in `--run-dir` and who did the review in `--reviewer`:
 
 ```bash
 uv run visionaid-evaluate report \
@@ -302,3 +335,15 @@ A `run-all` also writes two files to `.model-evaluation/full-runs/<run-id>/`:
 
 The evaluator skips va-dat's false-positive filter and LLM deduplication, so its
 findings won't match the CSV the main tool produces.
+
+## Command Overview
+
+| Command                         | When to run                                                                    | What it does                                                                                                            | Required flags                                                        | Optional flags                                         |
+| ------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
+| `capture`                       | Once per audit                                                                 | Downloads the HTML for every URL in the audit and writes `snapshots.json`                                               | `--output-dir`                                                        | `--human-audit`                                        |
+| `human-finding-mapping-prepare` | Once per audit, after `capture`                                                | Writes the two mapping CSVs the reviewer fills in                                                                       | `--snapshots`, `--output-dir`                                         | `--human-audit`                                        |
+| `human-finding-mapping-approve` | Once per audit, after the reviewer fills in the CSVs                           | Checks the CSVs for completion and saves the mapping file                                                               | `--snapshots`, `--review-dir`, `--reviewer`                           | `--output`, `--human-audit`                            |
+| `run`                           | Each time you test a model on one page                                         | Runs the programmatic checks and saves the prompts for one saved HTML file. With `--live`, sends the prompts to the LLM | `--html`, `--source-url`, `--max-cost-usd`, `--human-finding-mapping` | `--model`, `--live`, `--approve-live`, `--human-audit` |
+| `run-all`                       | Each time you test a model on the whole audit                                  | Does what `run` does for every snapshot                                                                                 | `--snapshots`, `--max-cost-usd`, `--human-finding-mapping`            | `--model`, `--live`, `--approve-live`, `--human-audit` |
+| `report`                        | After a `run` with `--live`, once the reviewer fills in `review.csv`           | Checks the review and writes `report.html` for that page                                                                | `--run-dir`, `--reviewer`                                             |                                                        |
+| `report-all`                    | After a `run-all` with `--live`, once the reviewer fills in every `review.csv` | Checks every review and writes one report per page plus a combined one                                                  | `--run-dir`, `--reviewer`                                             |                                                        |
