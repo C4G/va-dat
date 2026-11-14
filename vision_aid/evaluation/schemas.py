@@ -31,7 +31,7 @@ class HumanAudit:
 
 
 @dataclass(frozen=True)
-class CanonicalFinding:
+class ToolFinding:
     finding_id: str
     source: Literal["llm", "programmatic"]
     run_id: str

@@ -11,7 +11,7 @@ from typing import Any, NamedTuple
 
 from entry_points.generate_report import NORMALIZERS, ReportRow, safe_parse_json
 from processing_scripts.llm.registry import PROMPT_REGISTRY, PromptSpec
-from vision_aid.evaluation.schemas import CanonicalFinding
+from vision_aid.evaluation.schemas import ToolFinding
 
 _PROMPTS = {item.name: item for item in PROMPT_REGISTRY if not item.is_summary}
 _PROBLEM_KEYS = (
@@ -46,7 +46,7 @@ class NormalizationResult:
     prompt: str
     parse_status: str
     raw_response: str
-    findings: tuple[CanonicalFinding, ...]
+    findings: tuple[ToolFinding, ...]
     error: str | None = None
 
 
@@ -206,15 +206,15 @@ def normalize_prompt_response(
         )
     findings = []
     for position, source, problem, element, location in sources:
-        canonical_source = json.dumps(
+        source_json = json.dumps(
             source,
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
         )
-        identity = f"{run_id}\0{prompt_name}\0{position}\0{canonical_source}".encode()
+        identity = f"{run_id}\0{prompt_name}\0{position}\0{source_json}".encode()
         findings.append(
-            CanonicalFinding(
+            ToolFinding(
                 finding_id="llm-" + hashlib.sha256(identity).hexdigest()[:20],
                 source="llm",
                 run_id=run_id,
@@ -245,20 +245,20 @@ def normalize_programmatic_findings(
     *,
     run_id: str,
     page_url: str,
-) -> tuple[CanonicalFinding, ...]:
+) -> tuple[ToolFinding, ...]:
     """Turn raw checker output into findings."""
     normalized = []
     for index, item in enumerate(raw_findings):
-        canonical_item = json.dumps(
+        item_json = json.dumps(
             item,
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
         )
-        identity = f"{run_id}\0programmatic\0{index}\0{canonical_item}".encode()
+        identity = f"{run_id}\0programmatic\0{index}\0{item_json}".encode()
         rule = str(item.get("rule_id") or item.get("rule") or "programmatic")
         normalized.append(
-            CanonicalFinding(
+            ToolFinding(
                 finding_id="programmatic-" + hashlib.sha256(identity).hexdigest()[:20],
                 source="programmatic",
                 run_id=run_id,
