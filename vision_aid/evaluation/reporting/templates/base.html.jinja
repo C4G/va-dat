@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block document_title %}{% endblock %}</title>
+<style>{{ styles | safe }}</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to report content</a>
+<header>
+<h1>{{ title }}: {{ model_name }}</h1>
+{% block scope %}{% endblock %}
+<p>Run ID: {{ manifest.run_id }}.</p>
+<p>Review decisions by: {{ reviewer }}</p>
+<button id="print-report" type="button" hidden>Print report</button>
+<nav aria-label="Report sections"><a href="#performance">Cost and detection results</a><a href="#human-findings">Tool Findings and Human Finding Matches</a></nav>
+</header>
+<main id="main">
+{% block content %}{% endblock %}
+</main>
+<script>{{ scripts.filters | safe }}</script>
+<script>{{ scripts.print | safe }}</script>
+</body>
+</html>

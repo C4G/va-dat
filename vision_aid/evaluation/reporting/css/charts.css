@@ -1,0 +1,27 @@
+.performance-heading { margin-bottom: 1.5rem; }
+.performance-heading h2 { margin: 0 0 1rem; }
+.cost-overview { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 1.5rem; align-items: start; }
+.cost-overview > * { min-width: 0; }
+@media (min-width: 60rem) { .cost-overview { align-items: stretch; } }
+.run-cost { margin: 0; padding: .75rem 1rem; max-width: 100%; border: 3px solid #164e88; background: #edf2f6; }
+.cost-label { display: block; margin-bottom: .4rem; font-weight: 650; }
+.cost-value { display: block; font-size: clamp(2rem, 4vw, 3rem); line-height: 1.1; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.cost-currency { font-size: 1rem; font-weight: 650; }
+.token-usage { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem 1rem; margin: 1.25rem 0 0; padding-top: .75rem; border-top: 1px solid #687f93; }
+.token-usage dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.model-pricing h3 { margin: 0; }
+.model-pricing table { min-width: 26rem; margin-bottom: 0; }
+.model-pricing th { overflow-wrap: normal; }
+.model-pricing td { white-space: nowrap; }
+@media (max-width: 60rem) { .cost-overview { grid-template-columns: minmax(0, 1fr); } }
+.detection-chart { margin: 1rem 0; }
+.chart-bars { list-style: none; padding: 0; }
+.chart-bars li { margin-block: 1rem; padding: .75rem; border: 1px solid #687f93; overflow-wrap: anywhere; }
+.chart-bars .chart-primary { border: 3px solid #164e88; background: #edf2f6; }
+.chart-primary .chart-value { font-size: 1.2rem; }
+.chart-value { margin: 0 0 .5rem; }
+.chart-percentage { text-decoration: underline; text-underline-offset: .15em; }
+.chart-track { width: 100%; height: 1.4rem; background: #edf2f6; border: 1px solid #687f93; }
+.chart-fill { display: block; height: 100%; background: #164e88; }
+@media (forced-colors: active) { .chart-fill { background: Highlight; } }
+@media print { .chart-track, .chart-fill { print-color-adjust: exact; } .chart-bars li { break-inside: avoid; } }
