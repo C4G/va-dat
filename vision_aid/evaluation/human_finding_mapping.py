@@ -9,7 +9,6 @@ from typing import Any
 
 from vision_aid.evaluation.inputs.human_audit import ELIGIBILITY_VALUES
 
-HUMAN_FINDING_MAPPING_DIRECTORY = Path(__file__).with_name("human_finding_mappings")
 HUMAN_FINDING_MAPPING_ARTIFACT = "artifacts/human-finding-mapping.json"
 LOCKED_COLUMNS = (
     "classification", "classification_reason", "programmatic_finding_id",
@@ -84,15 +83,6 @@ def load_human_finding_mapping(path: Path, audit_sha256: str) -> dict[str, Any]:
     mapping = json.loads(path.read_text(encoding="utf-8"))
     validate_human_finding_mapping(mapping, audit_sha256)
     return mapping
-
-
-def select_human_finding_mapping(path: Path | None, audit_sha256: str) -> dict[str, Any] | None:
-    """Load the given mapping, or the local one for this audit, or return None."""
-    if path is None:
-        path = HUMAN_FINDING_MAPPING_DIRECTORY / f"{audit_sha256}.json"
-        if not path.is_file():
-            return None
-    return load_human_finding_mapping(path, audit_sha256)
 
 
 def _contains(actual: Any, expected: Any) -> bool:

@@ -31,7 +31,7 @@ from vision_aid.evaluation.full import (
     prepare_full_evaluation,
     report_full_evaluation,
 )
-from vision_aid.evaluation.human_finding_mapping import select_human_finding_mapping
+from vision_aid.evaluation.human_finding_mapping import load_human_finding_mapping
 from vision_aid.evaluation.human_finding_mapping_review import (
     approve_human_finding_mapping_review,
     prepare_human_finding_mapping_review,
@@ -51,7 +51,7 @@ def _add_model_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT)
     parser.add_argument(
-        "--human-finding-mapping", type=Path,
+        "--human-finding-mapping", type=Path, required=True,
         help="approved mapping JSON from human-finding-mapping-approve",
     )
     parser.add_argument(
@@ -127,18 +127,6 @@ def _new_run_directory(kind: str = "runs") -> Path:
     return run
 
 
-def _required_human_finding_mapping(path: Path | None, audit_sha256: str) -> dict[str, Any]:
-    """Load the approved mapping, which every new run needs."""
-    mapping = select_human_finding_mapping(path, audit_sha256)
-    if mapping is None:
-        raise ValueError(
-            "No approved Human finding mapping. Create one with "
-            "human-finding-mapping-prepare and human-finding-mapping-approve, "
-            "then pass --human-finding-mapping PATH."
-        )
-    return mapping
-
-
 def _approved_api_key(args: argparse.Namespace, configuration: dict[str, Any]) -> str | None:
     """Return the provider's API key, or None if the user declines to spend."""
     load_dotenv(PROJECT_ROOT / ".env")
@@ -199,7 +187,7 @@ def _run(args: argparse.Namespace) -> int:
     if not args.html.is_file():
         raise ValueError(f"Benchmark HTML not found: {args.html}")
     human_audit = import_page_human_findings(args.human_audit, args.source_url)
-    mapping = _required_human_finding_mapping(
+    mapping = load_human_finding_mapping(
         args.human_finding_mapping, human_audit.human_audit_sha256
     )
     run = _new_run_directory()
@@ -229,7 +217,7 @@ def _run_all(args: argparse.Namespace) -> int:
     request_config = MODEL_PRESETS[args.model]
     limit = positive_cost(args.max_cost_usd)
     audits, snapshots = load_full_inputs(args.human_audit, args.snapshots)
-    mapping = _required_human_finding_mapping(
+    mapping = load_human_finding_mapping(
         args.human_finding_mapping, next(iter(audits.values())).human_audit_sha256
     )
     run = _new_run_directory("full-runs")
