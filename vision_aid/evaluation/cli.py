@@ -60,6 +60,10 @@ from vision_aid.evaluation.series import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_HUMAN_AUDIT = PROJECT_ROOT / "Pristine Accessibility Defect Report.xlsx"
+# Chosen by calibration against the approved Pristine mapping and the
+# Sol-reviewed run 20261029T234356-9fba004c (2026-11-20).
+DEFAULT_MAPPER_MODEL = "gpt-6.1-sol"
+DEFAULT_MATCHER_MODEL = "gpt-6-luna"
 
 
 def _add_model_options(parser: argparse.ArgumentParser) -> None:
@@ -120,8 +124,9 @@ def build_parser() -> argparse.ArgumentParser:
     auto_mapping.add_argument("--snapshots", type=Path, required=True)
     auto_mapping.add_argument("--output-dir", type=Path, required=True)
     auto_mapping.add_argument(
-        "--mapper-model", choices=MODEL_PRESETS, required=True,
-        help="model that classifies the Human findings and matches the checks",
+        "--mapper-model", choices=MODEL_PRESETS, default=DEFAULT_MAPPER_MODEL,
+        help="model that classifies the Human findings and matches the checks "
+        f"(default: {DEFAULT_MAPPER_MODEL})",
     )
     auto_mapping.add_argument(
         "--max-cost-usd", required=True,
@@ -160,8 +165,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     auto_report.add_argument("--run-dir", type=Path, required=True)
     auto_report.add_argument(
-        "--matcher-model", choices=MODEL_PRESETS, required=True,
-        help="model that decides the LLM matches",
+        "--matcher-model", choices=MODEL_PRESETS, default=DEFAULT_MATCHER_MODEL,
+        help=f"model that decides the LLM matches (default: {DEFAULT_MATCHER_MODEL})",
     )
     auto_report.add_argument(
         "--max-cost-usd", required=True,
@@ -182,12 +187,12 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"model under test (default: {DEFAULT_MODEL})",
     )
     series.add_argument(
-        "--mapper-model", choices=MODEL_PRESETS,
-        help="model that builds the mapping; required when no saved mapping exists",
+        "--mapper-model", choices=MODEL_PRESETS, default=DEFAULT_MAPPER_MODEL,
+        help=f"model that builds the mapping when none is saved (default: {DEFAULT_MAPPER_MODEL})",
     )
     series.add_argument(
-        "--matcher-model", choices=MODEL_PRESETS, required=True,
-        help="model that decides the LLM matches",
+        "--matcher-model", choices=MODEL_PRESETS, default=DEFAULT_MATCHER_MODEL,
+        help=f"model that decides the LLM matches (default: {DEFAULT_MATCHER_MODEL})",
     )
     series.add_argument("--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT)
     source = series.add_mutually_exclusive_group(required=True)
@@ -425,11 +430,6 @@ def _auto(args: argparse.Namespace) -> int:
     # Settle every argument problem before capturing pages or asking to spend.
     if args.human_finding_mapping is not None and not args.human_finding_mapping.is_file():
         raise ValueError(f"Human finding mapping not found: {args.human_finding_mapping}")
-    if args.capture and args.human_finding_mapping is None and args.mapper_model is None:
-        raise ValueError(
-            "--mapper-model is required with --capture: new snapshots need a new "
-            "Human finding mapping"
-        )
     if args.capture:
         snapshots = capture_snapshots(args.human_audit, args.output_dir)
         print(f"Snapshot mapping: {snapshots}")
@@ -451,8 +451,6 @@ def _auto(args: argparse.Namespace) -> int:
                 f"{mapping.parent} exists without an approved mapping (an earlier build "
                 "failed?); remove it to build the mapping again"
             )
-        if args.mapper_model is None:
-            raise ValueError("--mapper-model is required to build the Human finding mapping")
         mapper_model = args.mapper_model
     plan = SeriesPlan(
         human_audit=args.human_audit, snapshots=snapshots, mapping=mapping,

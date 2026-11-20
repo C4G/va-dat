@@ -124,11 +124,12 @@ def test_bad_inputs_are_refused_before_capture_or_approval(workspace, monkeypatc
     base = ["auto", "-n", "1", "--model", MODEL, "--matcher-model", MODEL,
             "--max-cost-usd", "1", *audit]
 
-    # A capture needs a new mapping, so it needs a mapper. (The fixture's fake
+    # A missing mapping file is refused before capturing. (The fixture's fake
     # download has no pages left, so capturing would raise.)
     with pytest.raises(SystemExit):
-        main([*base, "--capture", "--output-dir", str(workspace / "new"), "--approve-live"])
-    assert "--mapper-model" in capsys.readouterr().err
+        main([*base, "--capture", "--output-dir", str(workspace / "new"),
+              "--human-finding-mapping", str(workspace / "missing.json"), "--approve-live"])
+    assert "mapping not found" in capsys.readouterr().err
     assert not (workspace / "new").exists()
 
     # A mapping approved for other snapshots is refused.
