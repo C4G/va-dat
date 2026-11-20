@@ -247,7 +247,7 @@ def execute_full_evaluation(
     return True
 
 
-def _pooled_rows(
+def pooled_rows(
     originals: list[dict[str, Any]],
     pages: list[dict[str, Any]],
     reviews: list[PageReview],
@@ -291,7 +291,7 @@ def report_full_evaluation(run: Path, reviewer: str) -> None:
         raise ValueError("Incomplete Full evaluations cannot produce a final report")
     original = json.loads((run / "human-findings.json").read_text())
     reviews = [validated_page_review(run / page["run_dir"]) for page in manifest["pages"]]
-    rows = _pooled_rows(original["human_findings"], manifest["pages"], reviews)
+    rows = pooled_rows(original["human_findings"], manifest["pages"], reviews)
     for page, review in zip(manifest["pages"], reviews, strict=True):
         write_page_report(run / page["run_dir"] / "report.html", review, reviewer)
     write_full_report(run / "report.html", manifest, rows, reviews, reviewer)

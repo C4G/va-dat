@@ -198,7 +198,8 @@ uv run visionaid-evaluate human-finding-mapping-approve \
 
 It checks that every row is filled in and every reference is valid, and writes
 the mapping to `human-finding-mapping.json` in the review folder. Pass `--output`
-to save it somewhere else.
+to save it somewhere else. The mapping records the SHA-256 of each snapshot it
+was built from.
 
 The snapshots and the mapping are both tied to the exact audit file. If the
 spreadsheet changes at all, even by re-saving it, start again from `capture`.
@@ -234,8 +235,9 @@ so use a strong model here.
 It checks each answer before writing anything: every human finding decided
 with both reasons, references that exist on that page and are used for only one
 human finding, at least one reference for `programmatic`, and none for
-`unavailable_evidence` or `ambiguous`. A `Global` finding is decided on every
-page, and every page must give it the same classification. An answer that
+`unavailable_evidence` or `ambiguous`. A `Global` finding is classified on the
+first page it appears on; later pages are told that classification and only
+match their checks to it, and an answer that changes it is refused. An answer that
 fails gets one retry with the problem explained. If the retry also fails, the
 command stops with exit code 1 and leaves both CSVs unfilled, so you can finish
 them by hand and run `human-finding-mapping-approve`.
@@ -426,17 +428,21 @@ It does this:
    snapshots folder and reuses it. If there is none, it builds one there with
    the mapper, as `human-finding-mapping-auto` would, and later series on those
    snapshots reuse it. `--mapper-model` is needed only when the mapping is
-   built. If an earlier build failed, remove that `human-finding-mapping/`
-   folder before trying again.
+   built, so `--capture` needs it unless you pass `--human-finding-mapping`;
+   `auto` checks this before capturing anything. If an earlier build failed,
+   remove that `human-finding-mapping/` folder before trying again. A reused
+   mapping must have been built from the same snapshots: `auto` refuses one
+   whose recorded snapshot checksums differ, and warns if it records none
+   (mappings approved before checksums were recorded).
 3. **Approval.** Before spending anything it lists the mapper (only if it will
    build the mapping), the model under test, the matcher, N, the page count and
    the cost limit, and asks you to type `yes` once; `--approve-live` skips the
    question. It needs the API key of every provider involved.
 4. **Runs.** N times: `run-all --live`, then `review-report-auto`. A run that
-   doesn't finish, or whose review fails, is recorded as incomplete and the
-   series moves on to the next run.
-5. **Report.** It writes the series report and prints how many of the N runs
-   completed. The exit code is 0 only if all N completed.
+   doesn't finish, whose review fails, or that hits any other error is recorded
+   as incomplete with the reason, and the series moves on to the next run.
+5. **Report.** It writes the series report, even if the series stopped early,
+   and prints how many of the N runs completed. The exit code is 0 only if all N completed.
 
 `--max-cost-usd` covers every request of every role: mapper, model under test
 and matcher. Each step gets what's left of it, and once it's used up the series

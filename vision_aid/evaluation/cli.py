@@ -28,7 +28,7 @@ from vision_aid.evaluation.automated_review import (
     ReviewFailure,
     reviewer_attribution,
 )
-from vision_aid.evaluation.execution.pricing import DEFAULT_SCHEDULE, PriceSchedule
+from vision_aid.evaluation.execution.pricing import DEFAULT_SCHEDULE, PriceSchedule, format_usd
 from vision_aid.evaluation.full import (
     capture_snapshots,
     execute_full_evaluation,
@@ -50,7 +50,13 @@ from vision_aid.evaluation.mapper import build_human_finding_mapping
 from vision_aid.evaluation.matcher import PROMPT as MATCHER_PROMPT
 from vision_aid.evaluation.matcher import review_and_report, review_pages
 from vision_aid.evaluation.page import prepare_page, report_page
-from vision_aid.evaluation.series import SeriesPlan, run_series, saved_mapping
+from vision_aid.evaluation.series import (
+    ROLE_LABELS,
+    ROLES,
+    SeriesPlan,
+    run_series,
+    saved_mapping,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_HUMAN_AUDIT = PROJECT_ROOT / "Pristine Accessibility Defect Report.xlsx"
@@ -242,13 +248,7 @@ def _approved_api_keys(
     return keys
 
 
-def _approved_api_key(args: argparse.Namespace, configuration: dict[str, Any]) -> str | None:
-    """Return the provider's API key, or None if the user declines to spend."""
-    keys = _approved_api_keys(args, [configuration])
-    return None if keys is None else keys[configuration["provider"]]
-
-
-def _display_model(
+def _print_model_settings(
     request_config: LLMRequestConfig,
     configuration: dict[str, Any],
     schedule: PriceSchedule,
@@ -298,7 +298,7 @@ def _run(args: argparse.Namespace) -> int:
         run, args.html, args.source_url, human_audit, request_config, limit, mapping
     )
     print(f"Evaluation run: {run}")
-    _display_model(
+    _print_model_settings(
         request_config, configuration, PriceSchedule.load(run / "artifacts/pricing.json"),
         len(manifest["prompts"]), limit,
     )
@@ -307,9 +307,10 @@ def _run(args: argparse.Namespace) -> int:
     if not args.live:
         print("Preview complete; no paid requests made.")
         return 0
-    api_key = _approved_api_key(args, configuration)
-    if api_key is None:
+    api_keys = _approved_api_keys(args, [configuration])
+    if api_keys is None:
         return 0
+    api_key = api_keys[configuration["provider"]]
     complete = execute(run, manifest, api_key, request_config)
     print(f"Run {'complete' if complete else 'incomplete'}: {run}")
     return 0 if complete else 1
@@ -333,16 +334,17 @@ def _run_all(args: argparse.Namespace) -> int:
         print(f"Page: {page['source_url']}; Evaluation run: {child}")
         print(f"Review CSV: {child / 'review.csv'}")
     first_child = run / manifest["pages"][0]["run_dir"]
-    _display_model(
+    _print_model_settings(
         request_config, manifest["configuration"],
         PriceSchedule.load(first_child / "artifacts/pricing.json"), prompt_count, limit,
     )
     if not args.live:
         print("Preview complete; no paid requests made.")
         return 0
-    api_key = _approved_api_key(args, manifest["configuration"])
-    if api_key is None:
+    api_keys = _approved_api_keys(args, [manifest["configuration"]])
+    if api_keys is None:
         return 0
+    api_key = api_keys[manifest["configuration"]["provider"]]
     complete = execute_full_evaluation(run, manifest, api_key, request_config)
     print(f"Full evaluation {'complete' if complete else 'incomplete'}: {run}")
     return 0 if complete else 1
@@ -360,10 +362,11 @@ def _human_finding_mapping_auto(args: argparse.Namespace) -> int:
     print(f"Mapper: {reviewer_attribution(args.mapper_model, MAPPER_PROMPT)}; "
           f"pages: {len(snapshots)}; requests: {len(snapshots)} "
           "(plus at most one retry each)")
-    _display_model(request_config, configuration, schedule, len(snapshots), limit)
-    api_key = _approved_api_key(args, configuration)
-    if api_key is None:
+    _print_model_settings(request_config, configuration, schedule, len(snapshots), limit)
+    api_keys = _approved_api_keys(args, [configuration])
+    if api_keys is None:
         return 0
+    api_key = api_keys[configuration["provider"]]
     reviewer = AutomatedReviewer(
         "mapper", args.mapper_model, MAPPER_PROMPT, api_key, schedule, limit,
     )
@@ -373,10 +376,10 @@ def _human_finding_mapping_auto(args: argparse.Namespace) -> int:
         )
     except ReviewFailure as failure:
         print(f"Automated review failed: {failure}")
-        print(f"Mapper estimated cost: ${reviewer.estimated_cost.normalize():f}; "
+        print(f"Mapper estimated cost: ${format_usd(reviewer.estimated_cost)}; "
               f"review CSVs left unfilled in {args.output_dir.resolve()}")
         return 1
-    print(f"Mapper estimated cost: ${reviewer.estimated_cost.normalize():f}")
+    print(f"Mapper estimated cost: ${format_usd(reviewer.estimated_cost)}")
     print(f"Approved Human finding mapping: {mapping.resolve()}")
     return 0
 
@@ -392,26 +395,22 @@ def _review_report_auto(args: argparse.Namespace) -> int:
     print(f"Run: {run}")
     print(f"Matcher: {reviewer_attribution(args.matcher_model, MATCHER_PROMPT)}; "
           f"pages: {len(pages)}; requests: {len(pages)} (plus at most one retry each)")
-    _display_model(request_config, configuration, schedule, len(pages), limit)
-    api_key = _approved_api_key(args, configuration)
-    if api_key is None:
+    _print_model_settings(request_config, configuration, schedule, len(pages), limit)
+    api_keys = _approved_api_keys(args, [configuration])
+    if api_keys is None:
         return 0
+    api_key = api_keys[configuration["provider"]]
     reviewer = AutomatedReviewer(
         "matcher", args.matcher_model, MATCHER_PROMPT, api_key, schedule, limit,
     )
     try:
         report = review_and_report(run, reviewer)
     except ReviewFailure as failure:
-        reviewer.record(run, "failed", str(failure))
         print(f"Automated review failed: {failure}")
-        print(f"Matcher estimated cost: ${reviewer.estimated_cost.normalize():f}; "
+        print(f"Matcher estimated cost: ${format_usd(reviewer.estimated_cost)}; "
               "no review.csv or report written.")
         return 1
-    except Exception as error:
-        reviewer.record(run, "failed", str(error))
-        raise
-    reviewer.record(run, "complete")
-    print(f"Matcher estimated cost: ${reviewer.estimated_cost.normalize():f}")
+    print(f"Matcher estimated cost: ${format_usd(reviewer.estimated_cost)}")
     print(f"HTML report: {report}")
     return 0
 
@@ -461,15 +460,18 @@ def _auto(args: argparse.Namespace) -> int:
         runs=args.runs, limit=limit,
     )
     schedule = PriceSchedule.load(DEFAULT_SCHEDULE)
-    roles = [("Model under test", args.model)]
     if mapper_model:
-        roles.insert(0, ("Mapper", reviewer_attribution(mapper_model, MAPPER_PROMPT)))
         print(f"Human finding mapping: will be built and saved to {mapping}")
     else:
         print(f"Human finding mapping: {mapping}")
-    roles.append(("Matcher", reviewer_attribution(args.matcher_model, MATCHER_PROMPT)))
-    for label, name in roles:
-        print(f"{label}: {name}")
+    names = {
+        "mapper": mapper_model and reviewer_attribution(mapper_model, MAPPER_PROMPT),
+        "model": args.model,
+        "matcher": reviewer_attribution(args.matcher_model, MATCHER_PROMPT),
+    }
+    for role in ROLES:
+        if names[role]:
+            print(f"{ROLE_LABELS[role]}: {names[role]}")
     print(f"Runs: {args.runs}; pages per run: {len(pages)}")
     print(f"Pricing: {schedule.version} ({schedule.identity})")
     print(f"Cost guardrail: ${limit} across every role; checked between requests")
@@ -487,8 +489,9 @@ def _auto(args: argparse.Namespace) -> int:
               + (f" ({run['reason']})" if run["reason"] else ""))
     if record["stopped_reason"]:
         print(f"Series stopped: {record['stopped_reason']}")
-    for role, cost in record["cost_by_role"].items():
-        print(f"{role} estimated cost: ${cost['estimated_cost_usd']}")
+    for role in ROLES:
+        cost = record["cost_by_role"][role]["estimated_cost_usd"]
+        print(f"{ROLE_LABELS[role]} estimated cost: ${cost}")
     print(f"{record['completed']} of {record['runs_requested']} runs completed; "
           f"series report: {directory / 'report.html'}")
     return 0 if record["completed"] == record["runs_requested"] else 1
@@ -499,6 +502,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        # Only run and run-all have --live; the auto commands are always live,
+        # so a missing --live counts as set and --approve-live is allowed there.
         if getattr(args, "approve_live", False) and not getattr(args, "live", True):
             raise ValueError("--approve-live requires --live")
         if args.command == "capture":

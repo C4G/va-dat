@@ -13,36 +13,22 @@ import json
 from pathlib import Path
 from typing import Any
 
-from vision_aid.evaluation.automated_review import AutomatedReviewer
+from vision_aid.evaluation.automated_review import (
+    AutomatedReviewer,
+    decision_schema,
+    decision_text,
+    validated_decisions,
+)
 from vision_aid.evaluation.full import report_full_evaluation
-from vision_aid.evaluation.inputs.human_audit import HEADERS
+from vision_aid.evaluation.inputs.human_audit import HEADERS, NOT_TESTABLE
 from vision_aid.evaluation.page import report_page
 
 PROMPT = "matcher_v1"
-NOT_TESTABLE = {"unavailable_evidence", "ambiguous"}
-DECISION_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "decisions": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "human_finding_id": {"type": "string"},
-                    "llm_finding_ids": {"type": "array", "items": {"type": "string"}},
-                    "match_reason": {"type": "string"},
-                    "review_notes": {"type": "string"},
-                },
-                "required": [
-                    "human_finding_id", "llm_finding_ids", "match_reason", "review_notes",
-                ],
-                "additionalProperties": False,
-            },
-        },
-    },
-    "required": ["decisions"],
-    "additionalProperties": False,
-}
+DECISION_SCHEMA = decision_schema({
+    "llm_finding_ids": {"type": "array", "items": {"type": "string"}},
+    "match_reason": {"type": "string"},
+    "review_notes": {"type": "string"},
+})
 
 
 def review_pages(run: Path) -> list[Path]:
@@ -104,44 +90,24 @@ def _validated(
 
     Raises ValueError naming the first problem, which is sent back on retry.
     """
-    if not isinstance(response, dict) or not isinstance(response.get("decisions"), list):
-        raise ValueError("the response must be an object with a decisions list")
-    expected = {row["human_finding_id"]: row for row in rows}
-    decided: dict[str, dict[str, str]] = {}
-    used: dict[str, str] = {}
-    for decision in response["decisions"]:
-        human_id = decision.get("human_finding_id") if isinstance(decision, dict) else None
-        if human_id not in expected:
-            raise ValueError(f"unknown Human finding: {human_id}")
-        if human_id in decided:
-            raise ValueError(f"Human finding {human_id} is decided more than once")
-        ids = [str(item).strip() for item in decision.get("llm_finding_ids") or []]
-        ids = [item for item in ids if item]
-        reason = str(decision.get("match_reason") or "").strip()
-        unknown = sorted(set(ids) - llm_ids)
-        if unknown:
-            raise ValueError(f"unknown LLM finding ID for {human_id}: {', '.join(unknown)}")
-        if len(ids) != len(set(ids)):
-            raise ValueError(f"an LLM finding ID is repeated for {human_id}")
-        for item in ids:
-            if item in used:
-                raise ValueError(
-                    f"LLM finding {item} is used for both {used[item]} and {human_id}"
-                )
-            used[item] = human_id
+    classifications = {row["human_finding_id"]: row["classification"].strip() for row in rows}
+
+    def decide(human_id: str, decision: dict[str, Any], ids: list[str]) -> dict[str, str]:
+        """Apply the matcher's own checks to one decision."""
+        reason = decision_text(decision, "match_reason")
         if ids and not reason:
             raise ValueError(f"Human finding {human_id} has LLM finding IDs but no match_reason")
-        if ids and expected[human_id]["classification"].strip() in NOT_TESTABLE:
+        if ids and classifications[human_id] in NOT_TESTABLE:
             raise ValueError(f"Human finding {human_id} is not testable and cannot be matched")
-        decided[human_id] = {
+        return {
             "llm_finding_id": ";".join(ids),
             "match_reason": reason if ids else "",
-            "review_notes": str(decision.get("review_notes") or "").strip(),
+            "review_notes": decision_text(decision, "review_notes"),
         }
-    missing = sorted(set(expected) - set(decided))
-    if missing:
-        raise ValueError(f"no decision for Human finding: {', '.join(missing)}")
-    return decided
+
+    return validated_decisions(
+        response, list(classifications), "llm_finding_ids", llm_ids, "LLM finding ID", decide,
+    )
 
 
 def _write_review(page: Path, fields: list[str], rows: list[dict[str, str]],
@@ -155,14 +121,8 @@ def _write_review(page: Path, fields: list[str], rows: list[dict[str, str]],
         writer.writerows(rows)
 
 
-def review_and_report(run: Path, reviewer: AutomatedReviewer) -> Path:
-    """Decide every page with `reviewer`, write review.csv, and write the report(s).
-
-    Returns the top-level report path. Raises ReviewFailure (or
-    CostLimitReached) without writing anything when a page can't be decided.
-    """
-    run = run.resolve()
-    pages = review_pages(run)
+def _review_and_report(run: Path, pages: list[Path], reviewer: AutomatedReviewer) -> None:
+    """Decide every page, then write each review.csv and the report(s)."""
     decisions = []
     for page in pages:
         fields, rows = _read_review(page)
@@ -180,4 +140,23 @@ def review_and_report(run: Path, reviewer: AutomatedReviewer) -> Path:
         report_full_evaluation(run, reviewer.attribution)
     else:
         report_page(run, reviewer.attribution)
+
+
+def review_and_report(run: Path, reviewer: AutomatedReviewer) -> Path:
+    """Decide every page with `reviewer`, write review.csv, and write the report(s).
+
+    Returns the top-level report path. The reviewer's usage and cost are
+    recorded in `run/automated-review.json` whether it succeeds or not.
+    Raises ValueError for a preview or incomplete run before any request, and
+    ReviewFailure (or CostLimitReached) without writing review.csv when a page
+    can't be decided.
+    """
+    run = run.resolve()
+    pages = review_pages(run)
+    try:
+        _review_and_report(run, pages, reviewer)
+    except Exception as error:
+        reviewer.record(run, "failed", str(error))
+        raise
+    reviewer.record(run, "complete")
     return run / "report.html"

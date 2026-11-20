@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from vision_aid.evaluation.inputs.human_audit import ELIGIBILITY_VALUES
+from vision_aid.evaluation.inputs.human_audit import ELIGIBILITY_VALUES, NOT_TESTABLE
 
 HUMAN_FINDING_MAPPING_ARTIFACT = "artifacts/human-finding-mapping.json"
 LOCKED_COLUMNS = (
@@ -58,7 +58,7 @@ def validate_human_finding_mapping(mapping: dict[str, Any], audit_sha256: str) -
             classification = decision["classification"]
             if classification == "programmatic" and not expectations:
                 raise ValueError(f"{prefix}, {url}: Programmatic responsibility requires expected coverage")
-            if classification in {"unavailable_evidence", "ambiguous"} and expectations:
+            if classification in NOT_TESTABLE and expectations:
                 raise ValueError(f"{prefix}, {url}: not testable; cannot claim Programmatic coverage")
             for expectation in expectations:
                 if not isinstance(expectation, dict) or not _text(expectation.get("rule")):

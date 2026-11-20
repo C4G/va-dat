@@ -14,7 +14,7 @@ from processing_scripts.llm_client.presets import (
     OPENAI_REASONING_MODELS as OPENAI_MODELS,
 )
 from vision_aid.evaluation.execution.normalization import normalize_prompt_response
-from vision_aid.evaluation.execution.pricing import PriceSchedule
+from vision_aid.evaluation.execution.pricing import PriceSchedule, format_usd
 
 DEFAULT_MODEL = "claude-haiku-5-5"
 USAGE_KEYS = (
@@ -137,7 +137,7 @@ def execute(
             complete, reason = False, str(result.get("error") or "request failed")
         manifest.update(
             usage=usage,
-            estimated_cost_usd=format(estimated_cost.normalize(), "f"),
+            estimated_cost_usd=format_usd(estimated_cost),
             complete=False,
             incomplete_reason=reason,
             format_failures=format_failures,
@@ -150,7 +150,7 @@ def execute(
     manifest.update(
         complete=complete,
         incomplete_reason=reason,
-        estimated_cost_usd=format(estimated_cost.normalize(), "f"),
+        estimated_cost_usd=format_usd(estimated_cost),
     )
     write_json(run / "run.json", manifest)
     return complete

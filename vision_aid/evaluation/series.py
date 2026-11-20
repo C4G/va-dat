@@ -2,15 +2,17 @@
 
 `run_series` builds (or reuses) the Human finding mapping, then runs N Full
 evaluations, each followed by the matcher's review and reports. One cost limit
-covers every request of every role. A run that doesn't finish, or whose review
-fails, is recorded as incomplete and the series moves on; reaching the cost
-limit stops it. `series.json` is saved after every step, and `report.html`
-summarizes the runs that completed.
+covers every request of every role. A run that fails for any reason (a request
+failure, a failed review, or an unexpected error) is recorded as incomplete and
+the series moves on; reaching the cost limit stops it. `series.json` is saved
+after every step, and `report.html` summarizes the runs that completed, even
+when the series stops early.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 import statistics
 import uuid
 from dataclasses import dataclass
@@ -19,22 +21,18 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from vision_aid.evaluation.automated_review import (
-    AutomatedReviewer,
-    ReviewFailure,
-    reviewer_attribution,
-)
+from vision_aid.evaluation.automated_review import AutomatedReviewer, reviewer_attribution
 from vision_aid.evaluation.execution.llm_audit import (
     MODEL_PRESETS,
     USAGE_KEYS,
     evaluation_configuration,
     write_json,
 )
-from vision_aid.evaluation.execution.pricing import PriceSchedule
+from vision_aid.evaluation.execution.pricing import PriceSchedule, format_usd
 from vision_aid.evaluation.full import (
-    _pooled_rows,
     execute_full_evaluation,
     load_full_inputs,
+    pooled_rows,
     prepare_full_evaluation,
 )
 from vision_aid.evaluation.human_finding_mapping import load_human_finding_mapping
@@ -45,13 +43,15 @@ from vision_aid.evaluation.matcher import review_and_report
 from vision_aid.evaluation.page import validated_page_review
 from vision_aid.evaluation.reporting.html_report import (
     EXPECTED,
-    _display_model,
-    _write_html,
+    display_model_name,
+    render_report,
 )
 from vision_aid.evaluation.review import detection_counts
+from vision_aid.evaluation.schemas import HumanAudit
 
 MAPPING_FOLDER = "human-finding-mapping"
 ROLES = ("mapper", "model", "matcher")
+ROLE_LABELS = {"mapper": "Mapper", "model": "Model under test", "matcher": "Matcher"}
 
 
 def saved_mapping(snapshots: Path) -> Path:
@@ -76,6 +76,10 @@ class SeriesPlan:
     limit: Decimal
 
 
+class _RunIncomplete(Exception):
+    """The model under test did not finish every request of a run."""
+
+
 class _Series:
     """The series folder and its series.json, saved after every change."""
 
@@ -83,6 +87,7 @@ class _Series:
         """Start the record for `plan` in `directory`."""
         self.directory = directory
         self.spent = Decimal(0)
+        self.completed: list[dict[str, Any]] = []
         self.record: dict[str, Any] = {
             "series_id": directory.name,
             "model": evaluation_configuration(MODEL_PRESETS[plan.model]),
@@ -109,22 +114,18 @@ class _Series:
         self.save()
 
     def add_cost(self, role: str, cost: Decimal | str, usage: dict[str, int]) -> None:
-        """Add one step's cost and token usage to `role` and the total."""
+        """Add one step's cost and token usage to `role` and the total, and save."""
         entry = self.record["cost_by_role"][role]
-        entry["estimated_cost_usd"] = _money(Decimal(entry["estimated_cost_usd"]) + Decimal(cost))
+        entry["estimated_cost_usd"] = format_usd(Decimal(entry["estimated_cost_usd"]) + Decimal(cost))
         for key in USAGE_KEYS:
             entry["usage"][key] += usage[key]
         self.spent += Decimal(cost)
-        self.record["estimated_cost_usd"] = _money(self.spent)
+        self.record["estimated_cost_usd"] = format_usd(self.spent)
+        self.save()
 
     def save(self) -> None:
         """Write series.json."""
         write_json(self.directory / "series.json", self.record)
-
-
-def _money(value: Decimal) -> str:
-    """Format a dollar amount without trailing zeros."""
-    return format(value.normalize(), "f")
 
 
 def _new_run(series: Path) -> Path:
@@ -141,7 +142,7 @@ def _completed_rows(run: Path) -> list[dict[str, Any]]:
     manifest = json.loads((run / "full.json").read_text())
     original = json.loads((run / "human-findings.json").read_text())
     reviews = [validated_page_review(run / page["run_dir"]) for page in manifest["pages"]]
-    return _pooled_rows(original["human_findings"], manifest["pages"], reviews)
+    return pooled_rows(original["human_findings"], manifest["pages"], reviews)
 
 
 def run_series(
@@ -151,9 +152,22 @@ def run_series(
     """Run the series in `directory` and return series.json's contents.
 
     `api_keys` maps each needed provider to its key. Writes series.json after
-    every step and report.html at the end, even when no run completed.
+    every step and report.html at the end, even when no run completed or an
+    error stops the series.
     """
     series = _Series(directory, plan)
+    try:
+        _run(series, plan, api_keys, schedule)
+    finally:
+        series.save()
+        _write_report(directory, series.record, series.completed)
+    return series.record
+
+
+def _run(
+    series: _Series, plan: SeriesPlan, api_keys: dict[str, str], schedule: PriceSchedule,
+) -> None:
+    """Build or load the mapping, then run until N runs are tried or the limit is reached."""
     record = series.record
 
     def key(model: str) -> str:
@@ -169,63 +183,69 @@ def run_series(
             build_human_finding_mapping(
                 plan.human_audit, plan.snapshots, plan.mapping.parent, mapper, plan.mapping,
             )
-        except (ReviewFailure, ValueError) as error:
+        except Exception as error:
             record["stopped_reason"] = f"Human finding mapping not built: {error}"
-        series.add_cost("mapper", mapper.estimated_cost, mapper.usage)
-        series.save()
-        if record["stopped_reason"]:
-            _write_report(directory, record, [])
-            return record
+            return
+        finally:
+            series.add_cost("mapper", mapper.estimated_cost, mapper.usage)
 
     audits, snapshots = load_full_inputs(plan.human_audit, plan.snapshots)
     mapping = load_human_finding_mapping(
         plan.mapping, next(iter(audits.values())).human_audit_sha256,
     )
     record["reviewers"]["human_finding_mapping_approved_by"] = mapping["approved_by"]
-    request_config = MODEL_PRESETS[plan.model]
-    completed: list[dict[str, Any]] = []
     for _ in range(plan.runs):
-        remaining = plan.limit - series.spent
-        if remaining <= 0:
+        if plan.limit - series.spent <= 0:
             break
-        run = _new_run(directory)
+        run = _new_run(series.directory)
         entry: dict[str, Any] = {
             "run_id": run.name, "run_dir": f"runs/{run.name}",
             "status": "incomplete", "reason": None, "counts": None,
         }
         record["runs"].append(entry)
-        manifest = prepare_full_evaluation(
-            run, audits, snapshots, request_config, remaining, mapping,
-        )
-        finished = execute_full_evaluation(run, manifest, key(plan.model), request_config)
-        series.add_cost("model", manifest["estimated_cost_usd"], manifest["usage"])
         series.save()
-        if not finished:
-            entry["reason"] = f"run incomplete: {manifest['incomplete_reason']}"
-            series.save()
-            continue
-        matcher = AutomatedReviewer(
-            "matcher", plan.matcher_model, MATCHER_PROMPT, key(plan.matcher_model),
-            schedule, plan.limit, series.spent,
-        )
         try:
-            review_and_report(run, matcher)
-        except (ReviewFailure, ValueError) as error:
-            matcher.record(run, "failed", str(error))
+            rows = _run_once(series, plan, run, audits, snapshots, mapping, key, schedule)
+        except Exception as error:
+            # Any failure costs this run only; the cost limit check above stops the series.
             entry["reason"] = str(error)
         else:
-            matcher.record(run, "complete")
-            rows = _completed_rows(run)
             entry.update(status="complete", counts=detection_counts(rows))
-            completed.append({"run_id": run.name, "rows": rows})
-            record["completed"] = len(completed)
-        series.add_cost("matcher", matcher.estimated_cost, matcher.usage)
+            series.completed.append({"run_id": run.name, "rows": rows})
+            record["completed"] = len(series.completed)
         series.save()
     if series.spent >= plan.limit and record["completed"] < plan.runs:
         record["stopped_reason"] = "cost limit reached"
-    series.save()
-    _write_report(directory, record, completed)
-    return record
+
+
+def _run_once(
+    series: _Series, plan: SeriesPlan, run: Path,
+    audits: dict[str, HumanAudit], snapshots: dict[str, Path],
+    mapping: dict[str, Any], key: Callable[[str], str], schedule: PriceSchedule,
+) -> list[dict[str, Any]]:
+    """Prepare, execute, review and report one run, adding each role's cost.
+
+    Returns the run's pooled rows; raises on any failure.
+    """
+    request_config = MODEL_PRESETS[plan.model]
+    manifest = prepare_full_evaluation(
+        run, audits, snapshots, request_config, plan.limit - series.spent, mapping,
+    )
+    try:
+        finished = execute_full_evaluation(run, manifest, key(plan.model), request_config)
+    finally:
+        series.add_cost("model", manifest["estimated_cost_usd"], manifest["usage"])
+    if not finished:
+        raise _RunIncomplete(f"run incomplete: {manifest['incomplete_reason']}")
+    matcher = AutomatedReviewer(
+        "matcher", plan.matcher_model, MATCHER_PROMPT, key(plan.matcher_model),
+        schedule, plan.limit, series.spent,
+    )
+    try:
+        review_and_report(run, matcher)
+    finally:
+        series.add_cost("matcher", matcher.estimated_cost, matcher.usage)
+    return _completed_rows(run)
 
 
 def _spread(values: list[float]) -> dict[str, str]:
@@ -269,9 +289,9 @@ def _write_report(directory: Path, record: dict[str, Any], completed: list[dict]
             item["caught"] += any(row["matches"].values())
             item["llm"] += bool(row["matches"]["llm"])
     reviewers = record["reviewers"]
-    _write_html(directory / "report.html", "series.html.jinja", {
+    render_report(directory / "report.html", "series.html.jinja", {
         "title": "Evaluation Series",
-        "model_name": _display_model(record["model"]["model"]),
+        "model_name": display_model_name(record["model"]["model"]),
         "record": record,
         "reviewer": "; ".join(
             f"{name} {value}" for name, value in (
@@ -284,8 +304,6 @@ def _write_report(directory: Path, record: dict[str, Any], completed: list[dict]
         "findings": sorted(findings.values(), key=lambda item: item["human"]["source_row"]),
         "completed": len(completed),
         "costs": [
-            {"role": label, **record["cost_by_role"][role]}
-            for role, label in (("mapper", "Mapper"), ("model", "Model under test"),
-                                ("matcher", "Matcher"))
+            {"role": ROLE_LABELS[role], **record["cost_by_role"][role]} for role in ROLES
         ],
     })

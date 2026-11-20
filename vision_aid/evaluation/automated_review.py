@@ -23,7 +23,7 @@ from vision_aid.evaluation.execution.llm_audit import (
     evaluation_configuration,
     write_json,
 )
-from vision_aid.evaluation.execution.pricing import PriceSchedule
+from vision_aid.evaluation.execution.pricing import PriceSchedule, format_usd
 
 PROMPT_DIRECTORY = Path(__file__).parent
 RECORD_FILENAME = "automated-review.json"
@@ -41,6 +41,80 @@ def reviewer_attribution(model: str, prompt: str) -> str:
     """Return the reviewer name recorded in reports: `<model>/<effort>/<prompt>`."""
     effort = MODEL_PRESETS[model].reasoning_effort or "default"
     return f"{model}/{effort}/{prompt}"
+
+
+def decision_schema(fields: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Return the response schema: a list of decisions, one per Human finding.
+
+    Each decision has `human_finding_id` plus the role's `fields`, all required.
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "decisions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"human_finding_id": {"type": "string"}, **fields},
+                    "required": ["human_finding_id", *fields],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["decisions"],
+        "additionalProperties": False,
+    }
+
+
+def decision_text(decision: dict[str, Any], field: str) -> str:
+    """Return a decision's text field, stripped; missing or null is empty."""
+    return str(decision.get(field) or "").strip()
+
+
+def validated_decisions(
+    response: Any,
+    human_ids: list[str],
+    refs_field: str,
+    known_refs: set[str],
+    ref_kind: str,
+    decide: Callable[[str, dict[str, Any], list[str]], dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Check the checks every role shares and return `decide`'s result per Human finding.
+
+    Every Human finding in `human_ids` must be decided exactly once. Its
+    `refs_field` must list only `known_refs`, each at most once, and no
+    reference may serve two Human findings. `decide(human_id, decision, refs)`
+    adds the role's own checks and returns the values to keep. Raises
+    ValueError naming the first problem, which is sent back on retry.
+    """
+    if not isinstance(response, dict) or not isinstance(response.get("decisions"), list):
+        raise ValueError("the response must be an object with a decisions list")
+    decided: dict[str, dict[str, Any]] = {}
+    used: dict[str, str] = {}
+    for decision in response["decisions"]:
+        human_id = decision.get("human_finding_id") if isinstance(decision, dict) else None
+        if human_id not in human_ids:
+            raise ValueError(f"unknown Human finding: {human_id}")
+        if human_id in decided:
+            raise ValueError(f"Human finding {human_id} is decided more than once")
+        listed = decision.get(refs_field)
+        if not isinstance(listed, list):
+            raise ValueError(f"{refs_field} for {human_id} must be a list")
+        refs = [text for text in (str(item).strip() for item in listed) if text]
+        unknown = sorted(set(refs) - known_refs)
+        if unknown:
+            raise ValueError(f"unknown {ref_kind} for {human_id}: {', '.join(unknown)}")
+        if len(refs) != len(set(refs)):
+            raise ValueError(f"a {ref_kind} is repeated for {human_id}")
+        for ref in refs:
+            if ref in used:
+                raise ValueError(f"{ref_kind} {ref} is used for both {used[ref]} and {human_id}")
+            used[ref] = human_id
+        decided[human_id] = decide(human_id, decision, refs)
+    missing = [human_id for human_id in human_ids if human_id not in decided]
+    if missing:
+        raise ValueError(f"no decision for Human finding: {', '.join(missing)}")
+    return decided
 
 
 def load_prompt(prompt: str) -> str:
@@ -150,7 +224,7 @@ class AutomatedReviewer:
             "pricing_version": self.schedule.version,
             "pricing_sha256": self.schedule.identity,
             "max_cost_usd": str(self.limit - self.spent),
-            "estimated_cost_usd": format(self.estimated_cost.normalize(), "f"),
+            "estimated_cost_usd": format_usd(self.estimated_cost),
             "usage": self.usage,
             "requests": self.requests,
             "status": status,

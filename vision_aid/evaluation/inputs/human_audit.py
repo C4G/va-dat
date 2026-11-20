@@ -34,6 +34,8 @@ ELIGIBILITY_VALUES = (
     "unavailable_evidence",
     "ambiguous",
 )
+# Classifications the saved HTML can't support: no source may claim coverage.
+NOT_TESTABLE = frozenset({"unavailable_evidence", "ambiguous"})
 
 
 def _source_findings(path: Path) -> tuple[str, tuple[HumanFinding, ...]]:

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from vision_aid.evaluation.human_finding_mapping import LOCKED_COLUMNS
-from vision_aid.evaluation.inputs.human_audit import ELIGIBILITY_VALUES, HEADERS
+from vision_aid.evaluation.inputs.human_audit import ELIGIBILITY_VALUES, HEADERS, NOT_TESTABLE
 
 DECISION_COLUMNS = (
     "classification",
@@ -130,7 +130,7 @@ def reviewed_rows(
             matched[kind] = ids
         if matched["llm"] and not row["match_reason"].strip():
             raise ValueError(f"Human finding {human_finding_id} needs a match reason")
-        if classification in {"unavailable_evidence", "ambiguous"} and any(
+        if classification in NOT_TESTABLE and any(
             matched.values()
         ):
             raise ValueError(f"Human finding {human_finding_id} is not testable; cannot claim coverage")

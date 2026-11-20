@@ -49,7 +49,7 @@ FINDING_COLUMNS = (
 )
 
 
-def _write_csv(
+def write_review_csv(
     path: Path, columns: tuple[str, ...], rows: list[dict[str, Any]]
 ) -> None:
     """Write a UTF-8 CSV that Excel can open with multiline evidence intact."""
@@ -146,12 +146,12 @@ def prepare_human_finding_mapping_review(human_audit: Path, snapshots: Path, out
         raise FileExistsError(f"Review directory already exists: {output}")
     evidence, catalog = _review_sources(human_audit, snapshots)
     output.mkdir(parents=True)
-    _write_csv(
+    write_review_csv(
         output / "classifications.csv", CLASSIFICATION_COLUMNS,
         [_human_columns(finding) for finding in evidence["human_findings"]],
     )
-    _write_csv(output / "programmatic-review.csv", MATCH_COLUMNS, _match_rows(evidence))
-    _write_csv(output / "programmatic-findings.csv", FINDING_COLUMNS, catalog)
+    write_review_csv(output / "programmatic-review.csv", MATCH_COLUMNS, _match_rows(evidence))
+    write_review_csv(output / "programmatic-findings.csv", FINDING_COLUMNS, catalog)
     (output / "README.md").write_text(
         "# Review the Human finding mapping\n\n"
         "1. In `classifications.csv`, fill `classification` and `classification_reason` "

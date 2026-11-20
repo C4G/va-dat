@@ -31,7 +31,7 @@ EXPECTED = {
 }
 
 
-def _display_model(model: str) -> str:
+def display_model_name(model: str) -> str:
     """Use uppercase GPT in report labels while preserving saved model IDs."""
     return "GPT-" + model[4:].replace("-", " ").title() if model.startswith("gpt-") else model
 
@@ -68,14 +68,14 @@ def _cost_details(manifest: dict[str, Any], schedules: list[PriceSchedule]) -> d
                 {"label": f"Over {threshold}", "rates": upper},
             ]
         model_prices.append({
-            "model": _display_model(model), "description": schedule.price_description,
+            "model": display_model_name(model), "description": schedule.price_description,
             "tiers": tiers,
             "show_cache_read": bool(usage["cached_input_tokens"]),
             "show_cache_write": bool(usage["cache_creation_input_tokens"]),
         })
     return {
         "cost": f"{Decimal(manifest['estimated_cost_usd']):.6f}",
-        "model_name": _display_model(model),
+        "model_name": display_model_name(model),
         "token_usage": token_usage, "model_prices": model_prices,
     }
 
@@ -191,15 +191,15 @@ def write_full_report(
     reviews: list[PageReview], reviewer: str,
 ) -> None:
     """Write the combined report."""
-    _write_html(path, "full.html.jinja", full_data(manifest, pooled, reviews, reviewer))
+    render_report(path, "full.html.jinja", full_data(manifest, pooled, reviews, reviewer))
 
 
 def write_page_report(path: Path, review: PageReview, reviewer: str) -> None:
     """Write one page's report."""
-    _write_html(path, "page.html.jinja", page_data(review, reviewer))
+    render_report(path, "page.html.jinja", page_data(review, reviewer))
 
 
-def _write_html(path: Path, template: str, data: dict[str, Any]) -> None:
+def render_report(path: Path, template: str, data: dict[str, Any]) -> None:
     """Render the template, then atomically replace the report file."""
     environment = Environment(
         loader=PackageLoader("vision_aid.evaluation.reporting", "templates"),
