@@ -226,7 +226,7 @@ uv run visionaid-evaluate human-finding-mapping-auto \
 
 It sends one request per page, with that page's human findings and its
 `programmatic-findings.csv` rows, using the model's preset and the instructions
-in `mapper_v1.txt`. Before sending anything it shows the model, the page count
+in `prompts/mapper.txt`. Before sending anything it shows the model, the page count
 and the cost limit and asks you to type `yes`; `--approve-live` skips the
 question. It needs the model's API key (`OPENAI_API_KEY` or
 `ANTHROPIC_API_KEY`). The mapping's errors move every later run's denominators,
@@ -242,8 +242,8 @@ fails gets one retry with the problem explained. If the retry also fails, the
 command stops with exit code 1 and leaves both CSVs unfilled, so you can finish
 them by hand and run `human-finding-mapping-approve`.
 
-The mapping records the reviewer as `<model>/<effort>/mapper_v1`, for example
-`gpt-6.1-sol/medium/mapper_v1`. The command prints the mapper's estimated cost
+The mapping records the reviewer as `<model>/<effort>/mapper`, for example
+`gpt-6.1-sol/medium/mapper`. The command prints the mapper's estimated cost
 and saves it, with the token usage, in `automated-review.json` in the review
 folder. `--output` works as it does for `human-finding-mapping-approve`.
 
@@ -347,7 +347,7 @@ uv run visionaid-evaluate review-report-auto \
 
 It sends one request per page, with that page's `review.csv` rows, its LLM
 findings, and the page structure the model under test was given (headings,
-links, images and form fields from `artifacts/payloads/`), using the model's preset and the instructions in `matcher_v2.txt`.
+links, images and form fields from `artifacts/payloads/`), using the model's preset and the instructions in `prompts/matcher.txt`.
 Before sending anything it shows the model, the page count and the cost limit
 and asks you to type `yes`; `--approve-live` skips the question. It needs the
 model's API key (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`).
@@ -359,8 +359,8 @@ the problem explained. If the retry also fails, the command stops with exit
 code 1 and writes no `review.csv` and no report, so the run stays as it was.
 It never changes the classification or programmatic columns.
 
-The reports name the reviewer as `<model>/<effort>/matcher_v2`, for example
-`gpt-6-luna/medium/matcher_v2`. The command prints the matcher's estimated
+The reports name the reviewer as `<model>/<effort>/matcher`, for example
+`gpt-6-luna/medium/matcher`. The command prints the matcher's estimated
 cost and saves it, with the token usage, in `automated-review.json` in the run
 folder.
 
@@ -496,7 +496,7 @@ findings won't match the CSV the main tool produces.
 comparing candidate reviewers with the approved Pristine mapping and an
 independent review of a full Sonnet run:
 
-- **Matcher.** `gpt-6-luna` with `matcher_v2` agreed on 60, 61 and 61 of 63
+- **Matcher.** `gpt-6-luna` agreed on 60, 61 and 61 of 63
   eligible catch decisions in three passes (at least 95% each), claimed no
   extra catches, and cost about $0.02 to $0.05 per full review.
   `claude-haiku-5-5` agreed on 54 of 63 and was not adopted.

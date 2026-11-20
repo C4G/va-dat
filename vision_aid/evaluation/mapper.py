@@ -28,7 +28,7 @@ from vision_aid.evaluation.human_finding_mapping_review import (
 )
 from vision_aid.evaluation.inputs.human_audit import ELIGIBILITY_VALUES, HEADERS, NOT_TESTABLE
 
-PROMPT = "mapper_v1"
+PROMPT = "mapper"
 DECISION_SCHEMA = decision_schema({
     "classification": {"type": "string", "enum": list(ELIGIBILITY_VALUES)},
     "classification_reason": {"type": "string"},

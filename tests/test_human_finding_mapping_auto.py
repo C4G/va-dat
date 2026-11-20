@@ -13,7 +13,7 @@ from tests.test_evaluation_workflow import (  # noqa: F401  (workspace is a fixt
 )
 from vision_aid.evaluation.cli import main
 
-ATTRIBUTION = f"{MODEL}/medium/mapper_v1"
+ATTRIBUTION = f"{MODEL}/medium/mapper"
 
 
 def mapping_auto(workspace):

@@ -23,7 +23,7 @@ from vision_aid.evaluation.full import report_full_evaluation
 from vision_aid.evaluation.inputs.human_audit import HEADERS, NOT_TESTABLE
 from vision_aid.evaluation.page import report_page
 
-PROMPT = "matcher_v2"
+PROMPT = "matcher"
 LLM_FIELDS = ("finding_id", "prompt", "problem", "element", "location", "wcag_evidence")
 RAW_FIELDS = ("location_hint", "recommended_fix")
 DECISION_SCHEMA = decision_schema({

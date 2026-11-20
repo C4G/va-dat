@@ -19,7 +19,7 @@ from tests.test_evaluation_workflow import (  # noqa: F401  (workspace is a fixt
 )
 from vision_aid.evaluation.cli import main
 
-ATTRIBUTION = f"{MODEL}/medium/matcher_v2"
+ATTRIBUTION = f"{MODEL}/medium/matcher"
 
 
 def review_report_auto(run):

@@ -19,8 +19,8 @@ from tests.test_evaluation_workflow import (  # noqa: F401  (workspace is a fixt
 )
 from vision_aid.evaluation.cli import main
 
-MAPPER = f"{MODEL}/medium/mapper_v1"
-MATCHER = f"{MODEL}/medium/matcher_v2"
+MAPPER = f"{MODEL}/medium/mapper"
+MATCHER = f"{MODEL}/medium/matcher"
 
 
 def match_by_run(page, number):

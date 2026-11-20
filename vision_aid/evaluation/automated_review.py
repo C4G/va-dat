@@ -1,7 +1,7 @@
 """Shared core of the Automated reviewer: one structured request, validated.
 
 The mapper and the matcher both send their decisions through `AutomatedReviewer`.
-It fills a versioned prompt template, asks the model for a JSON-schema response
+It fills a prompt template from `prompts/`, asks the model for a JSON-schema response
 through `llm_client`, checks the answer with the caller's validator, and retries
 once with the validation error appended. Every request's usage and estimated
 cost is kept so the caller can record what the review spent.
@@ -25,7 +25,7 @@ from vision_aid.evaluation.execution.llm_audit import (
 )
 from vision_aid.evaluation.execution.pricing import PriceSchedule, format_usd
 
-PROMPT_DIRECTORY = Path(__file__).parent
+PROMPT_DIRECTORY = Path(__file__).parent / "prompts"
 RECORD_FILENAME = "automated-review.json"
 
 
@@ -118,7 +118,7 @@ def validated_decisions(
 
 
 def load_prompt(prompt: str) -> str:
-    """Read a versioned reviewer prompt template, e.g. `matcher_v1`."""
+    """Read a reviewer prompt template from `prompts/`, e.g. `matcher`."""
     return (PROMPT_DIRECTORY / f"{prompt}.txt").read_text(encoding="utf-8")
 
 

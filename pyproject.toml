@@ -40,4 +40,4 @@ namespaces = true
 "vision_aid.evaluation.execution" = ["pricing.json"]
 "vision_aid.evaluation.reporting" = ["templates/*.html.jinja", "css/*.css", "js/*.js"]
 "processing_scripts.llm" = ["*.txt"]
-"vision_aid.evaluation" = ["*.txt"]
+"vision_aid.evaluation" = ["prompts/*.txt"]
