@@ -2,84 +2,41 @@
 
 import json
 import re
+import shutil
 from decimal import Decimal
-from types import SimpleNamespace
+
+import pytest
 
 from tests.test_evaluation_workflow import (  # noqa: F401  (workspace is a fixture)
     MODEL,
+    URLS,
+    approve_mapping,
+    fake_providers,
+    map_shared_defect,
+    match_first_rows,
+    read_csv,
     workspace,
 )
-from tests.test_human_finding_mapping_auto import map_shared_defect
 from vision_aid.evaluation.cli import main
 
 MAPPER = f"{MODEL}/medium/mapper_v1"
 MATCHER = f"{MODEL}/medium/matcher_v1"
 
 
-def fake_providers(monkeypatch, matcher_answers):
-    """Stand in for every role on one fake OpenAI client.
+def match_by_run(page, number):
+    """Decide matches so the three runs of the series differ.
 
-    The model under test gets plain prompts and answers one issue for 1,000
-    output tokens ($0.0005 on Luna). Reviewer requests ask for a JSON-schema
-    response: mapper prompts carry programmatic findings and get
-    `map_shared_defect`; matcher prompts carry LLM findings and get
-    `matcher_answers(prompt, matcher_request_number)`. Each reviewer request
-    reports 10,000 input and 2,000 output tokens ($0.002).
+    Each run sends two matcher requests (home, contact) plus any retries.
+    Request 1 invents an ID and is retried. Requests 5 and 6, the second run's
+    contact page, leave a row out, so that run's review fails. Request 8, the
+    third run's contact page, also matches the contact page's first finding.
     """
-    monkeypatch.setenv("OPENAI_API_KEY", "fake")
-    log = {"audit": [], "mapper": [], "matcher": []}
-
-    def create(**kwargs):
-        """Return a Chat Completions-shaped response for whichever role asked."""
-        prompt = kwargs["messages"][0]["content"]
-        if "response_format" not in kwargs:
-            log["audit"].append(prompt)
-            content, usage = '{"issues": ["Fake issue"]}', (0, 1_000)
-        elif '"llm_findings"' in prompt:
-            log["matcher"].append(prompt)
-            content = json.dumps(matcher_answers(prompt, len(log["matcher"])))
-            usage = (10_000, 2_000)
-        else:
-            log["mapper"].append(prompt)
-            content, usage = json.dumps(map_shared_defect(prompt, 0)), (10_000, 2_000)
-        return SimpleNamespace(
-            id="fake", model=MODEL,
-            choices=[SimpleNamespace(
-                message=SimpleNamespace(content=content), finish_reason="stop",
-            )],
-            usage=SimpleNamespace(
-                prompt_tokens=usage[0], completion_tokens=usage[1],
-                total_tokens=sum(usage),
-                prompt_tokens_details=None, completion_tokens_details=None,
-            ),
-        )
-
-    monkeypatch.setattr("openai.OpenAI", lambda **_: SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
-    return log
-
-
-def match_home_page_only(prompt, number):
-    """Match the home page's first Human finding to its first LLM finding.
-
-    Request 1 invents an ID (retried), and requests 5 and 6, the second run's
-    contact page, leave a row out, so that run's review fails.
-    """
-    humans = list(dict.fromkeys(re.findall(r'"human_finding_id": "(human-\w+)"', prompt)))
-    llm = list(dict.fromkeys(re.findall(r'"finding_id": "(llm-\w+)"', prompt)))
-    home = '"source_url": "https://example.test/"' in prompt
-    decisions = [
-        {"human_finding_id": human,
-         "llm_finding_ids": [llm[0]] if home and position == 0 else [],
-         "match_reason": "Same image problem" if home and position == 0 else "",
-         "review_notes": ""}
-        for position, human in enumerate(humans)
-    ]
+    decided = match_first_rows(page, URLS if number == 8 else URLS[:1])
     if number == 1:
-        decisions[0]["llm_finding_ids"] = ["llm-invented"]
+        decided["decisions"][0]["llm_finding_ids"] = ["llm-invented"]
     if number in (5, 6):
-        decisions.pop()
-    return {"decisions": decisions}
+        decided["decisions"].pop()
+    return decided
 
 
 def auto(workspace, runs, *extra):
@@ -94,13 +51,13 @@ def auto(workspace, runs, *extra):
 
 
 def test_series_records_completed_runs_rates_and_cost(workspace, monkeypatch, capsys):
-    """Two runs: the mapping is built once, one review fails, the series reports 1 of 2."""
-    log = fake_providers(monkeypatch, match_home_page_only)
+    """Three runs: the mapping is built once, one review fails, the series reports 2 of 3."""
+    log = fake_providers(monkeypatch, mapper=map_shared_defect, matcher=match_by_run)
 
-    assert auto(workspace, 2) == 1
+    assert auto(workspace, 3) == 1
 
     assert len(log["mapper"]) == 2
-    assert len(log["matcher"]) == 6
+    assert len(log["matcher"]) == 8
     assert "llm-invented" in log["matcher"][1]
 
     mapping = workspace / "snapshots/human-finding-mapping/human-finding-mapping.json"
@@ -111,35 +68,88 @@ def test_series_records_completed_runs_rates_and_cost(workspace, monkeypatch, ca
     assert record["model"]["model"] == MODEL
     assert record["reviewers"] == {"mapper": MAPPER, "matcher": MATCHER,
                                    "human_finding_mapping_approved_by": MAPPER}
-    assert record["runs_requested"] == 2
-    assert record["completed"] == 1
+    assert record["runs_requested"] == 3
+    assert record["completed"] == 2
     assert record["snapshots"] == str((workspace / "snapshots/snapshots.json").resolve())
     assert record["human_finding_mapping"] == str(mapping.resolve())
-    first, second = record["runs"]
-    assert first["status"] == "complete"
+    first, failed, third = record["runs"]
+    assert first["status"] == "complete" and third["status"] == "complete"
     assert first["counts"]["llm"] == {"caught": 1, "eligible": 2}
     assert first["counts"]["overall"] == {"caught": 2, "eligible": 3}
-    assert second["status"] == "incomplete"
-    assert "review failed" in second["reason"]
+    assert third["counts"]["llm"] == {"caught": 2, "eligible": 2}
+    assert third["counts"]["overall"] == {"caught": 3, "eligible": 3}
+    assert failed["status"] == "incomplete"
+    assert "review failed" in failed["reason"]
     assert (series / "runs" / first["run_id"] / "report.html").is_file()
-    assert not (series / "runs" / second["run_id"] / "report.html").exists()
+
+    # The failed review wrote no decisions and no report, and recorded its spend.
+    failed_run = series / "runs" / failed["run_id"]
+    assert not (failed_run / "report.html").exists()
+    for page in (failed_run / "pages").iterdir():
+        assert all(row["llm_finding_id"] == "" for row in read_csv(page / "review.csv"))
+    failed_review = json.loads((failed_run / "automated-review.json").read_text())
+    assert failed_review["status"] == "failed"
+    assert failed_review["estimated_cost_usd"] == "0.006"
 
     cost = record["cost_by_role"]
     assert cost["mapper"]["estimated_cost_usd"] == "0.004"
-    assert cost["matcher"]["estimated_cost_usd"] == "0.012"
+    assert cost["matcher"]["estimated_cost_usd"] == "0.016"
     assert Decimal(cost["model"]["estimated_cost_usd"]) == Decimal("0.0005") * len(log["audit"])
-    assert cost["matcher"]["usage"]["input_tokens"] == 60_000
+    assert cost["matcher"]["usage"]["input_tokens"] == 80_000
 
     report = (series / "report.html").read_text()
-    assert "1 of 2 runs completed" in report
-    assert "50.0%" in report and "66.7%" in report
+    assert "2 of 3 runs completed" in report
+    rates = dict(re.findall(
+        r'<tr><th scope="row">(LLM|Overall)</th>((?:<td>[^<]*</td>){4})</tr>', report))
+    assert re.findall(r"<td>([^<]*)</td>", rates["LLM"]) == [
+        "75.0%", "50.0%", "100.0%", "35.4 points"]
+    assert re.findall(r"<td>([^<]*)</td>", rates["Overall"]) == [
+        "83.3%", "66.7%", "100.0%", "23.6 points"]
     catches = dict(re.findall(r'<th scope="row">(\w+ defect)</th><td>[^<]*</td><td>(\d/\d)</td>',
                               report))
-    assert catches == {"Home defect": "1/1", "Contact defect": "0/1", "Shared defect": "1/1"}
-    assert "$0.012" in report and MATCHER in report
-    assert "1 of 2 runs completed" in capsys.readouterr().out
+    assert catches == {"Home defect": "2/2", "Contact defect": "1/2", "Shared defect": "2/2"}
+    assert "$0.016" in report and MATCHER in report
+    assert "2 of 3 runs completed" in capsys.readouterr().out
 
     # A second series on the same snapshots reuses the saved mapping.
     log["mapper"].clear()
     assert auto(workspace, 1) == 0
     assert not log["mapper"]
+
+
+def test_bad_inputs_are_refused_before_capture_or_approval(workspace, monkeypatch, capsys):
+    """Argument and mapping problems stop `auto` before any capture, prompt, or request."""
+    log = fake_providers(monkeypatch, mapper=map_shared_defect)
+    audit = ["--human-audit", str(workspace / "audit.xlsx")]
+    base = ["auto", "-n", "1", "--model", MODEL, "--matcher-model", MODEL,
+            "--max-cost-usd", "1", *audit]
+
+    # A capture needs a new mapping, so it needs a mapper. (The fixture's fake
+    # download has no pages left, so capturing would raise.)
+    with pytest.raises(SystemExit):
+        main([*base, "--capture", "--output-dir", str(workspace / "new"), "--approve-live"])
+    assert "--mapper-model" in capsys.readouterr().err
+    assert not (workspace / "new").exists()
+
+    # A mapping approved for other snapshots is refused.
+    mapping = approve_mapping(workspace)
+    other = workspace / "other-snapshots"
+    shutil.copytree(workspace / "snapshots", other)
+    (other / "page-002.html").write_text("<html><body>Changed page</body></html>")
+    with pytest.raises(SystemExit):
+        main([*base, "--snapshots", str(other / "snapshots.json"),
+              "--human-finding-mapping", str(mapping), "--approve-live"])
+    assert "different snapshots" in capsys.readouterr().err
+
+    # A mapping that records no snapshots can't be checked: warn, then go on to
+    # the approval prompt, which a non-interactive run declines.
+    legacy = json.loads(mapping.read_text())
+    del legacy["snapshot_sha256_by_page"]
+    (workspace / "legacy.json").write_text(json.dumps(legacy))
+    assert main([*base, "--snapshots", str(workspace / "snapshots/snapshots.json"),
+                 "--human-finding-mapping", str(workspace / "legacy.json")]) == 0
+    out = capsys.readouterr().out
+    assert "Warning" in out and "declined" in out
+
+    assert not any(log.values())
+    assert not (workspace / ".model-evaluation/series").exists()

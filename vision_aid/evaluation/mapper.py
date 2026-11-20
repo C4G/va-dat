@@ -58,8 +58,15 @@ def _read(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(stream))
 
 
-def _payload(url: str, rows: list[dict[str, str]], catalog: list[dict[str, str]]) -> dict:
-    """Build the mapper's view of one page: its Human and programmatic findings."""
+def _payload(
+    url: str, rows: list[dict[str, str]], catalog: list[dict[str, str]],
+    classified: dict[str, tuple[str, str, str]],
+) -> dict:
+    """Build the mapper's view of one page: its Human and programmatic findings.
+
+    A Global finding classified on an earlier page carries that decision as
+    `decided_classification`, so this page only supplies its matches.
+    """
     return {
         "source_url": url,
         "human_findings": [
@@ -68,6 +75,10 @@ def _payload(url: str, rows: list[dict[str, str]], catalog: list[dict[str, str]]
                 "page_scope": row["page_scope"],
                 "source_element": row["source_element"],
                 "human_audit": {header: row[header] for header in HEADERS},
+                **({"decided_classification": {
+                    "classification": classified[row["human_finding_id"]][0],
+                    "classification_reason": classified[row["human_finding_id"]][1],
+                }} if row["human_finding_id"] in classified else {}),
             }
             for row in rows
         ],
@@ -164,7 +175,7 @@ def _map_and_approve(
         rows = [row for row in matches if row["source_url"] == url]
         findings = [finding for finding in catalog if finding["source_url"] == url]
         decided = reviewer.decide(
-            _payload(url, rows, findings), DECISION_SCHEMA,
+            _payload(url, rows, findings, classified), DECISION_SCHEMA,
             lambda response, url=url, rows=rows, findings=findings: _validated(
                 response, url, [row["human_finding_id"] for row in rows],
                 {finding["finding_ref"] for finding in findings}, classified,

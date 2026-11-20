@@ -4,36 +4,16 @@ import json
 
 from tests.test_evaluation_workflow import (  # noqa: F401  (workspace is a fixture)
     MODEL,
+    fake_providers,
+    map_shared_defect,
     read_csv,
+    reviewer_payload,
     run_all,
     workspace,
 )
-from tests.test_review_report_auto import fake_matcher as fake_reviewer
 from vision_aid.evaluation.cli import main
 
 ATTRIBUTION = f"{MODEL}/medium/mapper_v1"
-
-
-def page_data(prompt):
-    """Return the JSON payload the mapper prompt carries after `Data: `."""
-    return json.JSONDecoder().raw_decode(prompt.split("Data: ", 1)[1])[0]
-
-
-def map_shared_defect(prompt, _attempt):
-    """Classify the Global finding as programmatic, matched to the page's first check."""
-    page = page_data(prompt)
-    first_ref = page["programmatic_findings"][0]["finding_ref"]
-    decisions = []
-    for human in page["human_findings"]:
-        shared = human["human_audit"]["Issue Title"] == "Shared defect"
-        decisions.append({
-            "human_finding_id": human["human_finding_id"],
-            "classification": "programmatic" if shared else "llm_eligible",
-            "classification_reason": "Checker covers it" if shared else "Needs judgment",
-            "programmatic_finding_refs": [first_ref] if shared else [],
-            "programmatic_reason": "Same missing alt" if shared else "No checker covers it",
-        })
-    return {"decisions": decisions}
 
 
 def mapping_auto(workspace):
@@ -49,11 +29,22 @@ def mapping_auto(workspace):
 
 def test_mapping_is_built_approved_and_accepted_by_run_all(workspace, monkeypatch, capsys):
     """The mapper decides both pages, and run-all resolves the approved mapping."""
-    mapper = fake_reviewer(monkeypatch, map_shared_defect)
+    log = fake_providers(monkeypatch, mapper=map_shared_defect)
 
     assert mapping_auto(workspace) == 0
 
-    assert len(mapper) == 2
+    assert len(log["mapper"]) == 2
+    # The Global finding is classified on the first page; the second page is
+    # told that decision and only matches its checks.
+    first, second = (reviewer_payload(prompt) for prompt in log["mapper"])
+    assert all("decided_classification" not in human for human in first["human_findings"])
+    decided = {human["human_audit"]["Issue Title"]: human.get("decided_classification")
+               for human in second["human_findings"]}
+    assert decided["Contact defect"] is None
+    assert decided["Shared defect"] == {
+        "classification": "programmatic", "classification_reason": "Checker covers it",
+    }
+
     review = workspace / "mapping-review"
     mapping = json.loads((review / "human-finding-mapping.json").read_text())
     assert mapping["approved_by"] == ATTRIBUTION
@@ -79,42 +70,20 @@ def test_mapping_is_built_approved_and_accepted_by_run_all(workspace, monkeypatc
     assert manifest["human_finding_mapping_approved_by"] == ATTRIBUTION
 
 
-def test_global_disagreement_is_retried(workspace, monkeypatch):
-    """Pages that classify a Global finding differently get the conflict sent back."""
-    def answers(prompt, attempt):
-        """Call the Global finding LLM eligible on the second page's first try."""
-        decided = map_shared_defect(prompt, attempt)
-        if attempt == 2:
-            for decision in decided["decisions"]:
-                if decision["classification"] == "programmatic":
-                    decision.update(classification="llm_eligible",
-                                    programmatic_finding_refs=[])
-        return decided
-
-    mapper = fake_reviewer(monkeypatch, answers)
-
-    assert mapping_auto(workspace) == 0
-    assert len(mapper) == 3
-    assert "classified programmatic" in mapper[2]["messages"][0]["content"]
-    mapping = json.loads(
-        (workspace / "mapping-review/human-finding-mapping.json").read_text())
-    assert [d["classification"] for d in mapping["decisions"]].count("programmatic") == 1
-
-
 def test_double_failure_writes_no_decisions(workspace, monkeypatch, capsys):
     """Two bad answers leave the prepared CSVs blank and no mapping file."""
-    def answers(prompt, attempt):
+    def answers(page, number):
         """Give the second page a reference it does not have."""
-        decided = map_shared_defect(prompt, attempt)
-        if "example.test/contact/" in prompt:
+        decided = map_shared_defect(page, number)
+        if page["source_url"].endswith("/contact/"):
             decided["decisions"][0]["programmatic_finding_refs"] = ["P009-F001"]
         return decided
 
-    mapper = fake_reviewer(monkeypatch, answers)
+    log = fake_providers(monkeypatch, mapper=answers)
 
     assert mapping_auto(workspace) == 1
 
-    assert len(mapper) == 3
+    assert len(log["mapper"]) == 3
     assert "review failed" in capsys.readouterr().out.lower()
     review = workspace / "mapping-review"
     assert not (review / "human-finding-mapping.json").exists()

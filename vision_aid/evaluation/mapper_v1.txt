@@ -15,6 +15,7 @@ A human auditor reported the Human findings below. The programmatic checks then 
 
 Rules that tie the two decisions together:
 - Choose "programmatic" only when the listed programmatic findings fully cover the issue, so it must have at least one reference. A Global finding (page_scope "global") appears on every page; choose "programmatic" for it only if every page it appears on has a matching programmatic finding, because the same classification applies on every page.
+- A Global finding that carries "decided_classification" was already classified on an earlier page. Repeat that classification and classification_reason exactly; on this page, decide only its programmatic_finding_refs and programmatic_reason.
 - "unavailable_evidence" and "ambiguous" must have no references.
 - "llm_eligible" may list references when a programmatic finding covers part of the issue, but that does not make it "programmatic".
 

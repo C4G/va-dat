@@ -36,7 +36,10 @@ from vision_aid.evaluation.full import (
     prepare_full_evaluation,
     report_full_evaluation,
 )
-from vision_aid.evaluation.human_finding_mapping import load_human_finding_mapping
+from vision_aid.evaluation.human_finding_mapping import (
+    built_from_snapshots,
+    load_human_finding_mapping,
+)
 from vision_aid.evaluation.human_finding_mapping_review import (
     approve_human_finding_mapping_review,
     prepare_human_finding_mapping_review,
@@ -420,15 +423,30 @@ def _auto(args: argparse.Namespace) -> int:
         raise ValueError("-n must be at least 1")
     if args.capture != (args.output_dir is not None):
         raise ValueError("--output-dir is required with --capture and only with --capture")
+    # Settle every argument problem before capturing pages or asking to spend.
+    if args.human_finding_mapping is not None and not args.human_finding_mapping.is_file():
+        raise ValueError(f"Human finding mapping not found: {args.human_finding_mapping}")
+    if args.capture and args.human_finding_mapping is None and args.mapper_model is None:
+        raise ValueError(
+            "--mapper-model is required with --capture: new snapshots need a new "
+            "Human finding mapping"
+        )
     if args.capture:
         snapshots = capture_snapshots(args.human_audit, args.output_dir)
         print(f"Snapshot mapping: {snapshots}")
     else:
         snapshots = args.snapshots
-    _, pages = load_full_inputs(args.human_audit, snapshots)
+    audits, pages = load_full_inputs(args.human_audit, snapshots)
     mapping = args.human_finding_mapping or saved_mapping(snapshots)
     mapper_model = None
-    if args.human_finding_mapping is None and not mapping.is_file():
+    if mapping.is_file():
+        approved = load_human_finding_mapping(
+            mapping, next(iter(audits.values())).human_audit_sha256,
+        )
+        if not built_from_snapshots(approved, pages):
+            print(f"Warning: {mapping} records no snapshot checksums, so it can't be "
+                  "checked against these snapshots; make sure it was built from them.")
+    else:
         if mapping.parent.exists():
             raise ValueError(
                 f"{mapping.parent} exists without an approved mapping (an earlier build "
@@ -437,8 +455,6 @@ def _auto(args: argparse.Namespace) -> int:
         if args.mapper_model is None:
             raise ValueError("--mapper-model is required to build the Human finding mapping")
         mapper_model = args.mapper_model
-    elif not mapping.is_file():
-        raise ValueError(f"Human finding mapping not found: {mapping}")
     plan = SeriesPlan(
         human_audit=args.human_audit, snapshots=snapshots, mapping=mapping,
         model=args.model, matcher_model=args.matcher_model, mapper_model=mapper_model,

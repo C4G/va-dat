@@ -17,6 +17,7 @@ from vision_aid.evaluation.execution.normalization import (
 from vision_aid.evaluation.full import load_full_inputs
 from vision_aid.evaluation.human_finding_mapping import (
     resolved_decisions,
+    snapshot_sha256,
     validate_human_finding_mapping,
 )
 from vision_aid.evaluation.inputs.human_audit import ELIGIBILITY_VALUES, HEADERS
@@ -117,6 +118,7 @@ def _review_sources(
                     finding["human_finding_id"] for finding in humans
                 ],
                 "findings": evidence,
+                "snapshot_sha256": snapshot_sha256(saved),
             }
         )
     humans = sorted(originals.values(), key=lambda finding: finding["source_row"])
@@ -287,6 +289,9 @@ def approve_human_finding_mapping_review(
         "schema_version": 1,
         "human_audit_sha256": evidence["human_audit_sha256"],
         "approved_by": reviewer.strip(),
+        "snapshot_sha256_by_page": {
+            page["source_url"]: page["snapshot_sha256"] for page in evidence["pages"]
+        },
         "decisions": list(decisions.values()),
     }
     validate_human_finding_mapping(mapping, evidence["human_audit_sha256"])
