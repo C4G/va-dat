@@ -20,5 +20,3 @@ Answer for every Human finding listed, exactly once, using its human_finding_id:
 - llm_finding_ids: the matching LLM finding IDs, or an empty list for a miss.
 - match_reason: why the IDs match. Required whenever llm_finding_ids is not empty; otherwise an empty string.
 - review_notes: anything else worth recording, such as partial matches. Notes don't earn credit. May be empty.
-
-Data: {payload}

@@ -24,5 +24,3 @@ Answer for every Human finding listed, exactly once, using its human_finding_id:
 - classification_reason: one sentence on why you chose it. Never empty.
 - programmatic_finding_refs: the matching references, or an empty list.
 - programmatic_reason: why the references match, or why nothing on this page matches. Never empty.
-
-Data: {payload}

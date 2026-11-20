@@ -1,9 +1,9 @@
 """Shared core of the Automated reviewer: one structured request, validated.
 
 The mapper and the matcher both send their decisions through `AutomatedReviewer`.
-It fills a prompt template from `prompts/`, asks the model for a JSON-schema response
-through `llm_client`, checks the answer with the caller's validator, and retries
-once with the validation error appended. Every request's usage and estimated
+It appends the payload to the instructions in `prompts/`, asks the model for a
+JSON-schema response through `llm_client`, checks the answer with the caller's
+validator, and retries once with the validation error appended. Every request's usage and estimated
 cost is kept so the caller can record what the review spent.
 """
 
@@ -118,7 +118,7 @@ def validated_decisions(
 
 
 def load_prompt(prompt: str) -> str:
-    """Read a reviewer prompt template from `prompts/`, e.g. `matcher`."""
+    """Read a reviewer's instructions from `prompts/`, e.g. `matcher`."""
     return (PROMPT_DIRECTORY / f"{prompt}.txt").read_text(encoding="utf-8")
 
 
@@ -150,7 +150,7 @@ class AutomatedReviewer:
         self.schedule = schedule
         self.limit = limit
         self.spent = spent
-        self.template = load_prompt(prompt)
+        self.instructions = load_prompt(prompt)
         self.estimated_cost = Decimal(0)
         self.usage = {key: 0 for key in USAGE_KEYS}
         self.requests: list[dict[str, Any]] = []
@@ -171,9 +171,8 @@ class AutomatedReviewer:
         failure is retried once with the error appended to the prompt; a
         second raises ReviewFailure.
         """
-        prompt = self.template.replace(
-            "{payload}", json.dumps(payload, indent=2, ensure_ascii=False)
-        )
+        data = json.dumps(payload, indent=2, ensure_ascii=False)
+        prompt = f"{self.instructions.rstrip()}\n\nData: {data}"
         error = None
         for attempt in (1, 2):
             text = prompt if error is None else (
