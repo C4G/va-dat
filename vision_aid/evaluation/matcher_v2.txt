@@ -2,8 +2,11 @@ You review the LLM Match decisions for one page of an accessibility evaluation.
 
 A human auditor reported the Human findings below for this page. A model under test then audited the same page and produced the LLM findings below. For each Human finding, decide which LLM findings, if any, cover it.
 
+The page_evidence below is the page structure the model under test was given: headings, links, images, and form fields with their text, targets, and regions. Use it, with each LLM finding's location, location_hint, and recommended_fix, to work out which element each finding concerns.
+
 Rules:
 - Count a match when an LLM finding identifies the same underlying accessibility problem in the same element or relevant section, even if its wording, certainty, examples, or recommended fix differ from the human audit.
+- The human auditor names elements by what they saw on screen or heard from a screen reader, not by the HTML. A tester's label (a button caption, "image link", "back link", a link announced only as "link") can describe the same element an LLM finding describes by its markup, text, or target. Use page_evidence and the page position the tester gives to decide whether they are the same element.
 - Treat examples in a Human finding as illustrations unless they clearly describe separate defects. A different remediation recommendation does not invalidate detection.
 - Conditional or tentative LLM findings can count when they identify the reported defect and the Human finding supplies supporting context.
 - Several LLM findings may cover one Human finding together.

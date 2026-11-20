@@ -1,7 +1,7 @@
 """The matcher: fill review.csv's LLM decisions with the Automated reviewer.
 
-One request per page: that page's review.csv rows and its normalized LLM
-findings. Every page is decided before any review.csv is written, so a failed
+One request per page: that page's review.csv rows, its normalized LLM
+findings, and the structured page evidence the model under test was given. Every page is decided before any review.csv is written, so a failed
 review leaves the run as it was. The existing report path then validates the
 written CSVs exactly as it validates a person's.
 """
@@ -23,7 +23,9 @@ from vision_aid.evaluation.full import report_full_evaluation
 from vision_aid.evaluation.inputs.human_audit import HEADERS, NOT_TESTABLE
 from vision_aid.evaluation.page import report_page
 
-PROMPT = "matcher_v1"
+PROMPT = "matcher_v2"
+LLM_FIELDS = ("finding_id", "prompt", "problem", "element", "location", "wcag_evidence")
+RAW_FIELDS = ("location_hint", "recommended_fix")
 DECISION_SCHEMA = decision_schema({
     "llm_finding_ids": {"type": "array", "items": {"type": "string"}},
     "match_reason": {"type": "string"},
@@ -72,14 +74,30 @@ def _payload(page: Path, rows: list[dict[str, str]], llm: list[dict]) -> dict[st
             }
             for row in rows
         ],
-        "llm_findings": [
-            {
-                key: item.get(key)
-                for key in ("finding_id", "prompt", "problem", "element", "location",
-                            "wcag_evidence")
-            }
-            for item in llm
-        ],
+        "llm_findings": [_llm_finding(item) for item in llm],
+        "page_evidence": _page_evidence(page),
+    }
+
+
+def _llm_finding(item: dict[str, Any]) -> dict[str, Any]:
+    """Keep the LLM finding fields that identify the problem and where it is."""
+    finding = {key: item.get(key) for key in LLM_FIELDS}
+    raw = item.get("raw_source") if isinstance(item.get("raw_source"), dict) else {}
+    finding.update({key: raw[key] for key in RAW_FIELDS if raw.get(key)})
+    return finding
+
+
+def _page_evidence(page: Path) -> dict[str, Any]:
+    """Return the extracted page structure the model under test saw, by checklist.
+
+    These payloads list the page's headings, links, images, and form fields
+    with their text, targets, and regions, so the matcher can tell whether a
+    Human finding and an LLM finding concern the same element. A run without
+    saved payloads gives an empty dict.
+    """
+    return {
+        path.stem: json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted((page / "artifacts" / "payloads").glob("*.json"))
     }
 
 

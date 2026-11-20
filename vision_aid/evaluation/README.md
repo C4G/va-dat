@@ -345,8 +345,9 @@ uv run visionaid-evaluate review-report-auto \
   --max-cost-usd 1
 ```
 
-It sends one request per page, with that page's `review.csv` rows and its LLM
-findings, using the model's preset and the instructions in `matcher_v1.txt`.
+It sends one request per page, with that page's `review.csv` rows, its LLM
+findings, and the page structure the model under test was given (headings,
+links, images and form fields from `artifacts/payloads/`), using the model's preset and the instructions in `matcher_v2.txt`.
 Before sending anything it shows the model, the page count and the cost limit
 and asks you to type `yes`; `--approve-live` skips the question. It needs the
 model's API key (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`).
@@ -358,8 +359,8 @@ the problem explained. If the retry also fails, the command stops with exit
 code 1 and writes no `review.csv` and no report, so the run stays as it was.
 It never changes the classification or programmatic columns.
 
-The reports name the reviewer as `<model>/<effort>/matcher_v1`, for example
-`gpt-6-luna/medium/matcher_v1`. The command prints the matcher's estimated
+The reports name the reviewer as `<model>/<effort>/matcher_v2`, for example
+`gpt-6-luna/medium/matcher_v2`. The command prints the matcher's estimated
 cost and saves it, with the token usage, in `automated-review.json` in the run
 folder.
 
