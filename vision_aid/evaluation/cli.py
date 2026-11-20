@@ -28,7 +28,7 @@ from vision_aid.evaluation.automated_review import (
     ReviewFailure,
     reviewer_attribution,
 )
-from vision_aid.evaluation.execution.pricing import PriceSchedule
+from vision_aid.evaluation.execution.pricing import DEFAULT_SCHEDULE, PriceSchedule
 from vision_aid.evaluation.full import (
     capture_snapshots,
     execute_full_evaluation,
@@ -42,6 +42,8 @@ from vision_aid.evaluation.human_finding_mapping_review import (
     prepare_human_finding_mapping_review,
 )
 from vision_aid.evaluation.inputs.human_audit import import_page_human_findings
+from vision_aid.evaluation.mapper import PROMPT as MAPPER_PROMPT
+from vision_aid.evaluation.mapper import build_human_finding_mapping
 from vision_aid.evaluation.matcher import PROMPT as MATCHER_PROMPT
 from vision_aid.evaluation.matcher import review_and_report, review_pages
 from vision_aid.evaluation.page import prepare_page, report_page
@@ -98,6 +100,29 @@ def build_parser() -> argparse.ArgumentParser:
     approve.add_argument(
         "--output", type=Path,
         help="defaults to REVIEW_DIR/human-finding-mapping.json",
+    )
+
+    auto_mapping = commands.add_parser(
+        "human-finding-mapping-auto",
+        help="prepare the mapping review, fill it with the Automated reviewer, and approve it",
+    )
+    auto_mapping.add_argument("--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT)
+    auto_mapping.add_argument("--snapshots", type=Path, required=True)
+    auto_mapping.add_argument("--output-dir", type=Path, required=True)
+    auto_mapping.add_argument(
+        "--mapper-model", choices=MODEL_PRESETS, required=True,
+        help="model that classifies the Human findings and matches the checks",
+    )
+    auto_mapping.add_argument(
+        "--max-cost-usd", required=True,
+        help="spending limit for the mapper, checked between requests",
+    )
+    auto_mapping.add_argument(
+        "--output", type=Path,
+        help="defaults to OUTPUT_DIR/human-finding-mapping.json",
+    )
+    auto_mapping.add_argument(
+        "--approve-live", action="store_true", help="skip the confirmation prompt",
     )
 
     run = commands.add_parser("run", help="preview or run one page")
@@ -269,6 +294,39 @@ def _run_all(args: argparse.Namespace) -> int:
     return 0 if complete else 1
 
 
+def _human_finding_mapping_auto(args: argparse.Namespace) -> int:
+    """Have the mapper fill the mapping review CSVs, then approve the mapping."""
+    limit = positive_cost(args.max_cost_usd)
+    if args.output_dir.exists():
+        raise FileExistsError(f"Review directory already exists: {args.output_dir}")
+    _, snapshots = load_full_inputs(args.human_audit, args.snapshots)
+    request_config = MODEL_PRESETS[args.mapper_model]
+    configuration = evaluation_configuration(request_config)
+    schedule = PriceSchedule.load(DEFAULT_SCHEDULE)
+    print(f"Mapper: {reviewer_attribution(args.mapper_model, MAPPER_PROMPT)}; "
+          f"pages: {len(snapshots)}; requests: {len(snapshots)} "
+          "(plus at most one retry each)")
+    _display_model(request_config, configuration, schedule, len(snapshots), limit)
+    api_key = _approved_api_key(args, configuration)
+    if api_key is None:
+        return 0
+    reviewer = AutomatedReviewer(
+        "mapper", args.mapper_model, MAPPER_PROMPT, api_key, schedule, limit,
+    )
+    try:
+        mapping = build_human_finding_mapping(
+            args.human_audit, args.snapshots, args.output_dir, reviewer, args.output,
+        )
+    except ReviewFailure as failure:
+        print(f"Automated review failed: {failure}")
+        print(f"Mapper estimated cost: ${reviewer.estimated_cost.normalize():f}; "
+              f"review CSVs left unfilled in {args.output_dir.resolve()}")
+        return 1
+    print(f"Mapper estimated cost: ${reviewer.estimated_cost.normalize():f}")
+    print(f"Approved Human finding mapping: {mapping.resolve()}")
+    return 0
+
+
 def _review_report_auto(args: argparse.Namespace) -> int:
     """Have the matcher fill every review.csv in a run, then write the report(s)."""
     run = args.run_dir.resolve()
@@ -321,6 +379,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.review_dir, args.human_audit, args.snapshots, args.reviewer, args.output,
             )
             print(f"Approved Human finding mapping: {mapping.resolve()}")
+        elif args.command == "human-finding-mapping-auto":
+            return _human_finding_mapping_auto(args)
         elif args.command == "run":
             return _run(args)
         elif args.command == "run-all":

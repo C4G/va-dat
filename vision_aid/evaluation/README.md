@@ -204,6 +204,44 @@ A run also stops with an error if it can't find an issue the mapping approved.
 That can happen after a new capture or a change to the programmatic checks. Make
 a new mapping when it does.
 
+### Let the Automated reviewer do it
+
+`human-finding-mapping-auto` does all of the above in one command. It prepares
+the review folder, has a model (the mapper) fill `classifications.csv` and
+`programmatic-review.csv`, and then approves them exactly as
+`human-finding-mapping-approve` would:
+
+```bash
+uv run visionaid-evaluate human-finding-mapping-auto \
+  --human-audit './Pristine Accessibility Defect Report.xlsx' \
+  --snapshots .model-evaluation/pristine-snapshots/snapshots.json \
+  --output-dir .model-evaluation/pristine-mapping-review \
+  --mapper-model gpt-6.1-sol \
+  --max-cost-usd 2
+```
+
+It sends one request per page, with that page's human findings and its
+`programmatic-findings.csv` rows, using the model's preset and the instructions
+in `mapper_v1.txt`. Before sending anything it shows the model, the page count
+and the cost limit and asks you to type `yes`; `--approve-live` skips the
+question. It needs the model's API key (`OPENAI_API_KEY` or
+`ANTHROPIC_API_KEY`). The mapping's errors move every later run's denominators,
+so use a strong model here.
+
+It checks each answer before writing anything: every human finding decided
+with both reasons, references that exist on that page and are used for only one
+human finding, at least one reference for `programmatic`, and none for
+`unavailable_evidence` or `ambiguous`. A `Global` finding is decided on every
+page, and every page must give it the same classification. An answer that
+fails gets one retry with the problem explained. If the retry also fails, the
+command stops with exit code 1 and leaves both CSVs unfilled, so you can finish
+them by hand and run `human-finding-mapping-approve`.
+
+The mapping records the reviewer as `<model>/<effort>/mapper_v1`, for example
+`gpt-6.1-sol/medium/mapper_v1`. The command prints the mapper's estimated cost
+and saves it, with the token usage, in `automated-review.json` in the review
+folder. `--output` works as it does for `human-finding-mapping-approve`.
+
 ## 3. Run the model
 
 `run` evaluates one saved page and `run-all` evaluates every page in
@@ -398,6 +436,7 @@ findings won't match the CSV the main tool produces.
 | `capture`                       | Once per audit                                                                 | Downloads the HTML for every URL in the audit and writes `snapshots.json`                                               | `--output-dir`                                                        | `--human-audit`                                        |
 | `human-finding-mapping-prepare` | Once per audit, after `capture`                                                | Runs the programmatic checks on the snapshots and writes the three review CSVs                                          | `--snapshots`, `--output-dir`                                         | `--human-audit`                                        |
 | `human-finding-mapping-approve` | Once per audit, after the reviewer fills in the CSVs                           | Checks the CSVs for completion and saves the mapping file                                                               | `--snapshots`, `--review-dir`, `--reviewer`                           | `--output`, `--human-audit`                            |
+| `human-finding-mapping-auto`    | Once per audit, after `capture`, instead of filling the CSVs by hand           | Does what `human-finding-mapping-prepare` and `-approve` do, with the mapper model filling the CSVs                  | `--snapshots`, `--output-dir`, `--mapper-model`, `--max-cost-usd`   | `--output`, `--approve-live`, `--human-audit`          |
 | `run`                           | Each time you test a model on one page                                         | Runs the programmatic checks and saves the prompts for one saved HTML file. With `--live`, sends the prompts to the LLM | `--html`, `--source-url`, `--max-cost-usd`, `--human-finding-mapping` | `--model`, `--live`, `--approve-live`, `--human-audit` |
 | `run-all`                       | Each time you test a model on the whole audit                                  | Does what `run` does for every snapshot                                                                                 | `--snapshots`, `--max-cost-usd`, `--human-finding-mapping`            | `--model`, `--live`, `--approve-live`, `--human-audit` |
 | `report`                        | After a `run` with `--live`, once the reviewer fills in `review.csv`           | Checks the review and writes `report.html` for that page                                                                | `--run-dir`, `--reviewer`                                             |                                                        |

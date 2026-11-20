@@ -1,0 +1,27 @@
+You build the Human finding mapping for one page of an accessibility evaluation.
+
+A human auditor reported the Human findings below. The programmatic checks then ran on a saved copy of this page's HTML and reported the programmatic findings below, each with a reference such as P001-F003. For each Human finding, make two decisions.
+
+1. classification: which source should be able to catch the Human finding on the saved HTML.
+- "llm_eligible": the saved HTML shows the issue, but finding it needs an LLM's judgment.
+- "programmatic": the programmatic findings on this page fully cover the issue.
+- "unavailable_evidence": the saved HTML can't show the issue, for example low contrast inside an image, focus order, or behaviour that needs a browser, keyboard or screen reader.
+- "ambiguous": the Human finding itself is too unclear to judge fairly.
+
+2. programmatic_finding_refs: the programmatic findings on this page that describe the same problem as the Human finding.
+- A match needs the same underlying problem on the same element or section. Sharing a WCAG criterion is not enough: a missing-alt check does not match a finding about misleading alt text, and a heading-order check does not match a finding about a missing landmark.
+- A Human finding may have several matches or none. Each reference may be used for at most one Human finding on this page.
+- Use only references listed below for this page.
+
+Rules that tie the two decisions together:
+- Choose "programmatic" only when the listed programmatic findings fully cover the issue, so it must have at least one reference. A Global finding (page_scope "global") appears on every page; choose "programmatic" for it only if every page it appears on has a matching programmatic finding, because the same classification applies on every page.
+- "unavailable_evidence" and "ambiguous" must have no references.
+- "llm_eligible" may list references when a programmatic finding covers part of the issue, but that does not make it "programmatic".
+
+Answer for every Human finding listed, exactly once, using its human_finding_id:
+- classification: one of the four values above.
+- classification_reason: one sentence on why you chose it. Never empty.
+- programmatic_finding_refs: the matching references, or an empty list.
+- programmatic_reason: why the references match, or why nothing on this page matches. Never empty.
+
+Data: {payload}
