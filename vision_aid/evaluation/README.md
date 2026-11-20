@@ -428,9 +428,8 @@ It does this:
    `auto` looks for `human-finding-mapping/human-finding-mapping.json` in the
    snapshots folder and reuses it. If there is none, it builds one there with
    the mapper, as `human-finding-mapping-auto` would, and later series on those
-   snapshots reuse it. `--mapper-model` is needed only when the mapping is
-   built, so `--capture` needs it unless you pass `--human-finding-mapping`;
-   `auto` checks this before capturing anything. If an earlier build failed,
+   snapshots reuse it. `--mapper-model` is used only when the mapping is
+   built. If an earlier build failed,
    remove that `human-finding-mapping/` folder before trying again. A reused
    mapping must have been built from the same snapshots: `auto` refuses one
    whose recorded snapshot checksums differ, and warns if it records none
@@ -490,6 +489,24 @@ A `run-all` also writes two files to `.model-evaluation/full-runs/<run-id>/`:
 The evaluator skips va-dat's false-positive filter and LLM deduplication, so its
 findings won't match the CSV the main tool produces.
 
+### Default reviewer models
+
+`--mapper-model` defaults to `gpt-6.1-sol` and `--matcher-model` to
+`gpt-6-luna`, both at medium effort. They were chosen on 2026-11-20 by
+comparing candidate reviewers with the approved Pristine mapping and an
+independent review of a full Sonnet run:
+
+- **Matcher.** `gpt-6-luna` with `matcher_v2` agreed on 60, 61 and 61 of 63
+  eligible catch decisions in three passes (at least 95% each), claimed no
+  extra catches, and cost about $0.02 to $0.05 per full review.
+  `claude-haiku-5-5` agreed on 54 of 63 and was not adopted.
+- **Mapper.** `gpt-6.1-sol` agreed with 79 of 86 classifications, left no
+  checker-covered row empty, and kept every programmatic responsibility but
+  one, a partial heading match it gave to the LLM instead. One mapping cost
+  about $0.46.
+
+Check the mapping differences once when you build a mapping for a new audit.
+
 ## Command Overview
 
 | Command                         | When to run                                                                    | What it does                                                                                                            | Required flags                                                        | Optional flags                                         |
@@ -497,10 +514,10 @@ findings won't match the CSV the main tool produces.
 | `capture`                       | Once per audit                                                                 | Downloads the HTML for every URL in the audit and writes `snapshots.json`                                               | `--output-dir`                                                        | `--human-audit`                                        |
 | `human-finding-mapping-prepare` | Once per audit, after `capture`                                                | Runs the programmatic checks on the snapshots and writes the three review CSVs                                          | `--snapshots`, `--output-dir`                                         | `--human-audit`                                        |
 | `human-finding-mapping-approve` | Once per audit, after the reviewer fills in the CSVs                           | Checks the CSVs for completion and saves the mapping file                                                               | `--snapshots`, `--review-dir`, `--reviewer`                           | `--output`, `--human-audit`                            |
-| `human-finding-mapping-auto`    | Once per audit, after `capture`, instead of filling the CSVs by hand           | Does what `human-finding-mapping-prepare` and `-approve` do, with the mapper model filling the CSVs                  | `--snapshots`, `--output-dir`, `--mapper-model`, `--max-cost-usd`   | `--output`, `--approve-live`, `--human-audit`          |
+| `human-finding-mapping-auto`    | Once per audit, after `capture`, instead of filling the CSVs by hand           | Does what `human-finding-mapping-prepare` and `-approve` do, with the mapper model filling the CSVs                  | `--snapshots`, `--output-dir`, `--max-cost-usd`   | `--mapper-model`, `--output`, `--approve-live`, `--human-audit`          |
 | `run`                           | Each time you test a model on one page                                         | Runs the programmatic checks and saves the prompts for one saved HTML file. With `--live`, sends the prompts to the LLM | `--html`, `--source-url`, `--max-cost-usd`, `--human-finding-mapping` | `--model`, `--live`, `--approve-live`, `--human-audit` |
 | `run-all`                       | Each time you test a model on the whole audit                                  | Does what `run` does for every snapshot                                                                                 | `--snapshots`, `--max-cost-usd`, `--human-finding-mapping`            | `--model`, `--live`, `--approve-live`, `--human-audit` |
 | `report`                        | After a `run` with `--live`, once the reviewer fills in `review.csv`           | Checks the review and writes `report.html` for that page                                                                | `--run-dir`, `--reviewer`                                             |                                                        |
 | `report-all`                    | After a `run-all` with `--live`, once the reviewer fills in every `review.csv` | Checks every review and writes one report per page plus a combined one                                                  | `--run-dir`, `--reviewer`                                             |                                                        |
-| `review-report-auto`            | After a `run` or `run-all` with `--live`, instead of reviewing by hand         | Has the matcher model fill every `review.csv`, then does what `report` or `report-all` does                             | `--run-dir`, `--matcher-model`, `--max-cost-usd`                      | `--approve-live`                                       |
-| `auto`                          | Each time you want N runs of one model, instead of steps 2 to 5 by hand         | Builds or reuses the mapping, runs `run-all --live` and `review-report-auto` N times, and writes the series report       | `-n`, `--matcher-model`, `--max-cost-usd`, one of `--snapshots` or `--capture` | `--model`, `--mapper-model`, `--output-dir`, `--human-finding-mapping`, `--approve-live`, `--human-audit` |
+| `review-report-auto`            | After a `run` or `run-all` with `--live`, instead of reviewing by hand         | Has the matcher model fill every `review.csv`, then does what `report` or `report-all` does                             | `--run-dir`, `--max-cost-usd`                      | `--matcher-model`, `--approve-live`                                       |
+| `auto`                          | Each time you want N runs of one model, instead of steps 2 to 5 by hand         | Builds or reuses the mapping, runs `run-all --live` and `review-report-auto` N times, and writes the series report       | `-n`, `--max-cost-usd`, one of `--snapshots` or `--capture` | `--model`, `--mapper-model`, `--matcher-model`, `--output-dir`, `--human-finding-mapping`, `--approve-live`, `--human-audit` |
