@@ -538,6 +538,23 @@ Choose `claude-haiku-5-5`, `claude-opus-5-5`, `claude-sonnet-5-5`,
 is omitted. Each run uses one model; compare models with separate runs using
 the same audit, snapshots, and mapping.
 
+**Or let the Automated reviewer do steps 2 to 6, several times.** `auto` builds
+the mapping with a mapper model (or reuses the one saved beside the snapshots),
+then runs the model `-n` times, has a matcher model review each run, and writes
+an Evaluation series report with the average and spread of the rates:
+
+```bash
+uv run visionaid-evaluate auto -n 5 \
+  --human-audit "$AUDIT" --snapshots "$SNAPSHOTS" \
+  --model "$MODEL" --mapper-model gpt-6.1-sol --matcher-model gpt-6-luna \
+  --max-cost-usd "$MAX_COST_USD"
+```
+
+Use `--capture --output-dir <new folder>` instead of `--snapshots` to capture
+new pages first. One approval and one `--max-cost-usd` cover every request of
+every role. The series lands in `.model-evaluation/series/<series-id>/`; see
+the [series guide](vision_aid/evaluation/README.md#6-run-an-evaluation-series).
+
 To evaluate just one page, use `run` with `--html` and `--source-url`, then
 `report`. See the [single-page commands](vision_aid/evaluation/README.md#3-run-the-model).
 For command options, use `uv run visionaid-evaluate --help` or add `--help`

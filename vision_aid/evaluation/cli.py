@@ -47,6 +47,7 @@ from vision_aid.evaluation.mapper import build_human_finding_mapping
 from vision_aid.evaluation.matcher import PROMPT as MATCHER_PROMPT
 from vision_aid.evaluation.matcher import review_and_report, review_pages
 from vision_aid.evaluation.page import prepare_page, report_page
+from vision_aid.evaluation.series import SeriesPlan, run_series, saved_mapping
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_HUMAN_AUDIT = PROJECT_ROOT / "Pristine Accessibility Defect Report.xlsx"
@@ -160,6 +161,43 @@ def build_parser() -> argparse.ArgumentParser:
     auto_report.add_argument(
         "--approve-live", action="store_true", help="skip the confirmation prompt",
     )
+
+    series = commands.add_parser(
+        "auto",
+        help="run an Evaluation series: build or reuse the mapping, then N live "
+        "runs, each reviewed and reported by the Automated reviewer",
+    )
+    series.add_argument("-n", "--runs", type=int, required=True, help="number of runs")
+    series.add_argument(
+        "--model", choices=MODEL_PRESETS, default=DEFAULT_MODEL,
+        help=f"model under test (default: {DEFAULT_MODEL})",
+    )
+    series.add_argument(
+        "--mapper-model", choices=MODEL_PRESETS,
+        help="model that builds the mapping; required when no saved mapping exists",
+    )
+    series.add_argument(
+        "--matcher-model", choices=MODEL_PRESETS, required=True,
+        help="model that decides the LLM matches",
+    )
+    series.add_argument("--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT)
+    source = series.add_mutually_exclusive_group(required=True)
+    source.add_argument("--snapshots", type=Path, help="snapshots.json to reuse")
+    source.add_argument(
+        "--capture", action="store_true", help="capture new snapshots into --output-dir",
+    )
+    series.add_argument("--output-dir", type=Path, help="new snapshots folder for --capture")
+    series.add_argument(
+        "--human-finding-mapping", type=Path,
+        help="approved mapping to use instead of the one saved with the snapshots",
+    )
+    series.add_argument(
+        "--max-cost-usd", required=True,
+        help="spending limit for every request of every role, checked between requests",
+    )
+    series.add_argument(
+        "--approve-live", action="store_true", help="skip the confirmation prompt",
+    )
     return parser
 
 
@@ -176,22 +214,35 @@ def _new_run_directory(kind: str = "runs") -> Path:
     return run
 
 
-def _approved_api_key(args: argparse.Namespace, configuration: dict[str, Any]) -> str | None:
-    """Return the provider's API key, or None if the user declines to spend."""
+def _approved_api_keys(
+    args: argparse.Namespace, configurations: Sequence[dict[str, Any]],
+) -> dict[str, str] | None:
+    """Return a key for each provider the configurations need, after one approval.
+
+    Returns None if the user declines to spend.
+    """
     load_dotenv(PROJECT_ROOT / ".env")
-    key_name = (
-        "OPENAI_API_KEY" if configuration["provider"] == "openai" else "ANTHROPIC_API_KEY"
-    )
-    api_key = os.getenv(key_name)
-    if not api_key:
-        raise ValueError(f"Live execution requires {key_name}")
+    keys = {}
+    for configuration in configurations:
+        provider = configuration["provider"]
+        key_name = "OPENAI_API_KEY" if provider == "openai" else "ANTHROPIC_API_KEY"
+        api_key = os.getenv(key_name)
+        if not api_key:
+            raise ValueError(f"Live execution requires {key_name}")
+        keys[provider] = api_key
     if not args.approve_live and (
         not sys.stdin.isatty()
         or input("Type 'yes' to approve paid execution: ") != "yes"
     ):
         print("Live execution declined; no paid requests made.")
         return None
-    return api_key
+    return keys
+
+
+def _approved_api_key(args: argparse.Namespace, configuration: dict[str, Any]) -> str | None:
+    """Return the provider's API key, or None if the user declines to spend."""
+    keys = _approved_api_keys(args, [configuration])
+    return None if keys is None else keys[configuration["provider"]]
 
 
 def _display_model(
@@ -362,6 +413,71 @@ def _review_report_auto(args: argparse.Namespace) -> int:
     return 0
 
 
+def _auto(args: argparse.Namespace) -> int:
+    """Run an Evaluation series after one approval covering every role."""
+    limit = positive_cost(args.max_cost_usd)
+    if args.runs < 1:
+        raise ValueError("-n must be at least 1")
+    if args.capture != (args.output_dir is not None):
+        raise ValueError("--output-dir is required with --capture and only with --capture")
+    if args.capture:
+        snapshots = capture_snapshots(args.human_audit, args.output_dir)
+        print(f"Snapshot mapping: {snapshots}")
+    else:
+        snapshots = args.snapshots
+    _, pages = load_full_inputs(args.human_audit, snapshots)
+    mapping = args.human_finding_mapping or saved_mapping(snapshots)
+    mapper_model = None
+    if args.human_finding_mapping is None and not mapping.is_file():
+        if mapping.parent.exists():
+            raise ValueError(
+                f"{mapping.parent} exists without an approved mapping (an earlier build "
+                "failed?); remove it to build the mapping again"
+            )
+        if args.mapper_model is None:
+            raise ValueError("--mapper-model is required to build the Human finding mapping")
+        mapper_model = args.mapper_model
+    elif not mapping.is_file():
+        raise ValueError(f"Human finding mapping not found: {mapping}")
+    plan = SeriesPlan(
+        human_audit=args.human_audit, snapshots=snapshots, mapping=mapping,
+        model=args.model, matcher_model=args.matcher_model, mapper_model=mapper_model,
+        runs=args.runs, limit=limit,
+    )
+    schedule = PriceSchedule.load(DEFAULT_SCHEDULE)
+    roles = [("Model under test", args.model)]
+    if mapper_model:
+        roles.insert(0, ("Mapper", reviewer_attribution(mapper_model, MAPPER_PROMPT)))
+        print(f"Human finding mapping: will be built and saved to {mapping}")
+    else:
+        print(f"Human finding mapping: {mapping}")
+    roles.append(("Matcher", reviewer_attribution(args.matcher_model, MATCHER_PROMPT)))
+    for label, name in roles:
+        print(f"{label}: {name}")
+    print(f"Runs: {args.runs}; pages per run: {len(pages)}")
+    print(f"Pricing: {schedule.version} ({schedule.identity})")
+    print(f"Cost guardrail: ${limit} across every role; checked between requests")
+    models = [model for model in (mapper_model, args.model, args.matcher_model) if model]
+    api_keys = _approved_api_keys(
+        args, [evaluation_configuration(MODEL_PRESETS[model]) for model in models],
+    )
+    if api_keys is None:
+        return 0
+    directory = _new_run_directory("series")
+    print(f"Evaluation series: {directory}")
+    record = run_series(directory, plan, api_keys, schedule)
+    for run in record["runs"]:
+        print(f"Run {run['run_id']}: {run['status']}"
+              + (f" ({run['reason']})" if run["reason"] else ""))
+    if record["stopped_reason"]:
+        print(f"Series stopped: {record['stopped_reason']}")
+    for role, cost in record["cost_by_role"].items():
+        print(f"{role} estimated cost: ${cost['estimated_cost_usd']}")
+    print(f"{record['completed']} of {record['runs_requested']} runs completed; "
+          f"series report: {directory / 'report.html'}")
+    return 0 if record["completed"] == record["runs_requested"] else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the requested command."""
     parser = build_parser()
@@ -385,6 +501,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run(args)
         elif args.command == "run-all":
             return _run_all(args)
+        elif args.command == "auto":
+            return _auto(args)
         elif args.command == "review-report-auto":
             return _review_report_auto(args)
         elif args.command == "report":

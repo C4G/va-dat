@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}: {{ model_name }}; {{ record.series_id }}</title>
+<style>{{ styles | safe }}</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to report content</a>
+<header>
+<h1>{{ title }}: {{ model_name }}</h1>
+<p>Series ID: {{ record.series_id }}.</p>
+<p><strong>{{ completed }} of {{ record.runs_requested }} runs completed.</strong> Rates and Catch frequency cover the completed runs only.{% if record.stopped_reason %} The series stopped early: {{ record.stopped_reason }}.{% endif %}</p>
+<p>Review decisions by: {{ reviewer }}</p>
+<p>Snapshots: {{ record.snapshots }}. Human finding mapping: {{ record.human_finding_mapping }}.</p>
+<button id="print-report" type="button" hidden>Print report</button>
+<nav aria-label="Report sections"><a href="#performance">Cost and detection results</a><a href="#runs">Runs</a><a href="#human-findings">Catch frequency</a></nav>
+</header>
+<main id="main">
+<section id="performance" aria-labelledby="performance-title">
+<h2 id="performance-title">Cost and detection results</h2>
+<div class="table-scroll" role="region" aria-labelledby="cost-caption" tabindex="0">
+<table><caption id="cost-caption">Estimated cost by role (USD); total ${{ record.estimated_cost_usd }} of a ${{ record.max_cost_usd }} limit</caption>
+<thead><tr><th scope="col">Role</th><th scope="col">Estimated cost</th><th scope="col">Input tokens</th><th scope="col">Output tokens</th></tr></thead>
+<tbody>{% for cost in costs %}<tr><th scope="row">{{ cost.role }}</th><td>${{ cost.estimated_cost_usd }}</td><td>{{ "{:,}".format(cost.usage.input_tokens) }}</td><td>{{ "{:,}".format(cost.usage.output_tokens) }}</td></tr>{% endfor %}</tbody>
+</table></div>
+<div class="table-scroll" role="region" aria-labelledby="rates-caption" tabindex="0">
+<table><caption id="rates-caption">Detection rates across completed runs</caption>
+<thead><tr><th scope="col">Rate</th><th scope="col">Mean</th><th scope="col">Min</th><th scope="col">Max</th><th scope="col">Standard deviation</th></tr></thead>
+<tbody>{% for rate in rates %}<tr><th scope="row">{{ rate.label }}</th><td>{{ rate.mean }}</td><td>{{ rate.min }}</td><td>{{ rate.max }}</td><td>{{ rate.stdev }}</td></tr>{% endfor %}</tbody>
+</table></div>
+<p>Programmatic: {% if programmatic %}{{ programmatic }}. The programmatic checks give the same result on every run, so this rate is shown once.{% else %}not defined: no run completed.{% endif %}</p>
+</section>
+<section id="runs" aria-labelledby="runs-title">
+<h2 id="runs-title">Runs</h2>
+<div class="table-scroll" role="region" aria-labelledby="runs-title" tabindex="0">
+<table>
+<thead><tr><th scope="col">Run</th><th scope="col">Status</th><th scope="col">LLM</th><th scope="col">Overall</th><th scope="col">Reason</th></tr></thead>
+<tbody>{% for run in record.runs %}<tr><th scope="row">{{ run.run_id }}</th><td>{{ run.status | capitalize }}</td>{% if run.counts %}<td>{{ run.counts.llm.caught }}/{{ run.counts.llm.eligible }}</td><td>{{ run.counts.overall.caught }}/{{ run.counts.overall.eligible }}</td>{% else %}<td></td><td></td>{% endif %}<td>{{ run.reason or "" }}</td></tr>{% endfor %}</tbody>
+</table></div>
+</section>
+<section id="human-findings" aria-labelledby="findings-title">
+<h2 id="findings-title">Catch frequency</h2>
+<p>For each original Human finding, the number of completed runs in which either source fully covered it, and the number in which the LLM did. Global findings count once per run, caught if caught on any page.</p>
+<div class="table-scroll" role="region" aria-labelledby="findings-title" tabindex="0">
+<table>
+<thead><tr><th scope="col">Issue title</th><th scope="col">Expected source</th><th scope="col">Caught</th><th scope="col">Caught by LLM</th><th scope="col">WCAG</th><th scope="col">Scope</th></tr></thead>
+<tbody>{% for item in findings %}<tr><th scope="row">{{ item.human.problem }}</th><td>{{ item.expected }}</td><td>{{ item.caught }}/{{ completed }}</td><td>{{ item.llm }}/{{ completed }}</td><td>{{ item.human.raw_evidence['WCAG Sc'] }}</td><td>{% if item.human.page_scope == 'global' %}Global{% else %}Page-local{% endif %}</td></tr>{% endfor %}</tbody>
+</table></div>
+</section>
+</main>
+<script>{{ scripts.print | safe }}</script>
+</body>
+</html>

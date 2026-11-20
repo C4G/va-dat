@@ -40,6 +40,9 @@ has the full command sequence to copy.
    and then builds the report.
 5. **[Build the report](#5-build-the-report).** `report` or `report-all` checks
    your review and writes `report.html`.
+6. **[Run an Evaluation series](#6-run-an-evaluation-series).** `auto` does
+   steps 2 to 5 with the Automated reviewer, running the model N times, and
+   reports how much the rates vary between runs.
 
 `capture`, `human-finding-mapping-prepare`, `run`, and `run-all` each write to a
 new folder, so they never overwrite earlier work. `report` and `report-all`
@@ -400,6 +403,57 @@ Overall 8/10.
 In the combined report each Global finding counts once, and it's caught if a
 source catches it on any one page.
 
+## 6. Run an Evaluation series
+
+One run gives one sample of a model's rates. `auto` runs the same model N times
+on the same snapshots and mapping, and reports the average and the spread:
+
+```bash
+uv run visionaid-evaluate auto -n 5 \
+  --snapshots '.model-evaluation/pristine-snapshots/snapshots.json' \
+  --model claude-haiku-5-5 \
+  --mapper-model gpt-6.1-sol --matcher-model gpt-6-luna \
+  --max-cost-usd 10
+```
+
+It does this:
+
+1. **Snapshots.** Give exactly one of `--snapshots PATH` (reuse saved pages) or
+   `--capture --output-dir DIR` (run `capture` into a new folder first). Series
+   you want to compare should reuse the same snapshots.
+2. **Mapping.** `--human-finding-mapping PATH` uses that mapping. Otherwise
+   `auto` looks for `human-finding-mapping/human-finding-mapping.json` in the
+   snapshots folder and reuses it. If there is none, it builds one there with
+   the mapper, as `human-finding-mapping-auto` would, and later series on those
+   snapshots reuse it. `--mapper-model` is needed only when the mapping is
+   built. If an earlier build failed, remove that `human-finding-mapping/`
+   folder before trying again.
+3. **Approval.** Before spending anything it lists the mapper (only if it will
+   build the mapping), the model under test, the matcher, N, the page count and
+   the cost limit, and asks you to type `yes` once; `--approve-live` skips the
+   question. It needs the API key of every provider involved.
+4. **Runs.** N times: `run-all --live`, then `review-report-auto`. A run that
+   doesn't finish, or whose review fails, is recorded as incomplete and the
+   series moves on to the next run.
+5. **Report.** It writes the series report and prints how many of the N runs
+   completed. The exit code is 0 only if all N completed.
+
+`--max-cost-usd` covers every request of every role: mapper, model under test
+and matcher. Each step gets what's left of it, and once it's used up the series
+stops.
+
+A series writes to `.model-evaluation/series/<series-id>/`:
+
+| File                    | Contents                                                                                                                                                                                  |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `series.json`           | The model under test, the reviewers, N, how many runs completed, each run's status and rates (or why it's incomplete), cost and tokens by role, and the snapshots and mapping paths. Saved after every run. |
+| `report.html`           | "k of N runs completed", the mean, min, max and standard deviation of the LLM and Overall rates over the completed runs, the Programmatic rate once, cost by role, and each Human finding's Catch frequency. |
+| `runs/<run-id>/`        | Each run as a `run-all` folder, with its `automated-review.json` and, if its review passed, its reports.                                                                                 |
+
+**Catch frequency** is the number of completed runs in which a Human finding
+was caught (by either source, and separately by the LLM), for example `3/5`. A
+Global finding counts once per run, caught if it was caught on any page.
+
 ## Generated files
 
 A `run` writes to `.model-evaluation/runs/<run-id>/`. A `run-all` writes one
@@ -442,3 +496,4 @@ findings won't match the CSV the main tool produces.
 | `report`                        | After a `run` with `--live`, once the reviewer fills in `review.csv`           | Checks the review and writes `report.html` for that page                                                                | `--run-dir`, `--reviewer`                                             |                                                        |
 | `report-all`                    | After a `run-all` with `--live`, once the reviewer fills in every `review.csv` | Checks every review and writes one report per page plus a combined one                                                  | `--run-dir`, `--reviewer`                                             |                                                        |
 | `review-report-auto`            | After a `run` or `run-all` with `--live`, instead of reviewing by hand         | Has the matcher model fill every `review.csv`, then does what `report` or `report-all` does                             | `--run-dir`, `--matcher-model`, `--max-cost-usd`                      | `--approve-live`                                       |
+| `auto`                          | Each time you want N runs of one model, instead of steps 2 to 5 by hand         | Builds or reuses the mapping, runs `run-all --live` and `review-report-auto` N times, and writes the series report       | `-n`, `--matcher-model`, `--max-cost-usd`, one of `--snapshots` or `--capture` | `--model`, `--mapper-model`, `--output-dir`, `--human-finding-mapping`, `--approve-live`, `--human-audit` |
