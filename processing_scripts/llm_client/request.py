@@ -204,17 +204,27 @@ class LLMRequestClient:
                 options["max_retries"] = max_retries
             self._client = anthropic.Anthropic(**options)
 
-    def call(self, prompt: str) -> dict[str, Any]:
-        """Send one prompt and return a provider-neutral result."""
+    def call(
+        self, prompt: str, *, json_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Send one prompt and return a provider-neutral result.
+
+        With ``json_schema``, the provider is asked for a response that
+        matches that JSON schema (Anthropic and OpenAI structured outputs).
+        The response is still returned as text; parsing is the caller's job.
+        Without it, the request is unchanged.
+        """
         start = time.monotonic()
 
         try:
             if self._is_openai:
-                result = self._call_openai(prompt, start)
+                result = self._call_openai(prompt, start, json_schema)
             elif self._is_gemini:
+                if json_schema is not None:
+                    raise ValueError("json_schema is not supported for Gemini")
                 result = self._call_gemini(prompt, start)
             else:
-                result = self._call_anthropic(prompt, start)
+                result = self._call_anthropic(prompt, start, json_schema)
             result["request"] = resolved_request_metadata(self.request_config)
             return result
         except Exception as exc:  # Report provider failures as evidence.
@@ -263,7 +273,9 @@ class LLMRequestClient:
             return {"name": "google", "endpoint": "models.generate_content"}
         return {"name": "anthropic", "endpoint": "messages"}
 
-    def _call_anthropic(self, prompt: str, start: float) -> dict[str, Any]:
+    def _call_anthropic(
+        self, prompt: str, start: float, json_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Send one prompt through Anthropic Messages."""
         request_kwargs: dict[str, Any] = {
             "model": self.model,
@@ -281,6 +293,11 @@ class LLMRequestClient:
                 request_kwargs["output_config"] = {
                     "effort": self.request_config.reasoning_effort,
                 }
+        if json_schema is not None:
+            request_kwargs.setdefault("output_config", {})["format"] = {
+                "type": "json_schema",
+                "schema": json_schema,
+            }
 
         if self.request_config.adaptive_thinking:
             message = self._stream_anthropic(request_kwargs)
@@ -365,7 +382,9 @@ class LLMRequestClient:
         message.usage = SimpleNamespace(**usage)
         return message
 
-    def _call_openai(self, prompt: str, start: float) -> dict[str, Any]:
+    def _call_openai(
+        self, prompt: str, start: float, json_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Send one prompt through OpenAI Chat Completions."""
         request_kwargs: dict[str, Any] = {
             "model": self.model,
@@ -378,6 +397,11 @@ class LLMRequestClient:
             request_kwargs["reasoning_effort"] = self.request_config.reasoning_effort
         if self.request_config.temperature is not None:
             request_kwargs["temperature"] = self.request_config.temperature
+        if json_schema is not None:
+            request_kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "response", "schema": json_schema, "strict": True},
+            }
 
         response = self._client.chat.completions.create(**request_kwargs)
         prompt_details = getattr(response.usage, "prompt_tokens_details", None)
