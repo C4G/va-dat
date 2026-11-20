@@ -36,9 +36,13 @@ has the full command sequence to copy.
 3. **[Run the model](#3-run-the-model).** `run` (one page) or `run-all` (every
    page) sends the prompts to the model you choose.
 4. **[Review the LLM matches](#4-review-the-llm-matches).** You record which LLM
-   findings match each human finding.
+   findings match each human finding, or `review-report-auto` has a model do it
+   and then builds the report.
 5. **[Build the report](#5-build-the-report).** `report` or `report-all` checks
    your review and writes `report.html`.
+6. **[Run an Evaluation series](#6-run-an-evaluation-series).** `auto` does
+   steps 2 to 5 with the Automated reviewer, running the model N times, and
+   reports how much the rates vary between runs.
 
 `capture`, `human-finding-mapping-prepare`, `run`, and `run-all` each write to a
 new folder, so they never overwrite earlier work. `report` and `report-all`
@@ -194,7 +198,8 @@ uv run visionaid-evaluate human-finding-mapping-approve \
 
 It checks that every row is filled in and every reference is valid, and writes
 the mapping to `human-finding-mapping.json` in the review folder. Pass `--output`
-to save it somewhere else.
+to save it somewhere else. The mapping records the SHA-256 of each snapshot it
+was built from.
 
 The snapshots and the mapping are both tied to the exact audit file. If the
 spreadsheet changes at all, even by re-saving it, start again from `capture`.
@@ -202,6 +207,45 @@ spreadsheet changes at all, even by re-saving it, start again from `capture`.
 A run also stops with an error if it can't find an issue the mapping approved.
 That can happen after a new capture or a change to the programmatic checks. Make
 a new mapping when it does.
+
+### Let the Automated reviewer do it
+
+`human-finding-mapping-auto` does all of the above in one command. It prepares
+the review folder, has a model (the mapper) fill `classifications.csv` and
+`programmatic-review.csv`, and then approves them exactly as
+`human-finding-mapping-approve` would:
+
+```bash
+uv run visionaid-evaluate human-finding-mapping-auto \
+  --human-audit './Pristine Accessibility Defect Report.xlsx' \
+  --snapshots .model-evaluation/pristine-snapshots/snapshots.json \
+  --output-dir .model-evaluation/pristine-mapping-review \
+  --mapper-model gpt-6.1-sol \
+  --max-cost-usd 2
+```
+
+It sends one request per page, with that page's human findings and its
+`programmatic-findings.csv` rows, using the model's preset and the instructions
+in `prompts/mapper.txt`. Before sending anything it shows the model, the page count
+and the cost limit and asks you to type `yes`; `--approve-live` skips the
+question. It needs the model's API key (`OPENAI_API_KEY` or
+`ANTHROPIC_API_KEY`). The mapping's errors move every later run's denominators,
+so use a strong model here.
+
+It checks each answer before writing anything: every human finding decided
+with both reasons, references that exist on that page and are used for only one
+human finding, at least one reference for `programmatic`, and none for
+`unavailable_evidence` or `ambiguous`. A `Global` finding is classified on the
+first page it appears on; later pages are told that classification and only
+match their checks to it, and an answer that changes it is refused. An answer that
+fails gets one retry with the problem explained. If the retry also fails, the
+command stops with exit code 1 and leaves both CSVs unfilled, so you can finish
+them by hand and run `human-finding-mapping-approve`.
+
+The mapping records the reviewer as `<model>/<effort>/mapper`, for example
+`gpt-6.1-sol/medium/mapper`. The command prints the mapper's estimated cost
+and saves it, with the token usage, in `automated-review.json` in the review
+folder. `--output` works as it does for `human-finding-mapping-approve`.
 
 ## 3. Run the model
 
@@ -288,16 +332,37 @@ Each ID can be used for only one human finding per page.
 For `run-all`, review every page under `pages/`. Global findings
 appear on every page, so review them on each.
 
-To have an agent do the review, give it the run folder and this prompt:
+### Let the Automated reviewer do it
 
-```text
-Review LLM matches in this run, fill its LLM decision columns in review.csv, and generate the report with attribution describing your review. For a full evaluation, review every page before using report-all. Keep approved classification and Programmatic fields unchanged.
-Count a match when a finding identifies the same underlying accessibility problem in the same element or relevant section, even if its wording, certainty, examples, or recommended fix differ from the human audit.
-Treat examples in a human finding as illustrations unless they clearly describe separate defects. A different remediation recommendation does not invalidate detection.
-Conditional or tentative findings can count when they identify the reported defect and the human audit supplies supporting context. Use the saved HTML to confirm the location.
-Allow multiple findings from one source on one page to cover a human finding together. Reject matches that merely share a WCAG criterion, concern another element, or leave a distinct part undetected.
-Inspect every row. Leave the LLM ID blank for a miss and record qualifications or partial evidence in review_notes.
+`review-report-auto` has a model (the matcher) fill the three columns on every
+page, then writes the reports exactly as `report` or `report-all` would. It
+works on a `run` folder or a `run-all` folder:
+
+```bash
+uv run visionaid-evaluate review-report-auto \
+  --run-dir '.model-evaluation/full-runs/<run-id>' \
+  --matcher-model gpt-6-luna \
+  --max-cost-usd 1
 ```
+
+It sends one request per page, with that page's `review.csv` rows, its LLM
+findings, and the page structure the model under test was given (headings,
+links, images and form fields from `artifacts/payloads/`), using the model's preset and the instructions in `prompts/matcher.txt`.
+Before sending anything it shows the model, the page count and the cost limit
+and asks you to type `yes`; `--approve-live` skips the question. It needs the
+model's API key (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`).
+
+It checks each answer the way `report` checks a person's review: every row
+decided, IDs that exist on that page, no ID used for two human findings on one
+page, and a reason for every match. An answer that fails gets one retry with
+the problem explained. If the retry also fails, the command stops with exit
+code 1 and writes no `review.csv` and no report, so the run stays as it was.
+It never changes the classification or programmatic columns.
+
+The reports name the reviewer as `<model>/<effort>/matcher`, for example
+`gpt-6-luna/medium/matcher`. The command prints the matcher's estimated
+cost and saves it, with the token usage, in `automated-review.json` in the run
+folder.
 
 ## 5. Build the report
 
@@ -341,6 +406,60 @@ Overall 8/10.
 In the combined report each Global finding counts once, and it's caught if a
 source catches it on any one page.
 
+## 6. Run an Evaluation series
+
+One run gives one sample of a model's rates. `auto` runs the same model N times
+on the same snapshots and mapping, and reports the average and the spread:
+
+```bash
+uv run visionaid-evaluate auto -n 5 \
+  --snapshots '.model-evaluation/pristine-snapshots/snapshots.json' \
+  --model claude-haiku-5-5 \
+  --mapper-model gpt-6.1-sol --matcher-model gpt-6-luna \
+  --max-cost-usd 10
+```
+
+It does this:
+
+1. **Snapshots.** Give exactly one of `--snapshots PATH` (reuse saved pages) or
+   `--capture --output-dir DIR` (run `capture` into a new folder first). Series
+   you want to compare should reuse the same snapshots.
+2. **Mapping.** `--human-finding-mapping PATH` uses that mapping. Otherwise
+   `auto` looks for `human-finding-mapping/human-finding-mapping.json` in the
+   snapshots folder and reuses it. If there is none, it builds one there with
+   the mapper, as `human-finding-mapping-auto` would, and later series on those
+   snapshots reuse it. `--mapper-model` is used only when the mapping is
+   built. If an earlier build failed,
+   remove that `human-finding-mapping/` folder before trying again. A reused
+   mapping must have been built from the same snapshots: `auto` refuses one
+   whose recorded snapshot checksums differ, and warns if it records none
+   (mappings approved before checksums were recorded).
+3. **Approval.** Before spending anything it lists the mapper (only if it will
+   build the mapping), the model under test, the matcher, N, the page count and
+   the cost limit, and asks you to type `yes` once; `--approve-live` skips the
+   question. It needs the API key of every provider involved.
+4. **Runs.** N times: `run-all --live`, then `review-report-auto`. A run that
+   doesn't finish, whose review fails, or that hits any other error is recorded
+   as incomplete with the reason, and the series moves on to the next run.
+5. **Report.** It writes the series report, even if the series stopped early,
+   and prints how many of the N runs completed. The exit code is 0 only if all N completed.
+
+`--max-cost-usd` covers every request of every role: mapper, model under test
+and matcher. Each step gets what's left of it, and once it's used up the series
+stops.
+
+A series writes to `.model-evaluation/series/<series-id>/`:
+
+| File                    | Contents                                                                                                                                                                                  |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `series.json`           | The model under test, the reviewers, N, how many runs completed, each run's status and rates (or why it's incomplete), cost and tokens by role, and the snapshots and mapping paths. Saved after every run. |
+| `report.html`           | "k of N runs completed", the mean, min, max and standard deviation of the LLM and Overall rates over the completed runs, the Programmatic rate once, cost by role, and each Human finding's Catch frequency. |
+| `runs/<run-id>/`        | Each run as a `run-all` folder, with its `automated-review.json` and, if its review passed, its reports.                                                                                 |
+
+**Catch frequency** is the number of completed runs in which a Human finding
+was caught (by either source, and separately by the LLM), for example `3/5`. A
+Global finding counts once per run, caught if it was caught on any page.
+
 ## Generated files
 
 A `run` writes to `.model-evaluation/runs/<run-id>/`. A `run-all` writes one
@@ -357,6 +476,7 @@ Each of these folders contains:
 | `artifacts/normalized-programmatic-findings.json` | Programmatic check issues with their IDs.                                             |
 | `artifacts/prompts/*.json`                        | The exact prompts sent to the model.                                                  |
 | `artifacts/raw-llm-responses.json`                | Model replies and token usage.                                                        |
+| `automated-review.json`                           | After `review-report-auto` on a `run`: the matcher, its usage and estimated cost.     |
 
 A `run-all` also writes two files to `.model-evaluation/full-runs/<run-id>/`:
 
@@ -364,9 +484,28 @@ A `run-all` also writes two files to `.model-evaluation/full-runs/<run-id>/`:
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `full.json`   | The model and its request settings, the cost limit, total cost and tokens across all pages, whether the run finished, and each page's URL and folder. |
 | `report.html` | One report for the whole site, with rates pooled across pages and each Global finding counted once.                                                   |
+| `automated-review.json` | After `review-report-auto`: the matcher, whether its review finished, its token usage and estimated cost.                                   |
 
 The evaluator skips va-dat's false-positive filter and LLM deduplication, so its
 findings won't match the CSV the main tool produces.
+
+### Default reviewer models
+
+`--mapper-model` defaults to `gpt-6.1-sol` and `--matcher-model` to
+`gpt-6-luna`, both at medium effort. They were chosen on 2026-11-20 by
+comparing candidate reviewers with the approved Pristine mapping and an
+independent review of a full Sonnet run:
+
+- **Matcher.** `gpt-6-luna` agreed on 60, 61 and 61 of 63
+  eligible catch decisions in three passes (at least 95% each), claimed no
+  extra catches, and cost about $0.02 to $0.05 per full review.
+  `claude-haiku-5-5` agreed on 54 of 63 and was not adopted.
+- **Mapper.** `gpt-6.1-sol` agreed with 79 of 86 classifications, left no
+  checker-covered row empty, and kept every programmatic responsibility but
+  one, a partial heading match it gave to the LLM instead. One mapping cost
+  about $0.46.
+
+Check the mapping differences once when you build a mapping for a new audit.
 
 ## Command Overview
 
@@ -375,7 +514,10 @@ findings won't match the CSV the main tool produces.
 | `capture`                       | Once per audit                                                                 | Downloads the HTML for every URL in the audit and writes `snapshots.json`                                               | `--output-dir`                                                        | `--human-audit`                                        |
 | `human-finding-mapping-prepare` | Once per audit, after `capture`                                                | Runs the programmatic checks on the snapshots and writes the three review CSVs                                          | `--snapshots`, `--output-dir`                                         | `--human-audit`                                        |
 | `human-finding-mapping-approve` | Once per audit, after the reviewer fills in the CSVs                           | Checks the CSVs for completion and saves the mapping file                                                               | `--snapshots`, `--review-dir`, `--reviewer`                           | `--output`, `--human-audit`                            |
+| `human-finding-mapping-auto`    | Once per audit, after `capture`, instead of filling the CSVs by hand           | Does what `human-finding-mapping-prepare` and `-approve` do, with the mapper model filling the CSVs                  | `--snapshots`, `--output-dir`, `--max-cost-usd`   | `--mapper-model`, `--output`, `--approve-live`, `--human-audit`          |
 | `run`                           | Each time you test a model on one page                                         | Runs the programmatic checks and saves the prompts for one saved HTML file. With `--live`, sends the prompts to the LLM | `--html`, `--source-url`, `--max-cost-usd`, `--human-finding-mapping` | `--model`, `--live`, `--approve-live`, `--human-audit` |
 | `run-all`                       | Each time you test a model on the whole audit                                  | Does what `run` does for every snapshot                                                                                 | `--snapshots`, `--max-cost-usd`, `--human-finding-mapping`            | `--model`, `--live`, `--approve-live`, `--human-audit` |
 | `report`                        | After a `run` with `--live`, once the reviewer fills in `review.csv`           | Checks the review and writes `report.html` for that page                                                                | `--run-dir`, `--reviewer`                                             |                                                        |
 | `report-all`                    | After a `run-all` with `--live`, once the reviewer fills in every `review.csv` | Checks every review and writes one report per page plus a combined one                                                  | `--run-dir`, `--reviewer`                                             |                                                        |
+| `review-report-auto`            | After a `run` or `run-all` with `--live`, instead of reviewing by hand         | Has the matcher model fill every `review.csv`, then does what `report` or `report-all` does                             | `--run-dir`, `--max-cost-usd`                      | `--matcher-model`, `--approve-live`                                       |
+| `auto`                          | Each time you want N runs of one model, instead of steps 2 to 5 by hand         | Builds or reuses the mapping, runs `run-all --live` and `review-report-auto` N times, and writes the series report       | `-n`, `--max-cost-usd`, one of `--snapshots` or `--capture` | `--model`, `--mapper-model`, `--matcher-model`, `--output-dir`, `--human-finding-mapping`, `--approve-live`, `--human-audit` |

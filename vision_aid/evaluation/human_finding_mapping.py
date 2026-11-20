@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
-from vision_aid.evaluation.inputs.human_audit import ELIGIBILITY_VALUES
+from vision_aid.evaluation.inputs.human_audit import ELIGIBILITY_VALUES, NOT_TESTABLE
 
 HUMAN_FINDING_MAPPING_ARTIFACT = "artifacts/human-finding-mapping.json"
 LOCKED_COLUMNS = (
@@ -57,7 +58,7 @@ def validate_human_finding_mapping(mapping: dict[str, Any], audit_sha256: str) -
             classification = decision["classification"]
             if classification == "programmatic" and not expectations:
                 raise ValueError(f"{prefix}, {url}: Programmatic responsibility requires expected coverage")
-            if classification in {"unavailable_evidence", "ambiguous"} and expectations:
+            if classification in NOT_TESTABLE and expectations:
                 raise ValueError(f"{prefix}, {url}: not testable; cannot claim Programmatic coverage")
             for expectation in expectations:
                 if not isinstance(expectation, dict) or not _text(expectation.get("rule")):
@@ -83,6 +84,33 @@ def load_human_finding_mapping(path: Path, audit_sha256: str) -> dict[str, Any]:
     mapping = json.loads(path.read_text(encoding="utf-8"))
     validate_human_finding_mapping(mapping, audit_sha256)
     return mapping
+
+
+def snapshot_sha256(html: Path) -> str:
+    """Return the SHA-256 of a saved page, as mappings and runs record it."""
+    return hashlib.sha256(html.read_bytes()).hexdigest()
+
+
+def built_from_snapshots(mapping: dict[str, Any], snapshots: dict[str, Path]) -> bool:
+    """Check that `mapping` was approved on these saved pages.
+
+    `snapshots` maps each source URL to its saved HTML. Returns False when the
+    mapping records no snapshot checksums (approved before they were recorded),
+    so there is nothing to compare. Raises ValueError on any difference.
+    """
+    recorded = mapping.get("snapshot_sha256_by_page")
+    if not recorded:
+        return False
+    actual = {url: snapshot_sha256(html) for url, html in snapshots.items()}
+    if recorded != actual:
+        changed = sorted(
+            url for url in set(recorded) | set(actual) if recorded.get(url) != actual.get(url)
+        )
+        raise ValueError(
+            "Human finding mapping was approved on different snapshots; pages that "
+            f"differ: {', '.join(changed)}. Build a new mapping for these snapshots."
+        )
+    return True
 
 
 def _contains(actual: Any, expected: Any) -> bool:

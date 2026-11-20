@@ -23,7 +23,12 @@ from vision_aid.evaluation.execution.llm_audit import (
     execute,
     positive_cost,
 )
-from vision_aid.evaluation.execution.pricing import PriceSchedule
+from vision_aid.evaluation.automated_review import (
+    AutomatedReviewer,
+    ReviewFailure,
+    reviewer_attribution,
+)
+from vision_aid.evaluation.execution.pricing import DEFAULT_SCHEDULE, PriceSchedule, format_usd
 from vision_aid.evaluation.full import (
     capture_snapshots,
     execute_full_evaluation,
@@ -31,16 +36,34 @@ from vision_aid.evaluation.full import (
     prepare_full_evaluation,
     report_full_evaluation,
 )
-from vision_aid.evaluation.human_finding_mapping import load_human_finding_mapping
+from vision_aid.evaluation.human_finding_mapping import (
+    built_from_snapshots,
+    load_human_finding_mapping,
+)
 from vision_aid.evaluation.human_finding_mapping_review import (
     approve_human_finding_mapping_review,
     prepare_human_finding_mapping_review,
 )
 from vision_aid.evaluation.inputs.human_audit import import_page_human_findings
+from vision_aid.evaluation.mapper import PROMPT as MAPPER_PROMPT
+from vision_aid.evaluation.mapper import build_human_finding_mapping
+from vision_aid.evaluation.matcher import PROMPT as MATCHER_PROMPT
+from vision_aid.evaluation.matcher import review_and_report, review_pages
 from vision_aid.evaluation.page import prepare_page, report_page
+from vision_aid.evaluation.series import (
+    ROLE_LABELS,
+    ROLES,
+    SeriesPlan,
+    run_series,
+    saved_mapping,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_HUMAN_AUDIT = PROJECT_ROOT / "Pristine Accessibility Defect Report.xlsx"
+# Chosen by calibration against the approved Pristine mapping and the
+# Sol-reviewed run 20261029T234356-9fba004c (2026-11-20).
+DEFAULT_MAPPER_MODEL = "gpt-6.1-sol"
+DEFAULT_MATCHER_MODEL = "gpt-6-luna"
 
 
 def _add_model_options(parser: argparse.ArgumentParser) -> None:
@@ -93,6 +116,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="defaults to REVIEW_DIR/human-finding-mapping.json",
     )
 
+    auto_mapping = commands.add_parser(
+        "human-finding-mapping-auto",
+        help="prepare the mapping review, fill it with the Automated reviewer, and approve it",
+    )
+    auto_mapping.add_argument("--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT)
+    auto_mapping.add_argument("--snapshots", type=Path, required=True)
+    auto_mapping.add_argument("--output-dir", type=Path, required=True)
+    auto_mapping.add_argument(
+        "--mapper-model", choices=MODEL_PRESETS, default=DEFAULT_MAPPER_MODEL,
+        help="model that classifies the Human findings and matches the checks "
+        f"(default: {DEFAULT_MAPPER_MODEL})",
+    )
+    auto_mapping.add_argument(
+        "--max-cost-usd", required=True,
+        help="spending limit for the mapper, checked between requests",
+    )
+    auto_mapping.add_argument(
+        "--output", type=Path,
+        help="defaults to OUTPUT_DIR/human-finding-mapping.json",
+    )
+    auto_mapping.add_argument(
+        "--approve-live", action="store_true", help="skip the confirmation prompt",
+    )
+
     run = commands.add_parser("run", help="preview or run one page")
     _add_model_options(run)
     run.add_argument("--html", type=Path, required=True, help="saved page HTML")
@@ -111,6 +158,60 @@ def build_parser() -> argparse.ArgumentParser:
         report = commands.add_parser(name, help=help_text)
         report.add_argument("--run-dir", type=Path, required=True)
         report.add_argument("--reviewer", required=True, help="who did the review")
+
+    auto_report = commands.add_parser(
+        "review-report-auto",
+        help="fill every review.csv with the Automated reviewer, then write the reports",
+    )
+    auto_report.add_argument("--run-dir", type=Path, required=True)
+    auto_report.add_argument(
+        "--matcher-model", choices=MODEL_PRESETS, default=DEFAULT_MATCHER_MODEL,
+        help=f"model that decides the LLM matches (default: {DEFAULT_MATCHER_MODEL})",
+    )
+    auto_report.add_argument(
+        "--max-cost-usd", required=True,
+        help="spending limit for the matcher, checked between requests",
+    )
+    auto_report.add_argument(
+        "--approve-live", action="store_true", help="skip the confirmation prompt",
+    )
+
+    series = commands.add_parser(
+        "auto",
+        help="run an Evaluation series: build or reuse the mapping, then N live "
+        "runs, each reviewed and reported by the Automated reviewer",
+    )
+    series.add_argument("-n", "--runs", type=int, required=True, help="number of runs")
+    series.add_argument(
+        "--model", choices=MODEL_PRESETS, default=DEFAULT_MODEL,
+        help=f"model under test (default: {DEFAULT_MODEL})",
+    )
+    series.add_argument(
+        "--mapper-model", choices=MODEL_PRESETS, default=DEFAULT_MAPPER_MODEL,
+        help=f"model that builds the mapping when none is saved (default: {DEFAULT_MAPPER_MODEL})",
+    )
+    series.add_argument(
+        "--matcher-model", choices=MODEL_PRESETS, default=DEFAULT_MATCHER_MODEL,
+        help=f"model that decides the LLM matches (default: {DEFAULT_MATCHER_MODEL})",
+    )
+    series.add_argument("--human-audit", type=Path, default=DEFAULT_HUMAN_AUDIT)
+    source = series.add_mutually_exclusive_group(required=True)
+    source.add_argument("--snapshots", type=Path, help="snapshots.json to reuse")
+    source.add_argument(
+        "--capture", action="store_true", help="capture new snapshots into --output-dir",
+    )
+    series.add_argument("--output-dir", type=Path, help="new snapshots folder for --capture")
+    series.add_argument(
+        "--human-finding-mapping", type=Path,
+        help="approved mapping to use instead of the one saved with the snapshots",
+    )
+    series.add_argument(
+        "--max-cost-usd", required=True,
+        help="spending limit for every request of every role, checked between requests",
+    )
+    series.add_argument(
+        "--approve-live", action="store_true", help="skip the confirmation prompt",
+    )
     return parser
 
 
@@ -127,25 +228,32 @@ def _new_run_directory(kind: str = "runs") -> Path:
     return run
 
 
-def _approved_api_key(args: argparse.Namespace, configuration: dict[str, Any]) -> str | None:
-    """Return the provider's API key, or None if the user declines to spend."""
+def _approved_api_keys(
+    args: argparse.Namespace, configurations: Sequence[dict[str, Any]],
+) -> dict[str, str] | None:
+    """Return a key for each provider the configurations need, after one approval.
+
+    Returns None if the user declines to spend.
+    """
     load_dotenv(PROJECT_ROOT / ".env")
-    key_name = (
-        "OPENAI_API_KEY" if configuration["provider"] == "openai" else "ANTHROPIC_API_KEY"
-    )
-    api_key = os.getenv(key_name)
-    if not api_key:
-        raise ValueError(f"Live execution requires {key_name}")
+    keys = {}
+    for configuration in configurations:
+        provider = configuration["provider"]
+        key_name = "OPENAI_API_KEY" if provider == "openai" else "ANTHROPIC_API_KEY"
+        api_key = os.getenv(key_name)
+        if not api_key:
+            raise ValueError(f"Live execution requires {key_name}")
+        keys[provider] = api_key
     if not args.approve_live and (
         not sys.stdin.isatty()
         or input("Type 'yes' to approve paid execution: ") != "yes"
     ):
         print("Live execution declined; no paid requests made.")
         return None
-    return api_key
+    return keys
 
 
-def _display_model(
+def _print_model_settings(
     request_config: LLMRequestConfig,
     configuration: dict[str, Any],
     schedule: PriceSchedule,
@@ -195,7 +303,7 @@ def _run(args: argparse.Namespace) -> int:
         run, args.html, args.source_url, human_audit, request_config, limit, mapping
     )
     print(f"Evaluation run: {run}")
-    _display_model(
+    _print_model_settings(
         request_config, configuration, PriceSchedule.load(run / "artifacts/pricing.json"),
         len(manifest["prompts"]), limit,
     )
@@ -204,9 +312,10 @@ def _run(args: argparse.Namespace) -> int:
     if not args.live:
         print("Preview complete; no paid requests made.")
         return 0
-    api_key = _approved_api_key(args, configuration)
-    if api_key is None:
+    api_keys = _approved_api_keys(args, [configuration])
+    if api_keys is None:
         return 0
+    api_key = api_keys[configuration["provider"]]
     complete = execute(run, manifest, api_key, request_config)
     print(f"Run {'complete' if complete else 'incomplete'}: {run}")
     return 0 if complete else 1
@@ -230,19 +339,160 @@ def _run_all(args: argparse.Namespace) -> int:
         print(f"Page: {page['source_url']}; Evaluation run: {child}")
         print(f"Review CSV: {child / 'review.csv'}")
     first_child = run / manifest["pages"][0]["run_dir"]
-    _display_model(
+    _print_model_settings(
         request_config, manifest["configuration"],
         PriceSchedule.load(first_child / "artifacts/pricing.json"), prompt_count, limit,
     )
     if not args.live:
         print("Preview complete; no paid requests made.")
         return 0
-    api_key = _approved_api_key(args, manifest["configuration"])
-    if api_key is None:
+    api_keys = _approved_api_keys(args, [manifest["configuration"]])
+    if api_keys is None:
         return 0
+    api_key = api_keys[manifest["configuration"]["provider"]]
     complete = execute_full_evaluation(run, manifest, api_key, request_config)
     print(f"Full evaluation {'complete' if complete else 'incomplete'}: {run}")
     return 0 if complete else 1
+
+
+def _human_finding_mapping_auto(args: argparse.Namespace) -> int:
+    """Have the mapper fill the mapping review CSVs, then approve the mapping."""
+    limit = positive_cost(args.max_cost_usd)
+    if args.output_dir.exists():
+        raise FileExistsError(f"Review directory already exists: {args.output_dir}")
+    _, snapshots = load_full_inputs(args.human_audit, args.snapshots)
+    request_config = MODEL_PRESETS[args.mapper_model]
+    configuration = evaluation_configuration(request_config)
+    schedule = PriceSchedule.load(DEFAULT_SCHEDULE)
+    print(f"Mapper: {reviewer_attribution(args.mapper_model, MAPPER_PROMPT)}; "
+          f"pages: {len(snapshots)}; requests: {len(snapshots)} "
+          "(plus at most one retry each)")
+    _print_model_settings(request_config, configuration, schedule, len(snapshots), limit)
+    api_keys = _approved_api_keys(args, [configuration])
+    if api_keys is None:
+        return 0
+    api_key = api_keys[configuration["provider"]]
+    reviewer = AutomatedReviewer(
+        "mapper", args.mapper_model, MAPPER_PROMPT, api_key, schedule, limit,
+    )
+    try:
+        mapping = build_human_finding_mapping(
+            args.human_audit, args.snapshots, args.output_dir, reviewer, args.output,
+        )
+    except ReviewFailure as failure:
+        print(f"Automated review failed: {failure}")
+        print(f"Mapper estimated cost: ${format_usd(reviewer.estimated_cost)}; "
+              f"review CSVs left unfilled in {args.output_dir.resolve()}")
+        return 1
+    print(f"Mapper estimated cost: ${format_usd(reviewer.estimated_cost)}")
+    print(f"Approved Human finding mapping: {mapping.resolve()}")
+    return 0
+
+
+def _review_report_auto(args: argparse.Namespace) -> int:
+    """Have the matcher fill every review.csv in a run, then write the report(s)."""
+    run = args.run_dir.resolve()
+    limit = positive_cost(args.max_cost_usd)
+    pages = review_pages(run)
+    request_config = MODEL_PRESETS[args.matcher_model]
+    configuration = evaluation_configuration(request_config)
+    schedule = PriceSchedule.load(pages[0] / "artifacts/pricing.json")
+    print(f"Run: {run}")
+    print(f"Matcher: {reviewer_attribution(args.matcher_model, MATCHER_PROMPT)}; "
+          f"pages: {len(pages)}; requests: {len(pages)} (plus at most one retry each)")
+    _print_model_settings(request_config, configuration, schedule, len(pages), limit)
+    api_keys = _approved_api_keys(args, [configuration])
+    if api_keys is None:
+        return 0
+    api_key = api_keys[configuration["provider"]]
+    reviewer = AutomatedReviewer(
+        "matcher", args.matcher_model, MATCHER_PROMPT, api_key, schedule, limit,
+    )
+    try:
+        report = review_and_report(run, reviewer)
+    except ReviewFailure as failure:
+        print(f"Automated review failed: {failure}")
+        print(f"Matcher estimated cost: ${format_usd(reviewer.estimated_cost)}; "
+              "no review.csv or report written.")
+        return 1
+    print(f"Matcher estimated cost: ${format_usd(reviewer.estimated_cost)}")
+    print(f"HTML report: {report}")
+    return 0
+
+
+def _auto(args: argparse.Namespace) -> int:
+    """Run an Evaluation series after one approval covering every role."""
+    limit = positive_cost(args.max_cost_usd)
+    if args.runs < 1:
+        raise ValueError("-n must be at least 1")
+    if args.capture != (args.output_dir is not None):
+        raise ValueError("--output-dir is required with --capture and only with --capture")
+    # Settle every argument problem before capturing pages or asking to spend.
+    if args.human_finding_mapping is not None and not args.human_finding_mapping.is_file():
+        raise ValueError(f"Human finding mapping not found: {args.human_finding_mapping}")
+    if args.capture:
+        snapshots = capture_snapshots(args.human_audit, args.output_dir)
+        print(f"Snapshot mapping: {snapshots}")
+    else:
+        snapshots = args.snapshots
+    audits, pages = load_full_inputs(args.human_audit, snapshots)
+    mapping = args.human_finding_mapping or saved_mapping(snapshots)
+    mapper_model = None
+    if mapping.is_file():
+        approved = load_human_finding_mapping(
+            mapping, next(iter(audits.values())).human_audit_sha256,
+        )
+        if not built_from_snapshots(approved, pages):
+            print(f"Warning: {mapping} records no snapshot checksums, so it can't be "
+                  "checked against these snapshots; make sure it was built from them.")
+    else:
+        if mapping.parent.exists():
+            raise ValueError(
+                f"{mapping.parent} exists without an approved mapping (an earlier build "
+                "failed?); remove it to build the mapping again"
+            )
+        mapper_model = args.mapper_model
+    plan = SeriesPlan(
+        human_audit=args.human_audit, snapshots=snapshots, mapping=mapping,
+        model=args.model, matcher_model=args.matcher_model, mapper_model=mapper_model,
+        runs=args.runs, limit=limit,
+    )
+    schedule = PriceSchedule.load(DEFAULT_SCHEDULE)
+    if mapper_model:
+        print(f"Human finding mapping: will be built and saved to {mapping}")
+    else:
+        print(f"Human finding mapping: {mapping}")
+    names = {
+        "mapper": mapper_model and reviewer_attribution(mapper_model, MAPPER_PROMPT),
+        "model": args.model,
+        "matcher": reviewer_attribution(args.matcher_model, MATCHER_PROMPT),
+    }
+    for role in ROLES:
+        if names[role]:
+            print(f"{ROLE_LABELS[role]}: {names[role]}")
+    print(f"Runs: {args.runs}; pages per run: {len(pages)}")
+    print(f"Pricing: {schedule.version} ({schedule.identity})")
+    print(f"Cost guardrail: ${limit} across every role; checked between requests")
+    models = [model for model in (mapper_model, args.model, args.matcher_model) if model]
+    api_keys = _approved_api_keys(
+        args, [evaluation_configuration(MODEL_PRESETS[model]) for model in models],
+    )
+    if api_keys is None:
+        return 0
+    directory = _new_run_directory("series")
+    print(f"Evaluation series: {directory}")
+    record = run_series(directory, plan, api_keys, schedule)
+    for run in record["runs"]:
+        print(f"Run {run['run_id']}: {run['status']}"
+              + (f" ({run['reason']})" if run["reason"] else ""))
+    if record["stopped_reason"]:
+        print(f"Series stopped: {record['stopped_reason']}")
+    for role in ROLES:
+        cost = record["cost_by_role"][role]["estimated_cost_usd"]
+        print(f"{ROLE_LABELS[role]} estimated cost: ${cost}")
+    print(f"{record['completed']} of {record['runs_requested']} runs completed; "
+          f"series report: {directory / 'report.html'}")
+    return 0 if record["completed"] == record["runs_requested"] else 1
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -250,7 +500,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        if getattr(args, "approve_live", False) and not args.live:
+        # Only run and run-all have --live; the auto commands are always live,
+        # so a missing --live counts as set and --approve-live is allowed there.
+        if getattr(args, "approve_live", False) and not getattr(args, "live", True):
             raise ValueError("--approve-live requires --live")
         if args.command == "capture":
             print(f"Snapshot mapping: {capture_snapshots(args.human_audit, args.output_dir)}")
@@ -262,10 +514,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.review_dir, args.human_audit, args.snapshots, args.reviewer, args.output,
             )
             print(f"Approved Human finding mapping: {mapping.resolve()}")
+        elif args.command == "human-finding-mapping-auto":
+            return _human_finding_mapping_auto(args)
         elif args.command == "run":
             return _run(args)
         elif args.command == "run-all":
             return _run_all(args)
+        elif args.command == "auto":
+            return _auto(args)
+        elif args.command == "review-report-auto":
+            return _review_report_auto(args)
         elif args.command == "report":
             run = args.run_dir.resolve()
             report_page(run, args.reviewer)

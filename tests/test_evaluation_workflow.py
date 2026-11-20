@@ -93,6 +93,86 @@ def fake_model(monkeypatch, completion_tokens=0):
     return requests
 
 
+def reviewer_payload(prompt):
+    """Return the JSON payload an Automated reviewer prompt carries."""
+    return json.JSONDecoder().raw_decode(prompt[prompt.index('{\n  "source_url"'):])[0]
+
+
+def fake_providers(monkeypatch, mapper=None, matcher=None):
+    """Stand in for every role on one fake OpenAI client and log each prompt.
+
+    Requests without a JSON schema are the model under test: each answers one
+    issue for 1,000 output tokens ($0.0005 on Luna). Reviewer requests are told
+    apart by their schema: mapper decisions carry a `classification`, matcher
+    decisions `llm_finding_ids`. They get `mapper(payload, number)` or
+    `matcher(payload, number)`, where `number` counts that role's requests
+    from 1, and each reports 10,000 input and 2,000 output tokens ($0.002).
+    """
+    monkeypatch.setenv("OPENAI_API_KEY", "fake")
+    log = {"audit": [], "mapper": [], "matcher": []}
+
+    def create(**kwargs):
+        """Return a Chat Completions-shaped response for whichever role asked."""
+        prompt = kwargs["messages"][0]["content"]
+        if "response_format" not in kwargs:
+            log["audit"].append(prompt)
+            content, usage = '{"issues": ["Fake issue"]}', (0, 1_000)
+        else:
+            schema = kwargs["response_format"]["json_schema"]["schema"]
+            fields = schema["properties"]["decisions"]["items"]["properties"]
+            role, answers = (
+                ("mapper", mapper) if "classification" in fields else ("matcher", matcher)
+            )
+            assert answers is not None, f"unexpected {role} request"
+            log[role].append(prompt)
+            content = json.dumps(answers(reviewer_payload(prompt), len(log[role])))
+            usage = (10_000, 2_000)
+        return SimpleNamespace(
+            id="fake", model=MODEL,
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content=content), finish_reason="stop",
+            )],
+            usage=SimpleNamespace(
+                prompt_tokens=usage[0], completion_tokens=usage[1],
+                total_tokens=sum(usage),
+                prompt_tokens_details=None, completion_tokens_details=None,
+            ),
+        )
+
+    monkeypatch.setattr("openai.OpenAI", lambda **_: SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+    return log
+
+
+def map_shared_defect(page, _number):
+    """Classify the Global finding as programmatic, matched to the page's first check."""
+    first_ref = page["programmatic_findings"][0]["finding_ref"]
+    decisions = []
+    for human in page["human_findings"]:
+        shared = human["human_audit"]["Issue Title"] == "Shared defect"
+        decisions.append({
+            "human_finding_id": human["human_finding_id"],
+            "classification": "programmatic" if shared else "llm_eligible",
+            "classification_reason": "Checker covers it" if shared else "Needs judgment",
+            "programmatic_finding_refs": [first_ref] if shared else [],
+            "programmatic_reason": "Same missing alt" if shared else "No checker covers it",
+        })
+    return {"decisions": decisions}
+
+
+def match_first_rows(page, matched_urls):
+    """Match the first Human finding on each page in `matched_urls` to its first LLM finding."""
+    matched = page["source_url"] in matched_urls
+    return {"decisions": [
+        {"human_finding_id": human["human_finding_id"],
+         "llm_finding_ids": [page["llm_findings"][0]["finding_id"]]
+         if matched and position == 0 else [],
+         "match_reason": "Same image problem" if matched and position == 0 else "",
+         "review_notes": ""}
+        for position, human in enumerate(page["human_findings"])
+    ]}
+
+
 def approve_mapping(workspace):
     """Prepare the mapping review, mark everything LLM eligible, and approve it."""
     review = workspace / "mapping-review"

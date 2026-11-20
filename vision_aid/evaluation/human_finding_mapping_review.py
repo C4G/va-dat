@@ -17,6 +17,7 @@ from vision_aid.evaluation.execution.normalization import (
 from vision_aid.evaluation.full import load_full_inputs
 from vision_aid.evaluation.human_finding_mapping import (
     resolved_decisions,
+    snapshot_sha256,
     validate_human_finding_mapping,
 )
 from vision_aid.evaluation.inputs.human_audit import ELIGIBILITY_VALUES, HEADERS
@@ -48,7 +49,7 @@ FINDING_COLUMNS = (
 )
 
 
-def _write_csv(
+def write_review_csv(
     path: Path, columns: tuple[str, ...], rows: list[dict[str, Any]]
 ) -> None:
     """Write a UTF-8 CSV that Excel can open with multiline evidence intact."""
@@ -117,6 +118,7 @@ def _review_sources(
                     finding["human_finding_id"] for finding in humans
                 ],
                 "findings": evidence,
+                "snapshot_sha256": snapshot_sha256(saved),
             }
         )
     humans = sorted(originals.values(), key=lambda finding: finding["source_row"])
@@ -144,12 +146,12 @@ def prepare_human_finding_mapping_review(human_audit: Path, snapshots: Path, out
         raise FileExistsError(f"Review directory already exists: {output}")
     evidence, catalog = _review_sources(human_audit, snapshots)
     output.mkdir(parents=True)
-    _write_csv(
+    write_review_csv(
         output / "classifications.csv", CLASSIFICATION_COLUMNS,
         [_human_columns(finding) for finding in evidence["human_findings"]],
     )
-    _write_csv(output / "programmatic-review.csv", MATCH_COLUMNS, _match_rows(evidence))
-    _write_csv(output / "programmatic-findings.csv", FINDING_COLUMNS, catalog)
+    write_review_csv(output / "programmatic-review.csv", MATCH_COLUMNS, _match_rows(evidence))
+    write_review_csv(output / "programmatic-findings.csv", FINDING_COLUMNS, catalog)
     (output / "README.md").write_text(
         "# Review the Human finding mapping\n\n"
         "1. In `classifications.csv`, fill `classification` and `classification_reason` "
@@ -287,6 +289,9 @@ def approve_human_finding_mapping_review(
         "schema_version": 1,
         "human_audit_sha256": evidence["human_audit_sha256"],
         "approved_by": reviewer.strip(),
+        "snapshot_sha256_by_page": {
+            page["source_url"]: page["snapshot_sha256"] for page in evidence["pages"]
+        },
         "decisions": list(decisions.values()),
     }
     validate_human_finding_mapping(mapping, evidence["human_audit_sha256"])

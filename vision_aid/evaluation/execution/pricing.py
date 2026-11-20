@@ -20,6 +20,11 @@ _RATE_KEYS = {
 }
 
 
+def format_usd(value: Decimal | str) -> str:
+    """Format a dollar amount as plain decimal text without trailing zeros."""
+    return format(Decimal(value).normalize(), "f")
+
+
 @dataclass(frozen=True)
 class PriceSchedule:
     """Model rates plus the SHA-256 of the file they came from."""
@@ -63,4 +68,4 @@ class PriceSchedule:
         cost = sum(
             tokens[key] * Decimal(rates[rate]) for key, rate in _RATE_KEYS.items()
         ) / MILLION
-        return format(cost.normalize(), "f")
+        return format_usd(cost)
