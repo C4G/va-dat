@@ -23,6 +23,11 @@ from vision_aid.evaluation.execution.llm_audit import (
     execute,
     positive_cost,
 )
+from vision_aid.evaluation.automated_review import (
+    AutomatedReviewer,
+    ReviewFailure,
+    reviewer_attribution,
+)
 from vision_aid.evaluation.execution.pricing import PriceSchedule
 from vision_aid.evaluation.full import (
     capture_snapshots,
@@ -37,6 +42,8 @@ from vision_aid.evaluation.human_finding_mapping_review import (
     prepare_human_finding_mapping_review,
 )
 from vision_aid.evaluation.inputs.human_audit import import_page_human_findings
+from vision_aid.evaluation.matcher import PROMPT as MATCHER_PROMPT
+from vision_aid.evaluation.matcher import review_and_report, review_pages
 from vision_aid.evaluation.page import prepare_page, report_page
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -111,6 +118,23 @@ def build_parser() -> argparse.ArgumentParser:
         report = commands.add_parser(name, help=help_text)
         report.add_argument("--run-dir", type=Path, required=True)
         report.add_argument("--reviewer", required=True, help="who did the review")
+
+    auto_report = commands.add_parser(
+        "review-report-auto",
+        help="fill every review.csv with the Automated reviewer, then write the reports",
+    )
+    auto_report.add_argument("--run-dir", type=Path, required=True)
+    auto_report.add_argument(
+        "--matcher-model", choices=MODEL_PRESETS, required=True,
+        help="model that decides the LLM matches",
+    )
+    auto_report.add_argument(
+        "--max-cost-usd", required=True,
+        help="spending limit for the matcher, checked between requests",
+    )
+    auto_report.add_argument(
+        "--approve-live", action="store_true", help="skip the confirmation prompt",
+    )
     return parser
 
 
@@ -245,12 +269,47 @@ def _run_all(args: argparse.Namespace) -> int:
     return 0 if complete else 1
 
 
+def _review_report_auto(args: argparse.Namespace) -> int:
+    """Have the matcher fill every review.csv in a run, then write the report(s)."""
+    run = args.run_dir.resolve()
+    limit = positive_cost(args.max_cost_usd)
+    pages = review_pages(run)
+    request_config = MODEL_PRESETS[args.matcher_model]
+    configuration = evaluation_configuration(request_config)
+    schedule = PriceSchedule.load(pages[0] / "artifacts/pricing.json")
+    print(f"Run: {run}")
+    print(f"Matcher: {reviewer_attribution(args.matcher_model, MATCHER_PROMPT)}; "
+          f"pages: {len(pages)}; requests: {len(pages)} (plus at most one retry each)")
+    _display_model(request_config, configuration, schedule, len(pages), limit)
+    api_key = _approved_api_key(args, configuration)
+    if api_key is None:
+        return 0
+    reviewer = AutomatedReviewer(
+        "matcher", args.matcher_model, MATCHER_PROMPT, api_key, schedule, limit,
+    )
+    try:
+        report = review_and_report(run, reviewer)
+    except ReviewFailure as failure:
+        reviewer.record(run, "failed", str(failure))
+        print(f"Automated review failed: {failure}")
+        print(f"Matcher estimated cost: ${reviewer.estimated_cost.normalize():f}; "
+              "no review.csv or report written.")
+        return 1
+    except Exception as error:
+        reviewer.record(run, "failed", str(error))
+        raise
+    reviewer.record(run, "complete")
+    print(f"Matcher estimated cost: ${reviewer.estimated_cost.normalize():f}")
+    print(f"HTML report: {report}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the requested command."""
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        if getattr(args, "approve_live", False) and not args.live:
+        if getattr(args, "approve_live", False) and not getattr(args, "live", True):
             raise ValueError("--approve-live requires --live")
         if args.command == "capture":
             print(f"Snapshot mapping: {capture_snapshots(args.human_audit, args.output_dir)}")
@@ -266,6 +325,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run(args)
         elif args.command == "run-all":
             return _run_all(args)
+        elif args.command == "review-report-auto":
+            return _review_report_auto(args)
         elif args.command == "report":
             run = args.run_dir.resolve()
             report_page(run, args.reviewer)
